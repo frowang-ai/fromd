@@ -1,9 +1,11 @@
-import { readFile, open, rename, unlink, mkdir, realpath, stat } from 'node:fs/promises'
+import { readFile, open, rename, unlink, realpath, stat } from 'node:fs/promises'
 import { dirname, basename, resolve, join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
+import { RecoveryDatabase } from './recoveryDatabase.js'
 
 const MAX_BYTES = 10 * 1024 * 1024
 const MAX_SESSION_BYTES = 100 * 1024 * 1024
+const UNTITLED = '未命名笔记'
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 const pathKey = path => process.platform === 'win32' ? path.toLowerCase() : path
 export async function canonicalPath(path) {
@@ -36,88 +38,142 @@ function decode(bytes) {
   catch { throw new Error('文件不是 UTF-8 编码。请先以 UTF-8 保存，再打开。') }
   if (text.includes('\0')) throw new Error('不能打开二进制文件。')
   const eol = text.includes('\r\n') ? '\r\n' : '\n'
-  return { text: text.replace(/\r\n?/g, '\n'), bom, eol }
+  return { markdown: text.replace(/\r\n?/g, '\n'), bom, eol }
+}
+export function suggestedFilename(title, extension = 'md') {
+  let name = title.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').trim()
+  name = name.replace(/\.(md|markdown|txt)$/i, '').slice(0, 120).replace(/[. ]+$/g, '')
+  if (!name) name = UNTITLED
+  if (/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name)) name = '_' + name
+  return `${name}.${extension}`
+}
+function viewState(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state) || Object.keys(state).some(key => !['mode', 'scrollTop', 'selection', 'sourceSelection'].includes(key))) throw new Error('阅读状态无效。')
+  if (!['rendered', 'source'].includes(state.mode) || !Number.isFinite(state.scrollTop) || state.scrollTop < 0 || state.scrollTop > Number.MAX_SAFE_INTEGER) throw new Error('阅读状态无效。')
+  const result = { mode: state.mode, scrollTop: state.scrollTop }
+  for (const [key, names] of [['selection', ['anchor', 'head']], ['sourceSelection', ['start', 'end']]]) {
+    if (state[key] === undefined) continue
+    const value = state[key]
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(name => !names.includes(name)) || names.some(name => !Number.isSafeInteger(value[name]) || value[name] < 0)) throw new Error('阅读状态无效。')
+    result[key] = Object.fromEntries(names.map(name => [name, value[name]]))
+  }
+  return result
 }
 export class DocumentStore {
   constructor(directory, { maxSessionBytes = MAX_SESSION_BYTES } = {}) {
     this.maxSessionBytes = maxSessionBytes
-    this.directory = directory; this.sessionPath = join(directory, 'session.json')
+    this.directory = directory; this.sessionPath = join(directory, 'session.json'); this.databasePath = join(directory, 'drafts.sqlite')
     this.documents = []; this.activeId = null; this.warning = ''; this.recoveryWritable = true
+    this.pending = new Map(); this.deleted = new Set(); this.persistedIds = new Set(); this.position = 0
   }
   get(id) {
     const doc = this.documents.find(doc => doc.id === id)
     if (!doc) throw new Error('笔记已经关闭。')
     return doc
   }
-  snapshot() {
-    return { documents: this.documents.map(doc => ({ id: doc.id, title: doc.title, path: doc.path, markdown: doc.markdown,
-      revision: doc.revision, dirty: doc.markdown !== doc.savedText, conflict: doc.conflict })), activeId: this.activeId, warning: this.warning }
+  isDirty(doc) { return doc.contentHash !== doc.savedHash }
+  needsRecovery(doc) { return this.isDirty(doc) || (!doc.path && doc.title !== UNTITLED) }
+  canExitWithoutRecovery() { return !this.deleted.size && !this.documents.some(doc => this.needsRecovery(doc)) }
+  metadata(doc) {
+    return { id: doc.id, title: doc.title, path: doc.path, revision: doc.revision,
+      dirty: this.isDirty(doc), conflict: doc.conflict, viewState: structuredClone(doc.viewState) }
+  }
+  listMetadata() { return { documents: this.documents.map(doc => this.metadata(doc)), activeId: this.activeId, warning: this.warning } }
+  read(id) { const doc = this.get(id); return { ...this.metadata(doc), markdown: doc.markdown } }
+  snapshot() { return { ...this.listMetadata(), documents: this.documents.map(doc => this.read(doc.id)) } }
+  mark(doc, fields, insert = false) {
+    const previous = this.pending.get(doc.id)
+    this.pending.set(doc.id, { insert: insert || previous?.insert || false, fields: { ...previous?.fields, ...fields } })
   }
   async restore() {
     try {
-      await mkdir(this.directory, { recursive: true })
-      if ((await stat(this.sessionPath)).size > this.maxSessionBytes) throw new Error('Recovery too large')
-      const bytes = await readFile(this.sessionPath)
-      if (bytes.length > this.maxSessionBytes) throw new Error('Recovery too large')
-      const saved = JSON.parse(bytes.toString('utf8'))
-      if (saved.version !== 1 || !Array.isArray(saved.documents) || saved.documents.some(doc => !doc || typeof doc.id !== 'string' || typeof doc.markdown !== 'string' || typeof doc.savedText !== 'string' || typeof doc.title !== 'string' || !Number.isSafeInteger(doc.revision) || doc.revision < 0 || (doc.path !== null && typeof doc.path !== 'string') || !['\n', '\r\n'].includes(doc.eol) || typeof doc.bom !== 'boolean' || (doc.baseline !== null && !/^[0-9a-f]{64}$/.test(doc.baseline)))) throw new Error('Invalid recovery file')
-      if (new Set(saved.documents.map(doc => doc.id)).size !== saved.documents.length) throw new Error('Duplicate documents')
-      this.documents = saved.documents
+      this.database = new RecoveryDatabase(this.directory, this.maxSessionBytes)
+      const saved = await this.database.request('initialize')
+      this.documents = saved.documents.map(doc => ({ ...doc, contentHash: digest(doc.markdown) }))
+      this.persistedIds = new Set(this.documents.map(doc => doc.id))
+      this.position = Math.max(-1, ...this.documents.map(doc => doc.position)) + 1
       this.activeId = this.documents.some(doc => doc.id === saved.activeId) ? saved.activeId : this.documents[0]?.id
-      // If clean, reload latest disk content. If dirty, retain recovery text and
-      // refuse a later Save when the disk has diverged from the saved baseline.
+      // Clean files follow disk; dirty files retain their acknowledged draft and baseline.
       for (const doc of this.documents) {
         if (!doc.path) continue
         try {
           const bytes = await fileBytes(doc.path)
-          if (doc.markdown === doc.savedText) {
-            const format = decode(bytes); Object.assign(doc, { ...format, markdown: format.text, savedText: format.text, baseline: digest(bytes), conflict: false })
-          } else doc.conflict = digest(bytes) !== doc.baseline
-        } catch { doc.conflict = true }
+          if (!this.isDirty(doc)) {
+            const format = decode(bytes)
+            const fields = { ...format, savedHash: digest(format.markdown), baseline: digest(bytes), conflict: false }
+            Object.assign(doc, fields, { contentHash: fields.savedHash }); this.mark(doc, fields)
+          } else { doc.conflict = digest(bytes) !== doc.baseline; this.mark(doc, { conflict: doc.conflict }) }
+        } catch { doc.conflict = true; this.mark(doc, { conflict: true }) }
       }
-    } catch (error) {
-      if (error.code !== 'ENOENT') {
-        this.warning = '恢复文件无法读取，原文件已保留。本次会话不能自动备份，请用保存或另存为保留内容。'
-        this.recoveryWritable = false; this.documents = []; this.activeId = null
-      }
+    } catch {
+      this.warning = '恢复文件无法读取，原文件已保留。本次会话不能自动备份，请用保存或另存为保留内容。'
+      this.recoveryWritable = false; this.documents = []; this.activeId = null
     }
     if (!this.documents.length) await this.newDocument()
+    else await this.tryPersist()
     return this.snapshot()
   }
   async persist() {
     if (!this.recoveryWritable) return false
+    // Capture only modified columns. A rename/activation never transfers other bodies.
+    const pending = new Map(this.pending), deletions = [...this.deleted]
+    const changes = [...pending].map(([id, change]) => {
+      if (!change.insert) return { id, fields: change.fields }
+      const { contentHash, ...document } = this.get(id)
+      return { insert: true, document }
+    })
     try {
-      const content = JSON.stringify({ version: 1, activeId: this.activeId, documents: this.documents })
-      if (Buffer.byteLength(content) > this.maxSessionBytes) throw new Error('会话备份超过容量上限，请先保存并关闭部分笔记。')
-      await atomicWrite(this.sessionPath, content)
+      await this.database.request('apply', { changes, deletions, activeId: this.activeId })
+      for (const change of changes) if (change.insert) this.persistedIds.add(change.document.id)
+      for (const [id, value] of pending) if (this.pending.get(id) === value) this.pending.delete(id)
+      for (const id of deletions) { this.deleted.delete(id); this.persistedIds.delete(id) }
       this.warning = ''
       return true
-    } catch (error) { this.warning = error.message.includes('容量上限') ? error.message : '草稿备份失败。请保存到文件；当前页面内容仍保留。'; throw new Error(this.warning, { cause: error }) }
+    } catch (error) {
+      this.warning = error.message.includes('容量上限') ? error.message : '草稿备份失败。请保存到文件；当前页面内容仍保留。'
+      throw new Error(this.warning, { cause: error })
+    }
   }
-  async tryPersist() {
-    try { return await this.persist() } catch { return false }
-  }
-  async newDocument(markdown = '', title = '未命名笔记') {
-    const doc = { id: randomUUID(), title, markdown, savedText: '', path: null, baseline: null, bom: false, eol: '\n', revision: 0, conflict: false }
-    this.documents.push(doc); this.activeId = doc.id; await this.tryPersist(); return this.snapshot()
+  async tryPersist() { try { return await this.persist() } catch { return false } }
+  async dispose() { await this.database?.dispose() }
+  async newDocument(markdown = '', title = UNTITLED) {
+    const doc = { id: randomUUID(), title, markdown, savedHash: digest(''), contentHash: digest(markdown), path: null, baseline: null, bom: false, eol: '\n', revision: 0, conflict: false, viewState: null, position: this.position++ }
+    this.documents.push(doc); this.activeId = doc.id; this.mark(doc, {}, true)
+    await this.tryPersist(); return this.snapshot()
   }
   async openFile(path) {
     const canonical = await canonicalPath(path)
     const existing = this.documents.find(doc => doc.path && pathKey(doc.path) === pathKey(canonical))
     if (existing) { this.activeId = existing.id; await this.tryPersist(); return this.snapshot() }
     const bytes = await fileBytes(canonical), format = decode(bytes)
-    const doc = { id: randomUUID(), title: basename(canonical), markdown: format.text, savedText: format.text, path: canonical, baseline: digest(bytes), bom: format.bom, eol: format.eol, revision: 0, conflict: false }
-    this.documents.push(doc); this.activeId = doc.id; await this.tryPersist(); return this.snapshot()
+    const doc = { id: randomUUID(), title: basename(canonical), ...format, savedHash: digest(format.markdown), contentHash: digest(format.markdown), path: canonical, baseline: digest(bytes), revision: 0, conflict: false, viewState: null, position: this.position++ }
+    this.documents.push(doc); this.activeId = doc.id; this.mark(doc, {}, true)
+    await this.tryPersist(); return this.snapshot()
   }
   async update(id, markdown, revision) {
     if (typeof markdown !== 'string' || Buffer.byteLength(markdown) > MAX_BYTES || !Number.isSafeInteger(revision) || revision < 0) throw new Error('笔记内容或版本无效。')
     const doc = this.get(id)
     if (revision < doc.revision) return { backedUp: false, stale: true }
     if (revision === doc.revision && markdown !== doc.markdown) throw new Error('笔记版本冲突，请先另存当前内容。')
-    doc.markdown = markdown; doc.revision = revision
-    let backedUp = false
-    try { backedUp = await this.persist() } catch { /* Disk Save remains available if recovery storage fails. */ }
-    return { backedUp, dirty: doc.markdown !== doc.savedText, warning: backedUp ? '' : this.warning }
+    if (markdown !== doc.markdown || revision !== doc.revision) {
+      doc.markdown = markdown; doc.revision = revision; doc.contentHash = digest(markdown)
+      this.mark(doc, { markdown, revision })
+    }
+    const backedUp = await this.tryPersist()
+    return { backedUp, dirty: this.isDirty(doc), warning: backedUp ? '' : this.warning }
+  }
+  async rename(id, title) {
+    const doc = this.get(id)
+    if (doc.path) throw new Error('只能命名未关联文件的草稿。')
+    if (typeof title !== 'string' || Buffer.byteLength(title) > 1024) throw new Error('笔记名称无效或过长。')
+    doc.title = title.trim() || UNTITLED; this.mark(doc, { title: doc.title })
+    const backedUp = await this.tryPersist()
+    return { id, title: doc.title, backedUp, warning: backedUp ? '' : this.warning }
+  }
+  async setViewState(id, state) {
+    const doc = this.get(id); doc.viewState = viewState(state); this.mark(doc, { viewState: doc.viewState })
+    const saved = await this.tryPersist()
+    return { saved, warning: saved ? '' : this.warning }
   }
   async activate(id) { this.get(id); this.activeId = id; await this.tryPersist(); return true }
   async save(id, targetPath) {
@@ -128,32 +184,35 @@ export class DocumentStore {
       let current
       try { current = digest(await fileBytes(path)) } catch (error) { if (error.code !== 'ENOENT') throw error }
       if (current !== doc.baseline) {
-        doc.conflict = true; await this.tryPersist()
+        doc.conflict = true; this.mark(doc, { conflict: true }); await this.tryPersist()
         return { conflict: true, snapshot: this.snapshot() }
       }
-      if (doc.markdown === doc.savedText) return { saved: true, snapshot: this.snapshot() }
+      if (!this.isDirty(doc)) return { saved: true, warning: this.warning, snapshot: this.snapshot() }
     }
     const normalized = doc.markdown.replace(/\r\n?/g, '\n').replace(/\n/g, doc.eol)
     const bytes = Buffer.from((doc.bom ? '\ufeff' : '') + normalized)
     if (bytes.length > MAX_BYTES) throw new Error('保存后的文件超过 10 MB（包括换行和 BOM），请精简或拆分。原文件未修改。')
     await atomicWrite(path, bytes)
-    Object.assign(doc, { path, title: basename(path), baseline: digest(bytes), savedText: doc.markdown, conflict: false })
-    // A disk save succeeded even if recovery failed; report that separately.
-    let warning = ''
-    try { await this.persist() } catch (error) { warning = error.message }
-    return { saved: true, warning, snapshot: this.snapshot() }
+    const fields = { path, title: basename(path), baseline: digest(bytes), savedHash: doc.contentHash, conflict: false }
+    Object.assign(doc, fields); this.mark(doc, fields)
+    // Successful external file writes remain usable even when SQLite is unavailable.
+    const backedUp = await this.tryPersist()
+    return { saved: true, warning: backedUp ? '' : this.warning, snapshot: this.snapshot() }
   }
   async reload(id) {
     const doc = this.get(id)
     if (!doc.path) throw new Error('未命名笔记没有磁盘文件。')
     const bytes = await fileBytes(doc.path), format = decode(bytes)
-    Object.assign(doc, { markdown: format.text, savedText: format.text, bom: format.bom, eol: format.eol, baseline: digest(bytes), conflict: false, revision: doc.revision + 1 })
+    const fields = { ...format, savedHash: digest(format.markdown), baseline: digest(bytes), conflict: false, revision: doc.revision + 1 }
+    Object.assign(doc, fields, { contentHash: fields.savedHash }); this.mark(doc, fields)
     await this.tryPersist(); return this.snapshot()
   }
   async close(id) {
     const index = this.documents.findIndex(doc => doc.id === id); if (index < 0) return this.snapshot()
-    this.documents.splice(index, 1)
+    this.documents.splice(index, 1); this.pending.delete(id)
+    if (this.persistedIds.has(id)) this.deleted.add(id)
     if (this.activeId === id) this.activeId = this.documents[Math.min(index, this.documents.length - 1)]?.id
+    // Delete and replacement creation commit together, including activeId.
     if (!this.documents.length) return this.newDocument()
     await this.tryPersist(); return this.snapshot()
   }
