@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { readFile, realpath } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
-import { DocumentStore, atomicWrite } from './documentStore.js'
+import { DocumentStore, atomicWrite, suggestedFilename } from './documentStore.js'
 import { openFileArguments, operationQueue } from './lifecycle.js'
 
 const require = createRequire(import.meta.url), here = dirname(fileURLToPath(import.meta.url))
@@ -32,7 +32,7 @@ function handle(name, fn) {
   })
 }
 async function chooseSave(doc) {
-  const result = await dialog.showSaveDialog(window, { title: '保存 Markdown', defaultPath: doc.path || doc.title + '.md', filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }] })
+  const result = await dialog.showSaveDialog(window, { title: '保存 Markdown', defaultPath: doc.path || suggestedFilename(doc.title), filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }] })
   return result.canceled ? null : result.filePath
 }
 async function saveDocument(id, saveAs = false) {
@@ -42,7 +42,7 @@ async function saveDocument(id, saveAs = false) {
 }
 async function confirmClose(id) {
   const doc = store.get(id)
-  if (doc.markdown !== doc.savedText) {
+  if (doc.path && store.isDirty(doc)) {
     const answer = await dialog.showMessageBox(window, { type: 'question', message: `保存「${doc.title}」的修改？`, buttons: ['保存', '不保存', '取消'], defaultId: 0, cancelId: 2, noLink: true })
     if (answer.response === 2) return { cancelled: true }
     if (answer.response === 0) { const saved = await saveDocument(id); if (!saved.saved) return saved }
@@ -52,7 +52,7 @@ async function confirmClose(id) {
 async function exportPdf(id, html) {
   if (typeof html !== 'string' || Buffer.byteLength(html) > 20 * 1024 * 1024) throw new Error('导出内容过大。')
   const doc = store.get(id)
-  const destination = await dialog.showSaveDialog(window, { title: '导出 PDF', defaultPath: doc.title.replace(/\.(md|markdown|txt)$/i, '') + '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+  const destination = await dialog.showSaveDialog(window, { title: '导出 PDF', defaultPath: suggestedFilename(doc.title, 'pdf'), filters: [{ name: 'PDF', extensions: ['pdf'] }] })
   if (destination.canceled) return { cancelled: true }
   const cssPath = require.resolve('katex/dist/katex.min.css')
   let css = await readFile(cssPath, 'utf8')
@@ -83,6 +83,10 @@ function wireIPC() {
     return true
   })
   handle('documents:list', () => store.snapshot())
+  handle('documents:list-metadata', () => store.listMetadata())
+  handle('documents:read', id => store.read(id))
+  handle('documents:rename', (id, title) => store.rename(id, title))
+  handle('documents:view-state', (id, state) => store.setViewState(id, state))
   handle('documents:new', () => store.newDocument())
   handle('documents:open', async () => {
     const answer = await dialog.showOpenDialog(window, { title: '打开 Markdown', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }] })
@@ -108,12 +112,11 @@ function wireIPC() {
   handle('application:close-ready', async () => {
     if (!closing) return false
     const backedUp = await store.tryPersist()
-    if (!backedUp && store.documents.some(doc => doc.markdown !== doc.savedText)) throw new Error('草稿备份不可用，请先保存所有修改再退出。')
-    // Exiting keeps recovery drafts; closing a document has its own save/discard dialog.
-    if (store.documents.some(doc => doc.markdown !== doc.savedText)) {
-      const choice = await dialog.showMessageBox(window, { type: 'question', message: '保留未保存草稿并退出？', detail: '重新打开应用时恢复。原 Markdown 文件不会被覆盖。', buttons: ['保留草稿并退出', '继续编辑'], defaultId: 1, cancelId: 1 })
-      if (choice.response !== 0) { closing = false; return false }
+    if (!backedUp && !store.canExitWithoutRecovery()) {
+      closing = false
+      throw new Error('草稿备份不可用，请先保存所有修改再退出；未完成的草稿删除需恢复备份后重试。')
     }
+    // The renderer has flushed pending edits; committed drafts survive normal exit.
     quitting = true; window.close(); return true
   })
   handle('application:close-cancel', () => { closing = false; return true })
@@ -158,11 +161,12 @@ async function createWindow() {
         void serialize(async () => {
           const backedUp = await store.tryPersist()
           if (!backedUp) {
-            for (const doc of store.documents.filter(doc => doc.markdown !== doc.savedText)) {
+            for (const doc of store.documents.filter(doc => store.needsRecovery(doc))) {
               const choice = await dialog.showMessageBox(window, { type: 'warning', message: `页面停止且备份失败：请保存「${doc.title}」后退出。`, buttons: ['保存到文件', '取消'], defaultId: 0, cancelId: 1 })
               if (choice.response !== 0 || !(await saveDocument(doc.id, true)).saved) { closing = false; return }
             }
           }
+          if (!backedUp && !store.canExitWithoutRecovery()) throw new Error('草稿删除尚未持久化，请恢复备份后重试退出。')
           quitting = true; window.close()
         }).catch(error => { closing = false; dialog.showErrorBox('退出失败', error.message) })
       }
@@ -204,5 +208,5 @@ else {
     ]))
     await createWindow(); initialized()
   }).catch(error => { initializationFailed(error); dialog.showErrorBox('启动失败', error.message); app.exit(1) })
-  app.on('window-all-closed', () => app.quit())
+  app.on('window-all-closed', () => { void store.dispose().finally(() => app.quit()) })
 }
