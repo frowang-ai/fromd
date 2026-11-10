@@ -72,7 +72,12 @@ export class DocumentStore {
     return doc
   }
   isDirty(doc) { return doc.contentHash !== doc.savedHash }
-  needsRecovery(doc) { return this.isDirty(doc) || (!doc.path && doc.title !== UNTITLED) }
+  needsRecovery(doc) {
+    // External-file dirtiness alone cannot detect a draft reset to empty/default:
+    // the database may still contain its previous body or name after a failed commit.
+    return this.isDirty(doc) || (!doc.path && (doc.title !== UNTITLED ||
+      (this.persistedIds.has(doc.id) && this.pending.has(doc.id))))
+  }
   canExitWithoutRecovery() { return !this.deleted.size && !this.documents.some(doc => this.needsRecovery(doc)) }
   metadata(doc) {
     return { id: doc.id, title: doc.title, path: doc.path, revision: doc.revision,

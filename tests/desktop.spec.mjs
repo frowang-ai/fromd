@@ -88,6 +88,42 @@ test('SQLite桌面：旧会话迁移、命名与阅读位置、关闭后正常�
   } finally { await stop(app); await cleanup(directory) }
 })
 
+for (const change of ['清空正文', '恢复默认名称']) {
+  test(`数据库拒写时${change}阻止退出，恢复存储后退出重启保留结果`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frowang-exit-regression-')), profile = join(directory, 'profile')
+    let app
+    try {
+      app = await launch(profile); let page = await ready(app)
+      const id = await page.evaluate(async () => (await window.desktop.listMetadata()).activeId)
+      if (change === '清空正文') {
+        await putSource(page, '待清空正文')
+        await expect.poll(() => recoveryDocuments(profile)[0].markdown).toBe('待清空正文')
+      } else {
+        expect((await page.evaluate(id => window.desktop.rename(id, '旧草稿名'), id)).backedUp).toBe(true)
+      }
+      recoverySQL(profile, "CREATE TRIGGER deny_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;")
+      if (change === '清空正文') await putSource(page, '')
+      else expect((await page.evaluate(id => window.desktop.rename(id, ''), id)).backedUp).toBe(false)
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
+      await expect(page.getByRole('alert')).toContainText('草稿备份不可用')
+      await expect(page.locator('header')).not.toHaveAttribute('inert', '')
+      const current = await page.evaluate(id => window.desktop.read(id), id)
+      expect(current.markdown).toBe(''); expect(current.title).toBe('未命名笔记'); expect(current.dirty).toBe(false)
+      expect(change === '清空正文' ? recoveryDocuments(profile)[0].markdown : recoveryDocuments(profile)[0].title)
+        .toBe(change === '清空正文' ? '待清空正文' : '旧草稿名')
+      recoverySQL(profile, 'DROP TRIGGER deny_settings;')
+      const exited = app.waitForEvent('close')
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()).catch(() => {})
+      await exited
+      app = await launch(profile); page = await ready(app)
+      const restored = await page.evaluate(id => window.desktop.read(id), id)
+      expect(restored.markdown).toBe(''); expect(restored.title).toBe('未命名笔记')
+      expect(recoveryDocuments(profile)[0].markdown).toBe('')
+      expect(recoveryDocuments(profile)[0].title).toBe('未命名笔记')
+    } finally { await stop(app); await cleanup(directory) }
+  })
+}
+
 test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', async ({}, info) => {
   const directory = await mkdtemp(join(tmpdir(), 'frowang-desktop-')), profile = join(directory, 'profile')
   const file = join(directory, '中文 笔记.md'), copy = join(directory, '另存.md')

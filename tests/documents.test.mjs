@@ -241,6 +241,32 @@ test('数据库拒绝写入仍可编辑另存，失败删除阻止正常退出�
   } finally { db.close() }
 })
 
+for (const change of ['清空正文', '恢复默认名称']) {
+  test(`备份失败时${change}不能绕过退出保护，重试后恢复最新状态`, async t => {
+    const { store } = await fixture(t), doc = store.documents[0]
+    if (change === '清空正文') await store.update(doc.id, '待清空正文', 1)
+    else await store.rename(doc.id, '旧草稿名')
+    const db = new DatabaseSync(store.databasePath)
+    try {
+      db.exec("CREATE TRIGGER deny_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;")
+      const result = change === '清空正文' ? await store.update(doc.id, '', 2) : await store.rename(doc.id, '')
+      assert.equal(result.backedUp, false)
+      assert.equal(store.read(doc.id).dirty, false)
+      assert.equal(store.read(doc.id).title, '未命名笔记')
+      assert.equal(change === '清空正文' ? storedDocument(store, doc.id).markdown : storedDocument(store, doc.id).title,
+        change === '清空正文' ? '待清空正文' : '旧草稿名')
+      assert.equal(store.canExitWithoutRecovery(), false, '已备份草稿仍有未提交变更，不能按当前空内容放行')
+      assert.equal(store.needsRecovery(doc), true, '页面崩溃后的退出兜底也必须保护未提交变更')
+      db.exec('DROP TRIGGER deny_settings;')
+      assert.equal(await store.tryPersist(), true)
+      assert.equal(store.canExitWithoutRecovery(), true)
+      const next = makeStore(t, store.directory); await next.restore()
+      assert.equal(next.read(doc.id).markdown, '')
+      assert.equal(next.read(doc.id).title, '未命名笔记')
+    } finally { db.close() }
+  })
+}
+
 test('命名空草稿需持久化，Windows保存建议名称不包含路径或设备名', async t => {
   const { store } = await fixture(t), doc = store.documents[0]
   await store.rename(doc.id, '空白但命名')
