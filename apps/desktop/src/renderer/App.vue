@@ -1,9 +1,9 @@
 <template>
   <main>
-    <header class="app-bar" :inert="busy || !loaded">
+    <header class="app-bar" :inert="busy || !loaded" @pointerdown="rememberView">
       <div class="tabs" role="tablist" aria-label="笔记标签页">
         <div v-for="doc in documents" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }">
-          <button role="tab" :aria-selected="doc.id === activeId" :title="doc.path || doc.title" @click="activate(doc.id)">{{ doc.title }}<span v-if="doc.dirty" aria-label="未保存"> ·</span></button>
+          <button role="tab" :aria-label="doc.title" :aria-selected="doc.id === activeId" :title="doc.path || doc.title" @click="activate(doc.id)">{{ doc.title }}<span v-if="doc.dirty" aria-label="未保存"> ·</span></button>
           <button class="close-tab" :aria-label="`关闭 ${doc.title}`" @click="closeDocument(doc.id)">×</button>
         </div>
       </div>
@@ -22,19 +22,27 @@
     <div v-if="!loaded" role="status" class="loading">正在打开笔记…</div>
     <div :inert="busy">
       <template v-for="doc in documents" :key="`${doc.id}-${doc.generation || 0}`">
-        <DocumentPane v-if="visited.has(doc.id)" :ref="instance => setSession(doc.id, instance)" :document="doc" :active="doc.id === activeId" :status="saveStatus(doc)" @rename="title => rename(doc.id, title)" @finish-name="finishName(doc.id)" @change="text => change(doc.id, text)" @ready="value => ready[doc.id] = value" />
+        <DocumentPane v-if="visited.has(doc.id)" :ref="instance => setSession(doc.id, instance)" :document="doc" :active="doc.id === activeId" :editable="doc.id === activeId && ready[doc.id] && displayedId === doc.id && !busy" :inert="!ready[doc.id] || displayedId !== doc.id" :status="saveStatus(doc)" :engine="sharedEditor" :rich-active="displayedId === doc.id" @rename="title => rename(doc.id, title)" @finish-name="finishName(doc.id)" @change="text => change(doc.id, text)" />
       </template>
+      <p v-if="bodyLoading" class="loading" role="status">正在读取笔记…</p>
+      <div v-show="displayedId === activeId && !bodyLoading && !sourceMode" :inert="!ready[activeId]" class="document-shell shared-editor">
+        <MarkdownEditor ref="sharedEditor" @session-change="sessionChanged" />
+      </div>
     </div>
   </main>
 </template>
 <script setup>
 import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watchEffect } from 'vue'
+import MarkdownEditor from '@frowang/editor'
 import { buildPdfDocument } from '@frowang/editor/pdf'
 import DocumentPane from './DocumentPane.vue'
 const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
 const current = computed(() => documents.value.find(doc => doc.id === activeId.value))
-const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), positions = new Map(), closedIds = new Set(), discardingIds = new Set()
+const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), closedIds = new Set(), discardingIds = new Set()
+const sharedEditor = ref(null), displayedId = ref(null), bodyLoading = ref(false)
+const editorStates = new Map(), dirtyViews = new Set()
+let loadVersion = 0, composing = false, compositionWaiters = []
 const busy = ref(false), loaded = ref(false), message = ref(''), fatal = ref(false), sourceMode = ref(false)
 let disposers = [], selectionVersion = 0, openEventVersion = 0
 const normalizeName = title => title.trim() || '未命名笔记'
@@ -49,19 +57,93 @@ function saveStatus(doc) {
   return doc.path ? (doc.dirty ? '已自动保存 · 未写入文件' : '已保存') : '已自动保存'
 }
 function setSession(id, instance) { if (instance) sessions.set(id, instance); else sessions.delete(id) }
+function startComposition() { composing = true }
+function endComposition() {
+  composing = false
+  queueMicrotask(() => { const waiters = compositionWaiters; compositionWaiters = []; waiters.forEach(resolve => resolve()) })
+}
+async function waitComposition() {
+  if (composing) await new Promise(resolve => compositionWaiters.push(resolve))
+  await sharedEditor.value?.settleComposition()
+}
+function rememberView() { captureDisplayed(); sharedEditor.value?.rememberView() }
+function sessionChanged({ id, generation, markdown }) {
+  const doc = findDocument(id)
+  if (!doc || doc.generation !== generation || displayedId.value !== id || sessions.get(id)?.sourceMode) return
+  sessions.get(id)?.syncMarkdown(markdown)
+  change(id, markdown)
+}
+function captureDisplayed() {
+  const id = displayedId.value, doc = findDocument(id), pane = sessions.get(id)
+  if (!doc || !pane || !ready[id] || discardingIds.has(id)) return
+  const text = pane.sourceMode ? pane.getMarkdown() : sharedEditor.value?.getMarkdown()
+  if (typeof text === 'string') change(id, text)
+  if (id === activeId.value && !bodyLoading.value) {
+    const state = pane.captureViewState()
+    if (JSON.stringify(doc.viewState) !== JSON.stringify(state)) { doc.viewState = state; dirtyViews.add(id) }
+  }
+  const snapshot = sharedEditor.value.captureSession()
+  if (snapshot) editorStates.set(id, { generation: doc.generation, snapshot })
+}
+function showActive() { void revealActive().catch(error => { message.value = error.message }) }
+async function revealActive() {
+  const ticket = ++loadVersion, id = activeId.value, doc = findDocument(id)
+  if (!doc) return
+  ready[id] = false; bodyLoading.value = true
+  await waitComposition()
+  if (ticket !== loadVersion) return
+  captureDisplayed()
+  try {
+    await nextTick(); await sharedEditor.value.whenReady()
+    const loadedDocument = doc.bodyPending ? null : await api.read(id)
+    if (ticket !== loadVersion || activeId.value !== id || !isLive(doc) || closedIds.has(id)) return
+    if (loadedDocument && loadedDocument.revision >= doc.revision && !doc.bodyPending) {
+      if (typeof doc.markdown === 'string' && doc.markdown !== loadedDocument.markdown) {
+        editorStates.delete(id); visited.delete(id); doc.generation++
+        await nextTick()
+      }
+      const title = !loadedDocument.path && (doc.nameVersion !== doc.nameAcknowledged || doc.nameBackup === 'failed') ? doc.title : loadedDocument.title
+      const localView = dirtyViews.has(id) ? { viewState: doc.viewState } : {}
+      Object.assign(doc, loadedDocument, { title, ...localView })
+      sessions.get(id)?.syncMarkdown(loadedDocument.markdown)
+      if (loadedDocument.warning) { message.value = loadedDocument.warning; doc.backup = 'failed' }
+    }
+    visited.add(id); await nextTick()
+    if (ticket !== loadVersion || !isLive(doc)) return
+    const pane = sessions.get(id), cached = editorStates.get(id)
+    sharedEditor.value.activateSession({ id, generation: doc.generation,
+      snapshot: cached?.generation === doc.generation ? cached.snapshot : null,
+      markdown: doc.markdown, viewState: doc.viewState, resolveImage: pane.resolveImage,
+    })
+    const generation = doc.generation
+    const isCurrent = () => ticket === loadVersion && isLive(doc) && activeId.value === id && doc.generation === generation && !closedIds.has(id)
+    displayedId.value = id; sourceMode.value = pane.sourceMode
+    bodyLoading.value = false
+    await nextTick()
+    if (!isCurrent()) return
+    sharedEditor.value.restoreSessionView()
+    if (!await pane.restoreViewState(isCurrent) || !isCurrent()) return
+    ready[id] = true
+    await nextTick()
+    if (!isCurrent()) return
+    if (!sourceMode.value) sharedEditor.value.focusSessionView()
+  } finally { if (ticket === loadVersion) bodyLoading.value = false }
+}
 function forgetDocument(id) {
   closedIds.add(id)
   clearTimeout(timers.get(id)); timers.delete(id)
   clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
-  visited.delete(id); delete ready[id]; positions.delete(id)
+  visited.delete(id); delete ready[id]; editorStates.delete(id); dirtyViews.delete(id)
+  loadVersion++
+  if (displayedId.value === id) { sharedEditor.value?.clearSession(); displayedId.value = null }
 }
-function adopt(snapshot, reloadId = null, preserveEdits = false) {
+function adopt(snapshot, reloadId = null, preserveEdits = false, preferredActiveId = null) {
   const previous = new Map(documents.value.map(doc => [doc.id, doc]))
   const nextIds = new Set(snapshot.documents.map(doc => doc.id))
   // documents:changed announces second-instance opens, never deletions. A
   // delayed snapshot can omit newer local tabs; only an explicit close removes one.
   const retained = documents.value.filter(doc => !nextIds.has(doc.id) && !closedIds.has(doc.id))
-  const selected = retained.some(doc => doc.id === activeId.value) || closedIds.has(snapshot.activeId) ? activeId.value : snapshot.activeId
+  const selected = preferredActiveId || snapshot.activeId
   documents.value = snapshot.documents.filter(doc => !closedIds.has(doc.id)).map(doc => {
     const old = previous.get(doc.id)
     if (old && doc.id !== reloadId) {
@@ -70,19 +152,22 @@ function adopt(snapshot, reloadId = null, preserveEdits = false) {
       // Keep the same reactive object so pending replies can check its identity.
       if (!doc.path && (preserveEdits || old.nameVersion !== old.nameAcknowledged || old.nameBackup === 'failed')) local.title = old.title
       if (preserveEdits && old.path) Object.assign(local, { path: old.path, title: old.title, conflict: old.conflict })
+      if (dirtyViews.has(doc.id)) local.viewState = old.viewState
       Object.assign(old, doc, local)
       if (old.path) { old.draftName = old.title; old.nameBackup = 'saved'; old.nameError = '' }
       else if (!preserveEdits && old.nameVersion === old.nameAcknowledged && old.nameBackup !== 'failed') old.draftName = old.title
       if (!preserveEdits) old.backup = snapshot.warning ? 'failed' : 'saved'
       return old
     }
-    if (old) delete ready[doc.id]
+    if (old) {
+      delete ready[doc.id]; editorStates.delete(doc.id); visited.delete(doc.id)
+      if (displayedId.value === doc.id) { sharedEditor.value?.clearSession(); displayedId.value = null }
+    }
     return { ...doc, draftName: doc.title, nameError: '', nameVersion: 0, nameAcknowledged: 0,
       nameBackup: snapshot.warning ? 'failed' : 'saved', backup: snapshot.warning ? 'failed' : 'saved', generation: (old?.generation || 0) + 1 }
   }).concat(retained)
   if (!preserveEdits) selectionVersion++
   activeId.value = documents.value.some(doc => doc.id === selected) ? selected : documents.value[0]?.id
-  if (activeId.value) visited.add(activeId.value)
   sourceMode.value = sessions.get(activeId.value)?.sourceMode ?? false
   if (snapshot.warning) message.value = snapshot.warning
 }
@@ -92,10 +177,13 @@ async function documentsChanged(snapshot) {
     // Open events can be delivered after a newer activate/save. Read the current
     // selection, and do not apply that reply over a user action completed meanwhile.
     const metadata = await api.listMetadata()
+    await waitComposition(); captureDisplayed()
     const selected = selection === selectionVersion && eventVersion === openEventVersion ? metadata.activeId : activeId.value
-    adopt({ ...snapshot, activeId: selected }, null, true)
+    adopt({ ...snapshot, activeId: selected }, null, true, selected)
+    if (displayedId.value !== activeId.value || !ready[activeId.value]) showActive()
   } catch (error) {
-    adopt({ ...snapshot, activeId: activeId.value }, null, true)
+    adopt({ ...snapshot, activeId: activeId.value }, null, true, activeId.value)
+    if (displayedId.value !== activeId.value || !ready[activeId.value]) showActive()
     message.value = error.message
   }
 }
@@ -149,12 +237,13 @@ async function persistName(doc) {
 }
 function change(id, markdown) {
   const doc = findDocument(id)
-  if (!doc || discardingIds.has(id) || doc.markdown === markdown) return
-  doc.markdown = markdown; doc.revision++; doc.dirty = true; doc.backup = 'pending'
+  if (!doc || discardingIds.has(id) || typeof markdown !== 'string' || doc.markdown === markdown) return
+  doc.markdown = markdown; doc.revision++; doc.dirty = true; doc.backup = 'pending'; doc.bodyPending = true
   clearTimeout(timers.get(id))
   timers.set(id, setTimeout(() => { timers.delete(id); void backup(doc).catch(() => {}) }, 200))
 }
 async function backup(doc) {
+  if (!isLive(doc) || typeof doc.markdown !== 'string' || (doc.backup === 'saved' && !doc.bodyPending)) return
   const revision = doc.revision, text = doc.markdown
   const pending = (async () => {
     try {
@@ -163,7 +252,7 @@ async function backup(doc) {
       if (result.stale || result.closed) throw new Error('草稿内容未能保存，请重试。')
       doc.dirty = result.dirty
       if (result.warning) message.value = result.warning
-      doc.backup = result.backedUp ? 'saved' : 'failed'
+      doc.backup = result.backedUp ? 'saved' : 'failed'; doc.bodyPending = !result.backedUp
     } catch (error) {
       if (!isLive(doc) || doc.revision !== revision) return
       doc.backup = 'failed'; message.value = error.message; throw error
@@ -173,10 +262,13 @@ async function backup(doc) {
   try { await pending } finally { writes.delete(pending) }
 }
 async function flush(excludeId = null, allowNameFailure = false) {
+  await waitComposition()
+  captureDisplayed()
   const pendingDocuments = documents.value.filter(doc => doc.id !== excludeId)
   for (const doc of pendingDocuments) {
-    const text = sessions.get(doc.id)?.getMarkdown()
-    if (text !== undefined) change(doc.id, text)
+    const pane = sessions.get(doc.id)
+    const text = pane?.sourceMode ? pane.getMarkdown() : (doc.id === displayedId.value ? sharedEditor.value?.getMarkdown() : undefined)
+    if (typeof text === 'string') change(doc.id, text)
     if (!doc.path && !doc.nameError) doc.draftName = doc.title
     clearTimeout(timers.get(doc.id)); timers.delete(doc.id)
     clearTimeout(nameTimers.get(doc.id)); nameTimers.delete(doc.id)
@@ -189,33 +281,47 @@ async function flush(excludeId = null, allowNameFailure = false) {
     if (!allowNameFailure) throw error
     message.value = error.message
   })]))
+  await Promise.all(pendingDocuments.filter(isLive).map(async doc => {
+    if (!dirtyViews.has(doc.id)) return
+    const state = doc.viewState, result = await api.setViewState(doc.id, JSON.parse(JSON.stringify(state)))
+    if (result.saved && doc.viewState === state) dirtyViews.delete(doc.id)
+    if (result.warning) message.value = result.warning
+  }))
 }
 async function run(operation, allowNameFailure = false) {
   if (busy.value || !loaded.value) return
+  await waitComposition()
+  if (busy.value) return
   busy.value = true; selectionVersion++
-  try { await flush(null, allowNameFailure); const snapshot = await operation(); if (snapshot?.documents) adopt(snapshot) }
+  try {
+    await flush(null, allowNameFailure)
+    const snapshot = await operation()
+    if (snapshot?.documents) { adopt(snapshot); await revealActive() }
+  }
   catch (error) { message.value = error.message }
   finally { busy.value = false }
 }
 async function activate(id) {
-  if (busy.value || activeId.value === id) return
-  const previous = activeId.value
-  positions.set(previous, window.scrollY)
-  await run(async () => {
+  if (busy.value) return
+  selectionVersion++
+  if (activeId.value === id) { await api.activate(id); return }
+  busy.value = true
+  try {
+    await waitComposition(); captureDisplayed(); await flush()
     await api.activate(id)
     selectionVersion++
-    activeId.value = id; visited.add(id); sourceMode.value = sessions.get(id)?.sourceMode ?? false
-    await nextTick(); window.scrollTo({ top: positions.get(id) || 0 })
-  })
+    activeId.value = id; sourceMode.value = sessions.get(id)?.sourceMode ?? false
+  } catch (error) { message.value = error.message }
+  finally { busy.value = false; showActive() }
 }
-async function toggleSource() { sourceMode.value = await sessions.get(activeId.value).toggleSource() }
+async function toggleSource() { await waitComposition(); sourceMode.value = await sessions.get(activeId.value)?.toggleSource() }
 async function save(saveAs) {
   const id = activeId.value
   await run(async () => {
     const result = await api.save(id, saveAs)
-    if (result.snapshot) adopt(result.snapshot)
     if (result.warning) message.value = result.warning
     if (result.conflict) message.value = '文件已被其他程序修改，本次未覆盖。可重新读取或另存为。'
+    return result.snapshot
   }, true)
 }
 async function closeDocument(id) {
@@ -225,10 +331,11 @@ async function closeDocument(id) {
     await run(async () => {
       const result = await api.close(id)
       if (result.closed) forgetDocument(id)
-      if (result.snapshot) adopt(result.snapshot)
+      return result.snapshot
     })
     return
   }
+  await waitComposition()
   busy.value = true; selectionVersion++; discardingIds.add(id)
   clearTimeout(timers.get(id)); timers.delete(id)
   clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
@@ -240,14 +347,14 @@ async function closeDocument(id) {
     if (result.snapshot) adopt(result.snapshot)
   } catch (error) { message.value = error.message }
   finally {
-    discardingIds.delete(id); busy.value = false
+    discardingIds.delete(id); busy.value = false; showActive()
     // If deletion failed, keep the local draft and resume its pending writes.
     if (isLive(doc)) { void backup(doc).catch(() => {}); void persistName(doc).catch(() => {}) }
   }
 }
 async function reloadDocument() {
   const id = activeId.value
-  await run(async () => { const result = await api.reload(id); if (result.reloaded) adopt(result.snapshot, id) })
+  await run(async () => { const result = await api.reload(id); return result.reloaded ? result.snapshot : undefined })
 }
 async function exportPdf() {
   const id = activeId.value
@@ -259,6 +366,7 @@ async function exportPdf() {
 }
 async function closeApplication() {
   if (busy.value) { await api.cancelClose(); return }
+  await waitComposition()
   busy.value = true
   try { await flush(); await api.closeReady() }
   catch (error) { message.value = error.message; await api.cancelClose() }
@@ -279,12 +387,14 @@ function shortcut(event) {
 onMounted(async () => {
   try {
     window.addEventListener('keydown', shortcut)
+    window.addEventListener('compositionstart', startComposition, true)
+    window.addEventListener('compositionend', endComposition, true)
     disposers = [api.onClose(closeApplication), api.onCommand(command), api.onDocuments(documentsChanged)]
-    adopt(await api.list()); loaded.value = true
+    adopt(await api.list()); await revealActive(); loaded.value = true
     await api.ready()
   } catch (error) { fatal.value = true; message.value = `启动失败：${error.message}` }
 })
-onBeforeUnmount(() => { timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut) })
+onBeforeUnmount(() => { timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut); window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true) })
 </script>
 <style>
 * { box-sizing: border-box; }
@@ -304,6 +414,8 @@ nav { display: flex; flex-shrink: 0; }
 nav button { font-size: 12px; }
 nav button[aria-pressed=true] { background: #e6eee5; }
 .document-shell { max-width: 900px; margin: 0 auto; padding: 30px 38px 100px; }
+.document-pane { padding-bottom: 0; }
+.shared-editor { padding-top: 0; }
 .document-meta { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; color: #849085; font-size: 11px; }
 .document-meta > :first-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .draft-name { flex: 1; min-width: 0; padding: 2px 4px; margin: -2px -4px; border: 0; border-radius: 3px; background: transparent; color: #53645d; }

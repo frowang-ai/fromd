@@ -1,3 +1,4 @@
+import { registerEmbeddedView } from './writingViewState.js'
 import katex from 'katex'
 import { EditorState as CodeState } from '@codemirror/state'
 import { EditorView as CodeView, keymap, drawSelection, highlightActiveLine } from '@codemirror/view'
@@ -92,13 +93,14 @@ export function blockFormulaView(initial, view, getPos) {
       }),
     ] }) })
   }
-  function open(entry = 'start') {
+  function open(entry = 'start', focus = true) {
     if (opened || destroyed || !view.editable) return
     opened = true; original = node.textContent
     view.dispatch(closeHistory(view.state.tr)); panel.hidden = false; dom.classList.add('is-editing')
     if (!code) createCode()
     const at = entry === 'end' ? code.state.doc.length : 0
-    code.dispatch({ selection: { anchor: at }, scrollIntoView: true }); code.focus()
+    code.dispatch({ selection: { anchor: at }, scrollIntoView: focus })
+    if (focus) code.focus()
   }
   done.addEventListener('click', () => close(true))
   preview.addEventListener('click', () => { if (opened) close(); else open() })
@@ -109,6 +111,15 @@ export function blockFormulaView(initial, view, getPos) {
   dom.addEventListener('focusout', () => queueMicrotask(() => {
     if (!destroyed && opened && !dom.contains(document.activeElement)) close()
   }))
+  const unregister = registerEmbeddedView(view, dom, getPos, () => opened && code ? {
+    kind: 'block', original, anchor: code.state.selection.main.anchor, head: code.state.selection.main.head,
+    scrollTop: code.scrollDOM.scrollTop, scrollLeft: code.scrollDOM.scrollLeft,
+  } : null, snapshot => {
+    if (snapshot.kind !== 'block') return
+    open('start', false); original = snapshot.original
+    code.dispatch({ selection: { anchor: snapshot.anchor, head: snapshot.head } })
+    code.scrollDOM.scrollTop = snapshot.scrollTop; code.scrollDOM.scrollLeft = snapshot.scrollLeft
+  }, () => code?.focus())
   renderPreview()
   return {
     dom, stopEvent: event => dom.contains(event.target), ignoreMutation: () => true,
@@ -126,6 +137,6 @@ export function blockFormulaView(initial, view, getPos) {
       cancelAnimationFrame(frame); frame = requestAnimationFrame(renderPreview)
       return true
     },
-    destroy() { destroyed = true; cancelAnimationFrame(frame); code?.destroy() },
+    destroy() { destroyed = true; unregister(); cancelAnimationFrame(frame); code?.destroy() },
   }
 }

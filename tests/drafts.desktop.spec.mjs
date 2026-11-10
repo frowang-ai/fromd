@@ -7,13 +7,16 @@ import { spawn } from 'node:child_process'
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const nameField = page => page.getByRole('textbox', { name: '草稿名称', exact: true })
 const status = page => page.getByRole('status', { name: '自动保存状态', exact: true })
-const source = page => page.getByRole('textbox', { name: 'Markdown 源码', exact: true })
-const snapshot = page => page.evaluate(() => window.desktop.list())
+const source = page => page.locator('.document-pane:visible').getByRole('textbox', { name: 'Markdown 源码', exact: true })
+const snapshot = page => page.evaluate(async () => {
+  const snapshot = await window.desktop.list()
+  return { ...snapshot, documents: await Promise.all(snapshot.documents.map(doc => window.desktop.read(doc.id))) }
+})
 async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
   const page = await app.firstWindow()
-  await expect(page.getByRole('button', { name: '源码', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
   return { app, page }
 }
 async function stop(app) {
@@ -36,12 +39,15 @@ async function sandbox() {
 }
 async function cleanup(directory) { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 async function putSource(page, text) {
-  const toggle = page.getByRole('button', { name: '源码', exact: true })
-  if (await toggle.isVisible()) await toggle.click()
+  const toggle = page.getByRole('button', { name: /^(源码|返回正文)$/ })
+  await expect(toggle).toBeVisible(); await expect(toggle).toBeEnabled()
+  if (await page.getByRole('button', { name: '源码', exact: true }).count()) await page.getByRole('button', { name: '源码', exact: true }).click()
+  await expect(source(page)).toBeVisible()
   await source(page).fill(text)
 }
 async function nameDraft(page, title) {
   await expect(page.locator('header')).not.toHaveAttribute('inert', '')
+  await expect(nameField(page)).toBeVisible()
   await nameField(page).fill(title)
   await nameField(page).press('Enter')
   await expect(status(page)).toHaveText('已自动保存')
@@ -97,18 +103,26 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     await putSource(page, '# 第一篇\n\n保留的 Agent 回复')
     await page.getByRole('button', { name: '新建', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await nameDraft(page, '用完即弃')
+    await expect(page.getByRole('tab', { name: '用完即弃', exact: true })).toHaveAttribute('aria-selected', 'true')
     await putSource(page, '第二篇稍后删除')
     await page.getByRole('button', { name: '新建', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(3)
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await nameDraft(page, '第三篇')
+    await expect(page.getByRole('tab', { name: '第三篇', exact: true })).toHaveAttribute('aria-selected', 'true')
     await putSource(page, '第三篇留到明天')
-    await page.getByRole('tab', { name: /Agent 回复一/ }).click()
+    await expect(status(page)).toHaveText('已自动保存')
+    await expect(page.getByRole('tab', { name: 'Agent 回复一', exact: true })).toBeVisible()
+    await page.getByRole('tab', { name: 'Agent 回复一', exact: true }).click()
     await expect(nameField(page)).toHaveValue('Agent 回复一')
     await expect(source(page)).toHaveValue('# 第一篇\n\n保留的 Agent 回复')
     await page.getByRole('button', { name: '关闭 用完即弃', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('tab', { name: /第三篇/ }).click()
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await nameField(page).fill('   ')
     await source(page).click() // blur finishes and normalizes an empty name
     await expect(nameField(page)).toHaveValue('未命名笔记')
@@ -234,18 +248,25 @@ test('已绑定文件显示路径，关闭保留保存／放弃／取消，另�
     await expect(page.locator('.document-meta').getByText(file, { exact: true })).toBeVisible()
     await putSource(page, '第一次未保存')
     await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 2 }) })
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
     await expect(source(page)).toHaveValue('第一次未保存')
     expect(await readFile(file, 'utf8')).toBe('磁盘原文')
     await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 0 }) })
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
     await expect(page.getByRole('tab', { name: /外部文件.md/ })).toHaveCount(0)
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     expect(await readFile(file, 'utf8')).toBe('第一次未保存')
     await app.evaluate(({ dialog }, filePath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] }) }, file)
     await page.getByRole('button', { name: '打开', exact: true }).click()
+    await expect(page.getByRole('tab', { name: '外部文件.md', exact: true })).toBeVisible()
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await putSource(page, '这次放弃修改')
     await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }) })
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await expect(nameField(page)).toBeVisible()
     expect(await readFile(file, 'utf8')).toBe('第一次未保存')
     await nameDraft(page, '建议文件名')
@@ -406,6 +427,8 @@ for (const invalidName of ['x'.repeat(1025), '中'.repeat(342)]) {
       expect(await readFile(destination, 'utf8')).toBe('需要另存的有效正文')
       await page.getByRole('button', { name: '新建', exact: true }).click()
       await expect(page.getByRole('tab')).toHaveCount(2)
+      await expect(page.locator('header')).not.toHaveAttribute('inert', '')
+      await expect(nameField(page)).toBeVisible()
       await nameField(page).fill(invalidName); await nameField(page).press('Enter')
       await expect(nameField(page)).toHaveValue(invalidName)
       await app.evaluate(({ ipcMain, BrowserWindow }) => {
@@ -470,6 +493,9 @@ for (const saveAs of [false, true]) {
         ipcMain.handle('documents:save', (...args) => { globalThis.__savedTargetIds.push(args[1]); return original(...args) })
         dialog.showSaveDialog = async () => ({ canceled: false, filePath })
       }, copy)
+      // A flush now writes only changed bodies. Create a real pending edit before
+      // holding its receipt, rather than depending on a redundant all-tab write.
+      await putSource(page, '原目标的修改正文（最后编辑）')
       await page.getByRole('button', { name: saveAs ? '另存为' : '保存', exact: true }).click()
       await expect.poll(() => app.evaluate(() => globalThis.__updateHeld)).toBe(true)
       await openSecondInstance(app, profile, other)
@@ -477,7 +503,7 @@ for (const saveAs of [false, true]) {
       await app.evaluate(() => globalThis.__releaseUpdate())
       await expect(page.locator('header')).not.toHaveAttribute('inert', '')
       expect(await app.evaluate(() => globalThis.__savedTargetIds)).toEqual([targetId])
-      expect(await readFile(saveAs ? copy : target, 'utf8')).toBe('原目标的修改正文')
+      expect(await readFile(saveAs ? copy : target, 'utf8')).toBe('原目标的修改正文（最后编辑）')
       expect(await readFile(other, 'utf8')).toBe('别篇原文')
     } finally { await stop(app); await cleanup(directory) }
   })
