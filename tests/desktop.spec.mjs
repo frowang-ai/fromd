@@ -1,5 +1,6 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { mkdtemp, readFile, writeFile, rm, unlink, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises'
+import { DatabaseSync } from 'node:sqlite'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +8,15 @@ import { spawn } from 'node:child_process'
 
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const processes = new WeakMap()
+function recoveryDocuments(profile) {
+  const db = new DatabaseSync(join(profile, 'drafts.sqlite'), { readOnly: true })
+  try { return db.prepare('SELECT * FROM documents ORDER BY position').all() }
+  finally { db.close() }
+}
+function recoverySQL(profile, sql) {
+  const db = new DatabaseSync(join(profile, 'drafts.sqlite'))
+  try { db.exec(sql) } finally { db.close() }
+}
 async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
@@ -35,6 +45,84 @@ async function putSource(page, text) {
 }
 async function chooseSave(app, path) { await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, path) }
 async function chooseMessage(app, response) { await app.evaluate(({ dialog }, response) => { dialog.showMessageBox = async () => ({ response }) }, response) }
+
+test('SQLite桌面：旧会话迁移、命名与阅读位置、关闭后正常退出重启', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'frowang-sqlite-')), profile = join(directory, 'profile')
+  await mkdir(profile)
+  const legacy = JSON.stringify({ version: 1, activeId: 'keep', documents: ['discard', 'keep'].map(id => ({
+    id, title: id, path: null, markdown: `${id} 草稿正文`, savedText: '', baseline: null,
+    eol: '\n', bom: false, revision: 1, conflict: false,
+  })) })
+  await writeFile(join(profile, 'session.json'), legacy)
+  let app
+  try {
+    app = await launch(profile); let page = await ready(app)
+    await expect(body(page)).toContainText('keep 草稿正文')
+    const result = await page.evaluate(async () => {
+      const api = window.desktop
+      const renamed = await api.rename('keep', '明天继续')
+      await api.setViewState('keep', { mode: 'source', scrollTop: 123, sourceSelection: { start: 1, end: 3 } })
+      await api.close('discard')
+      let closed = false
+      try { await api.update('discard', '迟到写入', 99) } catch { closed = true }
+      return { renamed, closed, metadata: await api.listMetadata(), read: await api.read('keep') }
+    })
+    expect(result.renamed).toEqual({ id: 'keep', title: '明天继续', backedUp: true, warning: '' })
+    expect(result.closed).toBe(true)
+    expect(result.metadata.documents).toHaveLength(1)
+    expect(result.metadata.documents[0]).not.toHaveProperty('markdown')
+    expect(result.read.revision).toBe(1)
+    expect(result.read.viewState.scrollTop).toBe(123)
+    await page.reload(); await ready(app)
+    await expect(page.getByRole('tab')).toHaveCount(1)
+    await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => { throw new Error('退出不应要求保存文件') } })
+    const exited = app.waitForEvent('close')
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()).catch(() => {})
+    await exited
+    app = await launch(profile); page = await ready(app)
+    await expect(page.getByRole('tab')).toHaveCount(1)
+    await expect(body(page)).toContainText('keep 草稿正文')
+    expect(await page.evaluate(async () => (await window.desktop.read('keep')).title)).toBe('明天继续')
+    expect(recoveryDocuments(profile).map(doc => doc.id)).toEqual(['keep'])
+    expect(await readFile(join(profile, 'session.json'), 'utf8')).toBe(legacy)
+  } finally { await stop(app); await cleanup(directory) }
+})
+
+for (const change of ['清空正文', '恢复默认名称']) {
+  test(`数据库拒写时${change}阻止退出，恢复存储后退出重启保留结果`, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'frowang-exit-regression-')), profile = join(directory, 'profile')
+    let app
+    try {
+      app = await launch(profile); let page = await ready(app)
+      const id = await page.evaluate(async () => (await window.desktop.listMetadata()).activeId)
+      if (change === '清空正文') {
+        await putSource(page, '待清空正文')
+        await expect.poll(() => recoveryDocuments(profile)[0].markdown).toBe('待清空正文')
+      } else {
+        expect((await page.evaluate(id => window.desktop.rename(id, '旧草稿名'), id)).backedUp).toBe(true)
+      }
+      recoverySQL(profile, "CREATE TRIGGER deny_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;")
+      if (change === '清空正文') await putSource(page, '')
+      else expect((await page.evaluate(id => window.desktop.rename(id, ''), id)).backedUp).toBe(false)
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
+      await expect(page.getByRole('alert')).toContainText('草稿备份不可用')
+      await expect(page.locator('header')).not.toHaveAttribute('inert', '')
+      const current = await page.evaluate(id => window.desktop.read(id), id)
+      expect(current.markdown).toBe(''); expect(current.title).toBe('未命名笔记'); expect(current.dirty).toBe(false)
+      expect(change === '清空正文' ? recoveryDocuments(profile)[0].markdown : recoveryDocuments(profile)[0].title)
+        .toBe(change === '清空正文' ? '待清空正文' : '旧草稿名')
+      recoverySQL(profile, 'DROP TRIGGER deny_settings;')
+      const exited = app.waitForEvent('close')
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()).catch(() => {})
+      await exited
+      app = await launch(profile); page = await ready(app)
+      const restored = await page.evaluate(id => window.desktop.read(id), id)
+      expect(restored.markdown).toBe(''); expect(restored.title).toBe('未命名笔记')
+      expect(recoveryDocuments(profile)[0].markdown).toBe('')
+      expect(recoveryDocuments(profile)[0].title).toBe('未命名笔记')
+    } finally { await stop(app); await cleanup(directory) }
+  })
+}
 
 test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', async ({}, info) => {
   const directory = await mkdtemp(join(tmpdir(), 'frowang-desktop-')), profile = join(directory, 'profile')
@@ -67,19 +155,22 @@ test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', a
     const pdfPath = join(directory, 'out.pdf'); await chooseSave(app, pdfPath)
     await page.getByRole('button', { name: 'PDF', exact: true }).click()
     await expect.poll(async () => (await readFile(pdfPath).catch(() => Buffer.alloc(0))).subarray(0, 5).toString(), { timeout: 60000 }).toBe('%PDF-')
-    await expect.poll(async () => JSON.parse(await readFile(join(profile, 'session.json'), 'utf8')).documents.at(-1).markdown).toContain('未保存草稿')
+    await expect.poll(async () => recoveryDocuments(profile).at(-1).markdown).toContain('未保存草稿')
     await page.screenshot({ path: info.outputPath('desktop-mvp.png') })
     expect(errors).toEqual([])
     // Kill the renderer host without the normal close handshake: recovery was already acknowledged.
     await stop(app); app = await launch(profile); page = await ready(app)
     await expect(body(page)).toContainText('未保存草稿'); await expect(page.getByRole('tab')).toHaveCount(3)
+    // Temporary drafts close immediately, regardless of message-box answers.
     await chooseMessage(app, 2)
     await page.getByRole('button', { name: '关闭 未命名笔记', exact: true }).last().click()
-    await expect(body(page)).toContainText('未保存草稿')
-    await chooseMessage(app, 1)
-    await page.getByRole('button', { name: '关闭 未命名笔记', exact: true }).last().click()
     await expect(page.getByRole('tab')).toHaveCount(2)
-    // Closing a file tab never deletes the file.
+    // Bound dirty files still offer cancel/discard, without deleting disk files.
+    await putSource(page, '文件关闭前未保存修改')
+    await page.getByRole('button', { name: '关闭 另存.md', exact: true }).click()
+    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(body(page)).toContainText('文件关闭前未保存修改')
+    await chooseMessage(app, 1)
     await page.getByRole('button', { name: '关闭 另存.md', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(1)
     expect(await readFile(copy, 'utf8')).toBe('外部版本')
@@ -93,7 +184,7 @@ test('页面崩溃可重载草稿，备份失败但文件已保存仍可退出',
   try {
     app = await launch(profile, [file]); let page = await ready(app)
     await putSource(page, 'recovered draft')
-    await expect.poll(async () => JSON.parse(await readFile(join(profile, 'session.json'), 'utf8')).documents.at(-1).markdown).toBe('recovered draft')
+    await expect.poll(async () => recoveryDocuments(profile).at(-1).markdown).toBe('recovered draft')
     await chooseMessage(app, 0)
     // Observe the reload from the still-alive main process. Playwright page
     // waiters intentionally reject when the renderer crash is injected.
@@ -109,8 +200,7 @@ test('页面崩溃可重载草稿，备份失败但文件已保存仍可退出',
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].webContents.send('application:command', 'save') })
     await expect.poll(() => readFile(file, 'utf8')).toBe('recovered draft')
     // Simulate recovery failure without touching the saved Markdown file.
-    const sessionPath = join(profile, 'session.json')
-    await unlink(sessionPath); await mkdir(sessionPath)
+    recoverySQL(profile, "CREATE TRIGGER deny_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;")
     const exited = app.waitForEvent('close')
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close() }).catch(() => {})
     await exited
@@ -118,23 +208,15 @@ test('页面崩溃可重载草稿，备份失败但文件已保存仍可退出',
   } finally { await stop(app); await cleanup(directory) }
 })
 
-test('重载中关闭请求等待页面就绪，取消后可以再次关闭', async () => {
+test('重载中关闭等待页面就绪，持久化失败阻止退出，修复后可再次关闭', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'frowang-handoff-')), profile = join(directory, 'profile')
   let app
   try {
     app = await launch(profile); const page = await ready(app)
     await putSource(page, '保留重载中的草稿')
-    await expect.poll(async () => JSON.parse(await readFile(join(profile, 'session.json'), 'utf8')).documents[0].markdown).toBe('保留重载中的草稿')
-    await app.evaluate(({ dialog }) => {
-      const answers = [1, 0]
-      globalThis.__closeAnswersUsed = []
-      dialog.showMessageBox = async () => {
-        const response = answers.shift()
-        if (response === undefined) throw new Error('Unexpected close dialog')
-        globalThis.__closeAnswersUsed.push(response)
-        return { response }
-      }
-    })
+    await expect.poll(async () => recoveryDocuments(profile)[0].markdown).toBe('保留重载中的草稿')
+    recoverySQL(profile, "CREATE TRIGGER deny_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;")
+    await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => { throw new Error('正常退出不应弹确认') } })
     await app.evaluate(async ({ ipcMain, BrowserWindow }) => {
       const handler = ipcMain._invokeHandlers.get('documents:list')
       let release
@@ -148,9 +230,10 @@ test('重载中关闭请求等待页面就绪，取消后可以再次关闭', as
     await expect(page.getByText('正在打开笔记…', { exact: true })).toBeVisible()
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].close(); globalThis.__releaseList() })
     await expect(body(page)).toContainText('保留重载中的草稿')
-    await expect.poll(() => app.evaluate(() => globalThis.__closeAnswersUsed)).toEqual([1])
+    await expect(page.getByRole('alert')).toContainText('草稿备份不可用')
     await expect(page.locator('header')).not.toHaveAttribute('inert', '')
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+    recoverySQL(profile, 'DROP TRIGGER deny_settings;')
     const exited = app.waitForEvent('close')
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()).catch(() => {})
     await exited

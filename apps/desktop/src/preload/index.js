@@ -12,6 +12,10 @@ const listen = (channel, callback) => {
 contextBridge.exposeInMainWorld('desktop', {
   ready: () => invoke('application:renderer-ready'),
   list: () => invoke('documents:list'),
+  listMetadata: () => invoke('documents:list-metadata'),
+  read: id => invoke('documents:read', id),
+  rename: (id, title) => invoke('documents:rename', id, title),
+  setViewState: (id, state) => invoke('documents:view-state', id, state),
   newDocument: () => invoke('documents:new'),
   open: () => invoke('documents:open'),
   update: (id, text, revision) => invoke('documents:update', id, text, revision),
