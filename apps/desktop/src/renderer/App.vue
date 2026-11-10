@@ -36,8 +36,9 @@ const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), 
 const current = computed(() => documents.value.find(doc => doc.id === activeId.value))
 const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), positions = new Map(), closedIds = new Set(), discardingIds = new Set()
 const busy = ref(false), loaded = ref(false), message = ref(''), fatal = ref(false), sourceMode = ref(false)
-let disposers = []
+let disposers = [], selectionVersion = 0, openEventVersion = 0
 const normalizeName = title => title.trim() || '未命名笔记'
+const nameError = title => new TextEncoder().encode(title).length > 1024 ? '笔记名称过长，最多支持 1024 UTF-8 字节；请缩短名称，或另存正文。' : ''
 const findDocument = id => documents.value.find(doc => doc.id === id)
 const isLive = doc => findDocument(doc.id) === doc
 watchEffect(() => { document.title = `${current.value?.title || '未命名笔记'} — Frowang Markdown` })
@@ -68,42 +69,63 @@ function adopt(snapshot, reloadId = null, preserveEdits = false) {
       // A second-instance snapshot can arrive while a title request is in flight.
       // Keep the same reactive object so pending replies can check its identity.
       if (!doc.path && (preserveEdits || old.nameVersion !== old.nameAcknowledged || old.nameBackup === 'failed')) local.title = old.title
+      if (preserveEdits && old.path) Object.assign(local, { path: old.path, title: old.title, conflict: old.conflict })
       Object.assign(old, doc, local)
-      if (old.path) { old.draftName = old.title; old.nameBackup = 'saved' }
+      if (old.path) { old.draftName = old.title; old.nameBackup = 'saved'; old.nameError = '' }
       else if (!preserveEdits && old.nameVersion === old.nameAcknowledged && old.nameBackup !== 'failed') old.draftName = old.title
       if (!preserveEdits) old.backup = snapshot.warning ? 'failed' : 'saved'
       return old
     }
     if (old) delete ready[doc.id]
-    return { ...doc, draftName: doc.title, nameVersion: 0, nameAcknowledged: 0,
+    return { ...doc, draftName: doc.title, nameError: '', nameVersion: 0, nameAcknowledged: 0,
       nameBackup: snapshot.warning ? 'failed' : 'saved', backup: snapshot.warning ? 'failed' : 'saved', generation: (old?.generation || 0) + 1 }
   }).concat(retained)
+  if (!preserveEdits) selectionVersion++
   activeId.value = documents.value.some(doc => doc.id === selected) ? selected : documents.value[0]?.id
   if (activeId.value) visited.add(activeId.value)
   sourceMode.value = sessions.get(activeId.value)?.sourceMode ?? false
   if (snapshot.warning) message.value = snapshot.warning
 }
+async function documentsChanged(snapshot) {
+  const selection = selectionVersion, eventVersion = ++openEventVersion
+  try {
+    // Open events can be delivered after a newer activate/save. Read the current
+    // selection, and do not apply that reply over a user action completed meanwhile.
+    const metadata = await api.listMetadata()
+    const selected = selection === selectionVersion && eventVersion === openEventVersion ? metadata.activeId : activeId.value
+    adopt({ ...snapshot, activeId: selected }, null, true)
+  } catch (error) {
+    adopt({ ...snapshot, activeId: activeId.value }, null, true)
+    message.value = error.message
+  }
+}
 function rename(id, title) {
   const doc = findDocument(id)
   if (!doc || doc.path || discardingIds.has(id) || doc.draftName === title) return
-  doc.draftName = title; doc.title = normalizeName(title); doc.nameVersion++; doc.nameBackup = 'pending'
-  clearTimeout(nameTimers.get(id))
+  const previousError = doc.nameError
+  doc.draftName = title; doc.nameVersion++; doc.nameError = nameError(title)
+  if (!doc.nameError && message.value === previousError) message.value = ''
+  clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
+  if (doc.nameError) { doc.nameBackup = 'failed'; message.value = doc.nameError; return }
+  doc.title = normalizeName(title); doc.nameBackup = 'pending'
   nameTimers.set(id, setTimeout(() => { nameTimers.delete(id); void persistName(doc).catch(() => {}) }, 250))
 }
 function finishName(id) {
   const doc = findDocument(id)
   if (!doc || doc.path) return
-  doc.draftName = doc.title
+  if (!doc.nameError) doc.draftName = doc.title
   clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
   void persistName(doc).catch(() => {})
 }
 async function persistName(doc) {
   if (!isLive(doc) || doc.path || discardingIds.has(doc.id)) return
   if (nameWrites.has(doc.id)) return nameWrites.get(doc.id)
+  if (doc.nameError) throw new Error(doc.nameError)
   if (doc.nameVersion === doc.nameAcknowledged && doc.nameBackup !== 'failed') return
   const pending = (async () => {
     // Only one request per document is sent at a time; newer input is coalesced.
     while (isLive(doc) && !doc.path && !discardingIds.has(doc.id)) {
+      if (doc.nameError) throw new Error(doc.nameError)
       const version = doc.nameVersion, title = doc.title
       try {
         const result = await api.rename(doc.id, title)
@@ -150,23 +172,28 @@ async function backup(doc) {
   writes.add(pending)
   try { await pending } finally { writes.delete(pending) }
 }
-async function flush(excludeId = null) {
+async function flush(excludeId = null, allowNameFailure = false) {
   const pendingDocuments = documents.value.filter(doc => doc.id !== excludeId)
   for (const doc of pendingDocuments) {
     const text = sessions.get(doc.id)?.getMarkdown()
     if (text !== undefined) change(doc.id, text)
-    if (!doc.path) doc.draftName = doc.title
+    if (!doc.path && !doc.nameError) doc.draftName = doc.title
     clearTimeout(timers.get(doc.id)); timers.delete(doc.id)
     clearTimeout(nameTimers.get(doc.id)); nameTimers.delete(doc.id)
   }
   // Retry the latest local values after any old failed requests have settled.
   await Promise.allSettled([...writes, ...nameWrites.values()])
-  await Promise.all(pendingDocuments.filter(isLive).flatMap(doc => [backup(doc), persistName(doc)]))
+  await Promise.all(pendingDocuments.filter(isLive).flatMap(doc => [backup(doc), persistName(doc).catch(error => {
+    // An invalid/unavailable name must not block the external-file escape route.
+    // Body failures still reject, and normal exit still requires every name.
+    if (!allowNameFailure) throw error
+    message.value = error.message
+  })]))
 }
-async function run(operation) {
+async function run(operation, allowNameFailure = false) {
   if (busy.value || !loaded.value) return
-  busy.value = true
-  try { await flush(); const snapshot = await operation(); if (snapshot?.documents) adopt(snapshot) }
+  busy.value = true; selectionVersion++
+  try { await flush(null, allowNameFailure); const snapshot = await operation(); if (snapshot?.documents) adopt(snapshot) }
   catch (error) { message.value = error.message }
   finally { busy.value = false }
 }
@@ -176,18 +203,20 @@ async function activate(id) {
   positions.set(previous, window.scrollY)
   await run(async () => {
     await api.activate(id)
+    selectionVersion++
     activeId.value = id; visited.add(id); sourceMode.value = sessions.get(id)?.sourceMode ?? false
     await nextTick(); window.scrollTo({ top: positions.get(id) || 0 })
   })
 }
 async function toggleSource() { sourceMode.value = await sessions.get(activeId.value).toggleSource() }
 async function save(saveAs) {
+  const id = activeId.value
   await run(async () => {
-    const result = await api.save(activeId.value, saveAs)
+    const result = await api.save(id, saveAs)
     if (result.snapshot) adopt(result.snapshot)
     if (result.warning) message.value = result.warning
     if (result.conflict) message.value = '文件已被其他程序修改，本次未覆盖。可重新读取或另存为。'
-  })
+  }, true)
 }
 async function closeDocument(id) {
   const doc = findDocument(id)
@@ -200,7 +229,7 @@ async function closeDocument(id) {
     })
     return
   }
-  busy.value = true; discardingIds.add(id)
+  busy.value = true; selectionVersion++; discardingIds.add(id)
   clearTimeout(timers.get(id)); timers.delete(id)
   clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
   try {
@@ -217,11 +246,13 @@ async function closeDocument(id) {
   }
 }
 async function reloadDocument() {
-  await run(async () => { const id = activeId.value, result = await api.reload(id); if (result.reloaded) adopt(result.snapshot, id) })
+  const id = activeId.value
+  await run(async () => { const result = await api.reload(id); if (result.reloaded) adopt(result.snapshot, id) })
 }
 async function exportPdf() {
+  const id = activeId.value
   await run(async () => {
-    const doc = current.value, pane = sessions.get(doc.id)
+    const doc = findDocument(id), pane = sessions.get(id)
     const html = await buildPdfDocument({ markdown: doc.markdown, title: doc.title, resolveImage: pane.resolveImage })
     await api.exportPdf(doc.id, html)
   })
@@ -248,7 +279,7 @@ function shortcut(event) {
 onMounted(async () => {
   try {
     window.addEventListener('keydown', shortcut)
-    disposers = [api.onClose(closeApplication), api.onCommand(command), api.onDocuments(snapshot => adopt(snapshot, null, true))]
+    disposers = [api.onClose(closeApplication), api.onCommand(command), api.onDocuments(documentsChanged)]
     adopt(await api.list()); loaded.value = true
     await api.ready()
   } catch (error) { fatal.value = true; message.value = `启动失败：${error.message}` }
