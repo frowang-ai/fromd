@@ -1,24 +1,26 @@
-# MVP v0.1 iteration plan
+# MVP v0.2 iteration plan
 
-本轮用户确认：先做能完整运行的最小版本，每轮验证后再增加功能。产品工作名 Frowang Markdown。
+本轮在0.1.0可靠打开、编辑、保存和恢复的基础上，完成 SQLite 临时草稿、草稿命名和多标签按需加载。产品工作名 Frowang Markdown，产物只在本机生成，不自动发布。
 
-## 本轮必须完成
+## 本轮完成范围
 
-- 独立目录与依赖：`apps/desktop` 和 `packages/editor`，不运行网站前后端。
-- Windows程序直接启动，本地多标签Markdown编辑。
-- UTF-8文件打开、原路径保存、另存为，保留BOM和换行。
-- 文件变化时阻止静默覆盖；关闭文档确认、未保存草稿恢复。
-- 相对图片基础读取与Electron PDF导出。
-- 文件单元测试、迁入编辑器回归、真实Electron与打包exe验收。
-- 开源许可与依赖说明；只产出本地文件，不自动公开发布。
+- SQLite 按篇保存草稿，启动和标签列表只读取 metadata；正文通过受限 `read(id)` 按需加载。
+- `contentHash` 与旧 SQLite 迁移；旧 `session.json` 只迁移一次并保留原件，失败事务可重试。
+- 临时草稿命名、关闭即删除；已关联文件仍遵循保存／放弃／取消。
+- 一个长期 Crepe/context/schema 和一个活跃富文本 DOM；每标签保留会话内正文、history、选区、滚动、源码 textarea、公式和代码块编辑状态。
+- 切换和关闭前显式 flush，延迟读取／写入／ready／blur 按文档 ID、generation 和 revision 校验；相对图片重建 nodeView。
+- 0.2.0 Windows portable 默认输出 `release/0.2.0/`；本轮验收产物使用独立 `release/0.2.0-verified/`，真实 Electron 与 portable smoke 已验证，命令和结果见 `VALIDATION.md`。
 
-## 下一轮再做
+## 保留边界
 
-- 旧网页全部标签会话迁移（本轮可逐篇导出.md再打开）。
-- 文件树、大纲、查找替换和最近文件。
-- 图片粘贴落盘、更多编码、实时外部修改提醒。
-- 主题、自定义快捷键、自动更新、正式签名与安装器。
+- undo/redo 不跨应用重启恢复；访问过的正文树、history 和源码 textarea 仍随访问数量增长。按需加载释放未活跃 DOM、KaTeX 和嵌入 CodeMirror，不承诺总内存与笔记数无关。
+- 真实 Windows 中文输入法、其他系统／架构、跨进程文件锁、自动更新、签名和公开发布仍不在承诺范围；合成 composition 测试不等于真机 IME 验收。
+
+## 后续范围
+
+- 旧网页全部标签会话迁移、文件树、大纲、查找替换和最近文件。
+- 图片粘贴落盘、更多编码、实时外部修改提醒、主题、自定义快捷键、自动更新、正式签名与安装器。
 
 ## 交付判据
 
-不是声称所有未知场景无bug，而是上述关键流程在真实文件与桌面程序上通过，已确认的内容丢失/覆盖/无法退出问题全部关闭。其他浏览器/系统、真机IME、并发外部写入竞态明确列出边界。发现新的可确认问题先修复，不用加功能掩盖。
+以 `npm test`、`npm run test:editor`、真实开发／打包 Electron 回归和 portable smoke 的实际结果为准；记录失败原因与未覆盖边界，不用性能单次观察替代行为验收。

@@ -48,9 +48,13 @@ export function suggestedFilename(title, extension = 'md') {
   return `${name}.${extension}`
 }
 function viewState(state) {
-  if (!state || typeof state !== 'object' || Array.isArray(state) || Object.keys(state).some(key => !['mode', 'scrollTop', 'selection', 'sourceSelection'].includes(key))) throw new Error('阅读状态无效。')
+  if (!state || typeof state !== 'object' || Array.isArray(state) || Object.keys(state).some(key => !['mode', 'scrollTop', 'selection', 'sourceSelection', 'sourceScrollTop'].includes(key))) throw new Error('阅读状态无效。')
   if (!['rendered', 'source'].includes(state.mode) || !Number.isFinite(state.scrollTop) || state.scrollTop < 0 || state.scrollTop > Number.MAX_SAFE_INTEGER) throw new Error('阅读状态无效。')
   const result = { mode: state.mode, scrollTop: state.scrollTop }
+  if (state.sourceScrollTop !== undefined) {
+    if (!Number.isFinite(state.sourceScrollTop) || state.sourceScrollTop < 0 || state.sourceScrollTop > Number.MAX_SAFE_INTEGER) throw new Error('阅读状态无效。')
+    result.sourceScrollTop = state.sourceScrollTop
+  }
   for (const [key, names] of [['selection', ['anchor', 'head']], ['sourceSelection', ['start', 'end']]]) {
     if (state[key] === undefined) continue
     const value = state[key]
@@ -84,8 +88,34 @@ export class DocumentStore {
       dirty: this.isDirty(doc), conflict: doc.conflict, viewState: structuredClone(doc.viewState) }
   }
   listMetadata() { return { documents: this.documents.map(doc => this.metadata(doc)), activeId: this.activeId, warning: this.warning } }
-  read(id) { const doc = this.get(id); return { ...this.metadata(doc), markdown: doc.markdown } }
-  snapshot() { return { ...this.listMetadata(), documents: this.documents.map(doc => this.read(doc.id)) } }
+  async body(id) {
+    this.get(id)
+    const pending = this.pending.get(id)?.fields
+    const markdown = pending && Object.hasOwn(pending, 'markdown') ? pending.markdown : await this.database.request('read', { id })
+    this.get(id)
+    return markdown
+  }
+  async read(id) {
+    const doc = this.get(id)
+    await this.checkExternal(doc)
+    const markdown = await this.body(id)
+    return { ...this.metadata(doc), markdown, warning: this.warning }
+  }
+  snapshot() { return this.listMetadata() }
+  async checkExternal(doc) {
+    if (!doc.path) return
+    try {
+      const bytes = await fileBytes(doc.path), baseline = digest(bytes), format = decode(bytes)
+      if (!this.isDirty(doc) && baseline !== doc.baseline) {
+        const { markdown, ...formatMetadata } = format
+        const fields = { ...formatMetadata, baseline, savedHash: digest(markdown), contentHash: digest(markdown), conflict: false, revision: doc.revision + 1 }
+        Object.assign(doc, fields); this.mark(doc, { ...fields, markdown })
+      } else if (doc.conflict !== (baseline !== doc.baseline)) {
+        doc.conflict = baseline !== doc.baseline; this.mark(doc, { conflict: doc.conflict })
+      }
+    } catch { if (!doc.conflict) { doc.conflict = true; this.mark(doc, { conflict: true }) } }
+    if (this.pending.has(doc.id)) await this.tryPersist()
+  }
   mark(doc, fields, insert = false) {
     const previous = this.pending.get(doc.id)
     this.pending.set(doc.id, { insert: insert || previous?.insert || false, fields: { ...previous?.fields, ...fields } })
@@ -94,22 +124,11 @@ export class DocumentStore {
     try {
       this.database = new RecoveryDatabase(this.directory, this.maxSessionBytes)
       const saved = await this.database.request('initialize')
-      this.documents = saved.documents.map(doc => ({ ...doc, contentHash: digest(doc.markdown) }))
+      this.documents = saved.documents
       this.persistedIds = new Set(this.documents.map(doc => doc.id))
       this.position = Math.max(-1, ...this.documents.map(doc => doc.position)) + 1
       this.activeId = this.documents.some(doc => doc.id === saved.activeId) ? saved.activeId : this.documents[0]?.id
-      // Clean files follow disk; dirty files retain their acknowledged draft and baseline.
-      for (const doc of this.documents) {
-        if (!doc.path) continue
-        try {
-          const bytes = await fileBytes(doc.path)
-          if (!this.isDirty(doc)) {
-            const format = decode(bytes)
-            const fields = { ...format, savedHash: digest(format.markdown), baseline: digest(bytes), conflict: false }
-            Object.assign(doc, fields, { contentHash: fields.savedHash }); this.mark(doc, fields)
-          } else { doc.conflict = digest(bytes) !== doc.baseline; this.mark(doc, { conflict: doc.conflict }) }
-        } catch { doc.conflict = true; this.mark(doc, { conflict: true }) }
-      }
+      // Check disk only when this document is read or saved.
     } catch {
       this.warning = '恢复文件无法读取，原文件已保留。本次会话不能自动备份，请用保存或另存为保留内容。'
       this.recoveryWritable = false; this.documents = []; this.activeId = null
@@ -124,8 +143,7 @@ export class DocumentStore {
     const pending = new Map(this.pending), deletions = [...this.deleted]
     const changes = [...pending].map(([id, change]) => {
       if (!change.insert) return { id, fields: change.fields }
-      const { contentHash, ...document } = this.get(id)
-      return { insert: true, document }
+      return { insert: true, document: { ...this.get(id), ...change.fields } }
     })
     try {
       await this.database.request('apply', { changes, deletions, activeId: this.activeId })
@@ -142,27 +160,28 @@ export class DocumentStore {
   async tryPersist() { try { return await this.persist() } catch { return false } }
   async dispose() { await this.database?.dispose() }
   async newDocument(markdown = '', title = UNTITLED) {
-    const doc = { id: randomUUID(), title, markdown, savedHash: digest(''), contentHash: digest(markdown), path: null, baseline: null, bom: false, eol: '\n', revision: 0, conflict: false, viewState: null, position: this.position++ }
-    this.documents.push(doc); this.activeId = doc.id; this.mark(doc, {}, true)
+    const doc = { id: randomUUID(), title, savedHash: digest(''), contentHash: digest(markdown), path: null, baseline: null, bom: false, eol: '\n', revision: 0, conflict: false, viewState: null, position: this.position++ }
+    this.documents.push(doc); this.activeId = doc.id; this.mark(doc, { markdown }, true)
     await this.tryPersist(); return this.snapshot()
   }
   async openFile(path) {
     const canonical = await canonicalPath(path)
     const existing = this.documents.find(doc => doc.path && pathKey(doc.path) === pathKey(canonical))
     if (existing) { this.activeId = existing.id; await this.tryPersist(); return this.snapshot() }
-    const bytes = await fileBytes(canonical), format = decode(bytes)
-    const doc = { id: randomUUID(), title: basename(canonical), ...format, savedHash: digest(format.markdown), contentHash: digest(format.markdown), path: canonical, baseline: digest(bytes), revision: 0, conflict: false, viewState: null, position: this.position++ }
-    this.documents.push(doc); this.activeId = doc.id; this.mark(doc, {}, true)
+    const bytes = await fileBytes(canonical), { markdown, ...format } = decode(bytes)
+    const doc = { id: randomUUID(), title: basename(canonical), ...format, savedHash: digest(markdown), contentHash: digest(markdown), path: canonical, baseline: digest(bytes), revision: 0, conflict: false, viewState: null, position: this.position++ }
+    this.documents.push(doc); this.activeId = doc.id; this.mark(doc, { markdown }, true)
     await this.tryPersist(); return this.snapshot()
   }
   async update(id, markdown, revision) {
     if (typeof markdown !== 'string' || Buffer.byteLength(markdown) > MAX_BYTES || !Number.isSafeInteger(revision) || revision < 0) throw new Error('笔记内容或版本无效。')
     const doc = this.get(id)
     if (revision < doc.revision) return { backedUp: false, stale: true }
-    if (revision === doc.revision && markdown !== doc.markdown) throw new Error('笔记版本冲突，请先另存当前内容。')
-    if (markdown !== doc.markdown || revision !== doc.revision) {
-      doc.markdown = markdown; doc.revision = revision; doc.contentHash = digest(markdown)
-      this.mark(doc, { markdown, revision })
+    const contentHash = digest(markdown)
+    if (revision === doc.revision && contentHash !== doc.contentHash) throw new Error('笔记版本冲突，请先另存当前内容。')
+    if (contentHash !== doc.contentHash || revision !== doc.revision) {
+      doc.revision = revision; doc.contentHash = contentHash
+      this.mark(doc, { markdown, revision, contentHash })
     }
     const backedUp = await this.tryPersist()
     return { backedUp, dirty: this.isDirty(doc), warning: backedUp ? '' : this.warning }
@@ -185,16 +204,13 @@ export class DocumentStore {
     const doc = this.get(id), path = await canonicalPath(targetPath || doc.path)
     if (this.documents.some(other => other.id !== id && other.path && pathKey(other.path) === pathKey(path))) throw new Error('该文件已经在另一标签中打开，请切到那一篇保存。')
     const sameFile = doc.path && pathKey(doc.path) === pathKey(path)
+    await this.checkExternal(doc)
     if (sameFile) {
-      let current
-      try { current = digest(await fileBytes(path)) } catch (error) { if (error.code !== 'ENOENT') throw error }
-      if (current !== doc.baseline) {
-        doc.conflict = true; this.mark(doc, { conflict: true }); await this.tryPersist()
-        return { conflict: true, snapshot: this.snapshot() }
-      }
+      if (doc.conflict) return { conflict: true, snapshot: this.snapshot() }
       if (!this.isDirty(doc)) return { saved: true, warning: this.warning, snapshot: this.snapshot() }
     }
-    const normalized = doc.markdown.replace(/\r\n?/g, '\n').replace(/\n/g, doc.eol)
+    const markdown = await this.body(id)
+    const normalized = markdown.replace(/\r\n?/g, '\n').replace(/\n/g, doc.eol)
     const bytes = Buffer.from((doc.bom ? '\ufeff' : '') + normalized)
     if (bytes.length > MAX_BYTES) throw new Error('保存后的文件超过 10 MB（包括换行和 BOM），请精简或拆分。原文件未修改。')
     await atomicWrite(path, bytes)
@@ -207,9 +223,9 @@ export class DocumentStore {
   async reload(id) {
     const doc = this.get(id)
     if (!doc.path) throw new Error('未命名笔记没有磁盘文件。')
-    const bytes = await fileBytes(doc.path), format = decode(bytes)
-    const fields = { ...format, savedHash: digest(format.markdown), baseline: digest(bytes), conflict: false, revision: doc.revision + 1 }
-    Object.assign(doc, fields, { contentHash: fields.savedHash }); this.mark(doc, fields)
+    const bytes = await fileBytes(doc.path), { markdown, ...format } = decode(bytes)
+    const fields = { ...format, savedHash: digest(markdown), contentHash: digest(markdown), baseline: digest(bytes), conflict: false, revision: doc.revision + 1 }
+    Object.assign(doc, fields); this.mark(doc, { ...fields, markdown })
     await this.tryPersist(); return this.snapshot()
   }
   async close(id) {

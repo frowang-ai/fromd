@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 
 const { directory, maxSessionBytes } = workerData
-const columns = ['title', 'path', 'markdown', 'savedHash', 'baseline', 'bom', 'eol', 'revision', 'conflict', 'viewState', 'position']
+const columns = ['title', 'path', 'markdown', 'contentHash', 'savedHash', 'baseline', 'bom', 'eol', 'revision', 'conflict', 'viewState', 'position']
 const digest = text => createHash('sha256').update(text).digest('hex')
 let db
 function transaction(action) {
@@ -40,7 +40,7 @@ function legacySession() {
   if (new Set(saved.documents.map(doc => doc.id)).size !== saved.documents.length) throw new Error('Duplicate documents')
   return { activeId: saved.activeId, documents: saved.documents.map((doc, position) => ({
     id: doc.id, title: doc.title, path: doc.path, markdown: doc.markdown,
-    savedHash: digest(doc.savedText), baseline: doc.baseline, bom: doc.bom, eol: doc.eol,
+    savedHash: digest(doc.savedText), contentHash: digest(doc.markdown), baseline: doc.baseline, bom: doc.bom, eol: doc.eol,
     revision: doc.revision, conflict: Boolean(doc.conflict), viewState: null, position,
   })) }
 }
@@ -51,7 +51,7 @@ function initialize() {
   db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
     CREATE TABLE IF NOT EXISTS documents (
       id TEXT PRIMARY KEY, title TEXT NOT NULL, path TEXT, markdown TEXT NOT NULL,
-      savedHash TEXT NOT NULL, baseline TEXT, bom INTEGER NOT NULL, eol TEXT NOT NULL,
+      savedHash TEXT NOT NULL, contentHash TEXT NOT NULL DEFAULT '', baseline TEXT, bom INTEGER NOT NULL, eol TEXT NOT NULL,
       revision INTEGER NOT NULL, conflict INTEGER NOT NULL, viewState TEXT NOT NULL,
       position INTEGER NOT NULL, size INTEGER NOT NULL DEFAULT 0
     );
@@ -62,18 +62,29 @@ function initialize() {
       UPDATE documents SET size=length(CAST(NEW.markdown AS BLOB))+length(CAST(NEW.title AS BLOB))+length(CAST(COALESCE(NEW.path,'') AS BLOB))+length(CAST(NEW.viewState AS BLOB))+256 WHERE id=NEW.id;
     END;`)
   const version = db.prepare("SELECT value FROM settings WHERE key='version'").get()?.value
-  if (version && version !== '1') throw new Error('Unsupported recovery version')
+  if (version && !['1', '2'].includes(version)) throw new Error('Unsupported recovery version')
+  // Old databases already record JSON migration. Never import that JSON again.
+  // Backfill one bounded row at a time, atomically with the schema/version change.
+  if (version === '1') transaction(() => {
+    if (!db.prepare('PRAGMA table_info(documents)').all().some(column => column.name === 'contentHash'))
+      db.exec("ALTER TABLE documents ADD COLUMN contentHash TEXT NOT NULL DEFAULT ''")
+    const update = db.prepare('UPDATE documents SET contentHash=? WHERE id=?')
+    for (const doc of db.prepare('SELECT id, markdown FROM documents').iterate()) update.run(digest(doc.markdown), doc.id)
+    db.prepare("UPDATE settings SET value='2' WHERE key='version'").run()
+  })
   if (!version) {
     const saved = legacySession()
     transaction(() => {
+      if (!db.prepare('PRAGMA table_info(documents)').all().some(column => column.name === 'contentHash'))
+        db.exec("ALTER TABLE documents ADD COLUMN contentHash TEXT NOT NULL DEFAULT ''")
       for (const doc of saved.documents) insert(doc)
       checkCapacity()
-      db.prepare("INSERT INTO settings (key,value) VALUES ('version','1'),('activeId',?)").run(typeof saved.activeId === 'string' ? saved.activeId : null)
+      db.prepare("INSERT INTO settings (key,value) VALUES ('version','2'),('activeId',?)").run(typeof saved.activeId === 'string' ? saved.activeId : null)
     })
   }
   checkCapacity()
   return {
-    documents: db.prepare('SELECT * FROM documents ORDER BY position').all().map(({ size, ...doc }) => ({ ...doc, bom: Boolean(doc.bom), conflict: Boolean(doc.conflict), viewState: JSON.parse(doc.viewState) })),
+    documents: db.prepare(`SELECT id, ${columns.filter(key => key !== 'markdown').join(',')} FROM documents ORDER BY position`).all().map(doc => ({ ...doc, bom: Boolean(doc.bom), conflict: Boolean(doc.conflict), viewState: JSON.parse(doc.viewState) })),
     activeId: db.prepare("SELECT value FROM settings WHERE key='activeId'").get()?.value,
   }
 }
@@ -100,6 +111,11 @@ parentPort.on('message', ({ id, operation, payload }) => {
   try {
     let result
     if (operation === 'initialize') result = initialize()
+    else if (operation === 'read') {
+      const row = db.prepare('SELECT markdown FROM documents WHERE id=?').get(payload.id)
+      if (!row) throw new Error('笔记已经关闭。')
+      result = row.markdown
+    }
     else if (operation === 'apply') result = apply(payload)
     else if (operation === 'close') { db?.close(); db = null; result = true }
     else throw new Error('Unknown storage operation')

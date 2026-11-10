@@ -1,3 +1,4 @@
+import { registerEmbeddedView, trackCodeBlockView } from './writingViewState.js'
 import katex from 'katex'
 import remarkMath from 'remark-math'
 import { $nodeSchema, $remark } from '@milkdown/kit/utils'
@@ -78,7 +79,7 @@ function inlineFormulaView(initial, view, getPos) {
     tr.setNodeAttribute(pos, 'value', text)
     view.dispatch(tr)
   }
-  function open(entry = 'end') {
+  function open(entry = 'end', focus = true) {
     if (opened || !view.editable || destroyed) return
     let caret = entry === 'start' ? 0 : source.value.length
     if (typeof entry === 'object' && entry.detail > 0) {
@@ -89,7 +90,8 @@ function inlineFormulaView(initial, view, getPos) {
     view.dispatch(closeHistory(view.state.tr))
     dom.classList.add('is-editing'); preview.hidden = true; source.hidden = false
     inlineUi?.open()
-    source.focus({ preventScroll: true }); source.setSelectionRange(caret, caret)
+    if (focus) source.focus({ preventScroll: true })
+    source.setSelectionRange(caret, caret)
   }
   function close(focus = false, direction = 1) {
     if (!opened) return
@@ -148,6 +150,13 @@ function inlineFormulaView(initial, view, getPos) {
       (event.key === 'ArrowRight' && source.selectionEnd === source.value.length)
     )) { event.preventDefault(); close(true, event.key === 'ArrowLeft' ? -1 : 1) }
   })
+  const unregister = registerEmbeddedView(view, dom, getPos, () => opened ? {
+    kind: 'inline', original, start: source.selectionStart, end: source.selectionEnd, scrollTop: source.scrollTop,
+  } : null, snapshot => {
+    if (snapshot.kind !== 'inline') return
+    open('end', false); original = snapshot.original
+    source.setSelectionRange(snapshot.start, snapshot.end); source.scrollTop = snapshot.scrollTop
+  }, () => source.focus({ preventScroll: true }))
   render()
   return {
     dom, stopEvent: event => dom.contains(event.target), ignoreMutation: () => true,
@@ -157,7 +166,7 @@ function inlineFormulaView(initial, view, getPos) {
       if (next.type !== node.type) return false
       node = next; render(); return true
     },
-    destroy() { destroyed = true; inlineUi?.destroy() },
+    destroy() { destroyed = true; unregister(); inlineUi?.destroy() },
   }
 }
 export function installWritingMathViews(view) {
@@ -194,7 +203,7 @@ export function installWritingMathViews(view) {
     math_inline: (node, editor, getPos) => inlineFormulaView(node, editor, getPos),
     code_block: (node, editor, getPos, decorations, innerDecorations) => {
       if (String(node.attrs.language).toLowerCase() === 'latex') return blockFormulaView(node, editor, getPos)
-      return previous.code_block?.(node, editor, getPos, decorations, innerDecorations) || null
+      return trackCodeBlockView(previous.code_block?.(node, editor, getPos, decorations, innerDecorations), editor, getPos) || null
     },
   } })
 }

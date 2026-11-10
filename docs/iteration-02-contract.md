@@ -25,14 +25,14 @@ C / 按需加载：在 A、B 稳定的基线上负责 metadata-only 正式列表
 
 ## A/B 公共 API 约定
 
-已有方法在 A 阶段保持兼容：`list/newDocument/open/update/activate/save/close/reload/exportPdf/ready/closeReady/cancelClose` 及现有事件。`list()` 暂保留完整旧快照以便独立验收，C 再将正式启动链路迁到 metadata-only。
+已有方法保留：`list/newDocument/open/update/activate/save/close/reload/exportPdf/ready/closeReady/cancelClose` 及现有事件。A 阶段的完整正文快照仅用于当时的独立验收；C 正式接口中 `list()`、操作结果的 `snapshot` 和 `documents:changed` 均只返回 metadata，正文使用 `read(id)`。
 
 新增方法（通过受限 preload 暴露，main 继续验证来源）：
 
 - `rename(id, title)` → `{ id, title, backedUp, warning }`。只改未关联文件的草稿名称；前后空白修剪，空名归一为“未命名笔记”，拒绝非字符串及过大输入。不得修改正文 revision。不会返回旧正文覆盖界面。关联文件不通过此接口重命名磁盘文件。
 - `listMetadata()` → `{ documents: metadata[], activeId, warning }`，不含任何正文或 savedText。
 - `read(id)` → 单篇可供界面使用的文档，包含 markdown、metadata、viewState，不暴露用于磁盘比较的正文副本。
-- `setViewState(id, state)` → `{ saved, warning }`。state 使用小型可验证 JSON：`mode: 'rendered'|'source'`、`scrollTop`、可选 `selection: { anchor, head }`、可选 `sourceSelection: { start, end }`；初期由 A 提供持久化入口，C 接入。不得携带无限制对象、DOM 或完整撤销历史。
+- `setViewState(id, state)` → `{ saved, warning }`。state 使用小型可验证 JSON：`mode: 'rendered'|'source'`、`scrollTop`、可选 `sourceScrollTop`、可选 `selection: { anchor, head }`、可选 `sourceSelection: { start, end }`；初期由 A 提供持久化入口，C 接入。不得携带无限制对象、DOM 或完整撤销历史。
 
 metadata 至少含 `id/title/path/revision/dirty/conflict`，可携带 `viewState` 和时间信息。`path: null` 是内部草稿。列表顺序就是标签顺序。
 
@@ -46,6 +46,8 @@ B 的名称输入本地即时更新标签，可合并连续输入，Enter/失焦
 
 ## 存储约束
 
+- 数据库 schema v2 增加 `contentHash`，worker 初始化仅传元数据；旧 SQLite 在同一事务逐行回填 hash，旧 JSON 的一次迁移标记继续有效。main 仅在未确认写入的 pending 中保留正文，正文读取按单篇进行。
+- 外部文件在首次读取或保存时核对。clean 跟随磁盘并更新格式/hash，dirty 保留草稿并核对 baseline；缺失或非法编码保留数据库正文并显式 conflict，启动不扫描全部外部正文。
 - SQLite 按篇保存，通过 worker 串行执行短事务；不在渲染线程或 Electron 主循环执行大量同步数据库工作。
 - 优先验证现有 Node/Electron 的 `node:sqlite` 能力与打包 worker 路径；确需第三方依赖时说明选择，锁定版本，不做无关依赖升级。
 - 创建/保存/关闭更新以事务保证状态一致；数据库成功提交后才能回报自动保存成功。

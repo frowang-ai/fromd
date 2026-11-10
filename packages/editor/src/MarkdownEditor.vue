@@ -11,7 +11,8 @@ import { Crepe } from '@milkdown/crepe'
 import * as core from '@milkdown/kit/core'
 import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
-import { TextSelection } from '@milkdown/kit/prose/state'
+import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import * as utils from '@milkdown/kit/utils'
 import { noteScriptPlugins } from './compatibility/noteScriptMarks.js'
@@ -32,19 +33,80 @@ import './writingLists.css'
 import './writingTextStyles.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null } })
-const emit = defineEmits(['update:modelValue', 'ready'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
-let editor, initialDoc, original = props.modelValue, disposed = false
+let editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
+let activeSession = null, sessionResolver = null, allPlugins, switching = false, updateTimer, rememberedViews = null, restoredViews = []
+let resolveReady
+const initialized = new Promise(resolve => { resolveReady = resolve })
 const view = () => editor?.editor.action(ctx => ctx.get(core.editorViewCtx))
-function getMarkdown() { return !initialDoc || view().state.doc.eq(initialDoc) ? original : editor.getMarkdown() }
+function serializePreservingOriginal(doc, baseline = initialDoc, normalized = initialSerialized, raw = original) {
+  if (doc.eq(baseline)) return raw
+  const text = editor.editor.ctx.get(core.serializerCtx)(doc)
+  // Derived heading/list attributes can change without a Markdown edit.
+  return text === normalized ? raw : text
+}
+function getMarkdown() { return created ? serializePreservingOriginal(view().state.doc) : original }
 function replaceMarkdown(markdown) {
   if (!editor) return
   editor.editor.action(utils.replaceAll(markdown))
-  original = markdown; initialDoc = view().state.doc
+  original = markdown; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown(); clearTimeout(updateTimer); rememberedViews = null
   emit('update:modelValue', markdown)
 }
-defineExpose({ getMarkdown, replaceMarkdown })
+async function settleComposition() {
+  if (!created) return
+  for (let frame = 0; view().composing && frame < 120; frame++) await new Promise(resolve => requestAnimationFrame(resolve))
+  if (view().composing) throw new Error('请先完成输入法组合输入。')
+}
+async function whenReady() { if (!await initialized) throw new Error(error.value || '编辑器已关闭。') }
+function rememberView() { if (created && activeSession) rememberedViews = captureEmbeddedViews(view()) }
+function captureSession() {
+  if (!created || !activeSession) return null
+  const v = view(), embedded = rememberedViews ?? captureEmbeddedViews(v)
+  return { original, initialDoc, initialSerialized, state: v.state.reconfigure({ plugins: allPlugins.filter(plugin => plugin.key === 'history$') }), embedded }
+}
+function selection() { const s = view()?.state.selection; return s ? { anchor: s.anchor, head: s.head } : undefined }
+function setState(state) { editor.editor.ctx.set(core.editorStateCtx, state); view().updateState(state) }
+function activateSession({ id, generation, snapshot, markdown = '', viewState, resolveImage }) {
+  if (!created || disposed) throw new Error('编辑器尚未就绪。')
+  if (view().composing) throw new Error('请先完成输入法组合输入。')
+  switching = true; clearTimeout(updateTimer); activeSession = null; rememberedViews = null
+  try {
+    sessionResolver = resolveImage
+    // Even identical documents must release node views (relative images, formula
+    // UI and nested CM). The schema/context stays alive for every history step.
+    setState(EditorState.create({ schema: view().state.schema, plugins: allPlugins }))
+    original = snapshot?.original ?? markdown
+    let state = snapshot ? snapshot.state.reconfigure({ plugins: allPlugins }) : EditorState.create({
+      schema: view().state.schema, doc: editor.editor.ctx.get(core.parserCtx)(markdown), plugins: allPlugins,
+    })
+    initialDoc = snapshot?.initialDoc ?? state.doc
+    initialSerialized = snapshot?.initialSerialized ?? editor.editor.ctx.get(core.serializerCtx)(initialDoc)
+    if (!snapshot && viewState?.selection) {
+      const { anchor, head } = viewState.selection, limit = state.doc.content.size
+      state = state.apply(state.tr.setSelection(TextSelection.between(state.doc.resolve(Math.min(anchor, limit)), state.doc.resolve(Math.min(head, limit)))))
+    }
+    setState(state); activeSession = { id, generation }; restoredViews = snapshot?.embedded || []
+  } finally { switching = false }
+}
+function restoreSessionView() {
+  if (!created || !activeSession) return
+  switching = true
+  try { restoreEmbeddedViews(view(), restoredViews) }
+  finally { switching = false }
+}
+function focusSessionView() {
+  if (!created || !activeSession) return
+  focusEmbeddedView(view(), restoredViews); restoredViews = []
+}
+function clearSession() {
+  if (!created) return
+  switching = true; clearTimeout(updateTimer); activeSession = null; rememberedViews = null; restoredViews = []; sessionResolver = null
+  try { setState(EditorState.create({ schema: view().state.schema, plugins: allPlugins })); original = ''; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown() }
+  finally { switching = false }
+}
+defineExpose({ getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -72,7 +134,8 @@ onMounted(async () => {
       } : rule), toDOM(node) {
         const dom = schema.toDOM(node), attrs = { ...dom[1], 'data-editor-image-src': node.attrs.src }
         const originalSrc = attrs.src
-        const safeSrc = props.resolveImage ? props.resolveImage(originalSrc) : (isAllowedResourceUrl(originalSrc) ? originalSrc : null)
+        const resolver = sessionResolver || props.resolveImage
+        const safeSrc = resolver ? resolver(originalSrc) : (isAllowedResourceUrl(originalSrc) ? originalSrc : null)
         if (safeSrc) attrs.src = safeSrc
         else { delete attrs.src; attrs.alt = `${attrs.alt || ''} [图片暂不可用]` }
         return [dom[0], attrs]
@@ -103,10 +166,24 @@ onMounted(async () => {
         return () => ctx.clearTimer(ready)
       }
     })
-    editor.on(listener => listener.markdownUpdated(() => { if (initialDoc && !disposed) emit('update:modelValue', getMarkdown()) }))
+    editor.on(listener => listener.markdownUpdated(() => { if (initialDoc && !disposed && !activeSession && !switching) emit('update:modelValue', getMarkdown()) }))
     await editor.create()
     if (disposed) { await editor.destroy(); return }
-    initialDoc = view().state.doc
+    created = true; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown(); allPlugins = view().state.plugins
+    const v = view()
+    v.setProps({ dispatchTransaction(transaction) {
+      const owner = activeSession, next = v.state.apply(transaction)
+      v.updateState(next)
+      if (!owner || switching || !transaction.docChanged) return
+      rememberedViews = null
+      const doc = next.doc, baseline = initialDoc, normalized = initialSerialized, raw = original
+      clearTimeout(updateTimer)
+      updateTimer = setTimeout(() => {
+        if (disposed || activeSession !== owner || switching) return
+        emit('session-change', { ...owner, markdown: serializePreservingOriginal(doc, baseline, normalized, raw) })
+      }, 150)
+    } })
+    v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view())
     installWritingListViews(view())
     installWritingListKeys(view())
@@ -119,14 +196,14 @@ onMounted(async () => {
     view().dom.setAttribute('role', 'textbox')
     view().dom.setAttribute('aria-label', 'Markdown 正文')
     view().dom.setAttribute('aria-multiline', 'true')
-    emit('ready', true)
+    emit('ready', true); resolveReady(true)
   } catch (cause) {
     logWritingEvent('editor-error', { editorId, errorType: cause instanceof TypeError ? 'TypeError' : 'Error' })
-    error.value = `编辑器加载失败：${cause.message}`
+    error.value = `编辑器加载失败：${cause.message}`; resolveReady(false)
   }
   finally { loading.value = false }
 })
-onBeforeUnmount(() => { disposed = true; if (initialDoc) editor?.destroy().catch(() => {}) })
+onBeforeUnmount(() => { disposed = true; clearTimeout(updateTimer); resolveReady(false); if (created) editor?.destroy().catch(() => {}) })
 </script>
 <style>
 .writing-editor .milkdown {

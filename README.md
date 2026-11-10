@@ -1,14 +1,14 @@
-# Frowang Markdown — Windows MVP 0.1
+# Frowang Markdown — Windows MVP 0.2
 
-本地 Markdown 编辑器，第一轮目标是可靠打开、编辑、保存和恢复文件。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
+本地 Markdown 编辑器，第二轮在可靠打开、编辑、保存和恢复的基础上，加入 SQLite 草稿、草稿命名和多标签按需加载。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
 
-本机Windows x64初版产物：`release/Frowang-Markdown-0.1.0-x64.exe`（免安装）或 `release/win-unpacked/Frowang Markdown.exe`（同目录文件必须一起保留）。编辑内核56/56、文件层10/10、开发构建桌面5/5、打包程序桌面5/5通过。具体覆盖与限制见 `VALIDATION.md`。源码为独立 Git 仓库，远端为私有的 [frowang-ai/markdown-editor](https://github.com/frowang-ai/markdown-editor)，默认分支 `main`；首个 MVP 基线为 `b575e30`。尚未公开发布。
+本机Windows x64 0.2.0 验收产物目录：`release/0.2.0-verified/`，便携包为 `Frowang-Markdown-0.2.0-x64.exe`；0.1.0 产物保留在原目录，不覆盖。源码存储22/22、内核56/56、开发桌面28/28通过；打包状态及限制见 `VALIDATION.md`。源码为独立 Git 仓库，远端为私有的 [frowang-ai/markdown-editor](https://github.com/frowang-ai/markdown-editor)，默认分支 `main`；本轮基线为 `8b750c6`。尚未公开发布。
 
 ## 项目记忆
 
-本轮Windows MVP已于2026-11-10经用户确认收束。当前状态、约束和下一轮入口见[模块记忆](../_worktrees/markdown-editor-memory/modules/markdown-editor.md)，调研、审核及排障证据见[阶段归档](../_worktrees/markdown-editor-memory/archive/20261110_markdown_editor_mvp/README.md)。这两份记录位于独立docs任务分支，避免混入工作区docs其他未提交修改；已提交 `74d071e`，并以 `a32fe37` 对齐到文档维护分支 `refactor-docs-20260725`；文档 [PR #7](https://github.com/frowang-ai/docs/pull/7) 待合并。合入后规范路径为 `website/docs/modules/markdown-editor.md`。
+第一轮Windows MVP已于2026-11-10经用户确认收束。当前状态、约束和下一轮入口见[模块记忆](../_worktrees/markdown-editor-memory/modules/markdown-editor.md)，调研、审核及排障证据见[阶段归档](../_worktrees/markdown-editor-memory/archive/20261110_markdown_editor_mvp/README.md)。这两份记录位于独立docs任务分支，避免混入工作区docs其他未提交修改；已提交 `74d071e`，并以 `a32fe37` 对齐到文档维护分支 `refactor-docs-20260725`；文档 [PR #7](https://github.com/frowang-ai/docs/pull/7) 待合并。合入后规范路径为 `website/docs/modules/markdown-editor.md`。
 
-`VALIDATION.md`继续维护可执行验证和覆盖范围，`MVP_PLAN.md`维护分轮范围，不用历史归档替代当前代码检查。`release/Frowang-Markdown-0.1.0-source.zip`是memory收尾前的交付快照，本次归档不重打应用或覆盖该快照。
+`VALIDATION.md`继续维护可执行验证和覆盖范围，`MVP_PLAN.md`维护分轮范围，不用历史归档替代当前代码检查。`release/Frowang-Markdown-0.1.0-source.zip`是0.1.0交付快照，0.2.0不覆盖它。
 
 ## 开发与构建
 
@@ -27,20 +27,25 @@ npm run package:dir
 npm run dist:win
 ```
 
-`package:dir` 生成 `release/win-unpacked/Frowang Markdown.exe`，需要保留同目录所有文件。`dist:win` 生成免安装 exe。构建默认不发布、未进行代码签名。便携版表示无需安装，草稿仍保存在用户数据目录，不跟随 exe。
+`package:dir` 默认生成 `release/0.2.0/win-unpacked/Frowang Markdown.exe`，需要保留同目录所有文件。`dist:win` 默认生成 `release/0.2.0/Frowang-Markdown-0.2.0-x64.exe`。本轮为避开旧诊断输出占用，以 `npx electron-builder --win portable --x64 --publish never --config.directories.output=release/0.2.0-verified` 生成单独验收产物；portable检查使用 `node scripts/smoke-portable.mjs release/0.2.0-verified/Frowang-Markdown-0.2.0-x64.exe`。构建默认不发布、未进行代码签名。便携版表示无需安装，草稿仍保存在用户数据目录，不跟随 exe。
 
-## 第一轮范围
+## 当前范围（0.1 与 0.2）
 
 - Vue + Milkdown/ProseMirror 编辑内核，现有公式、列表、文本格式、源码切换与 AI 粘贴恢复。
 - 多笔记标签；新建、打开 UTF-8 Markdown、保存回原文件、另存为。
 - 保留 UTF-8 BOM 与 CRLF/LF；暂不支持其他编码和超过10MB的文件。
 - 保存前比对磁盘内容；外部修改/删除时停止覆盖，支持重新读取或另存当前修改。
-- 未保存草稿每次输入停顿约200ms后备份到应用用户目录 `session.json`；重启恢复全部标签和活动标签。会话备份读写统一上限100MiB，达到上限时明确报备份失败并保留旧备份，不再承诺新内容已恢复保护；可保存文件并关闭部分笔记。未收到备份确认的最后一次输入不承诺崩溃恢复。
-- 关闭文档询问保存/不保存/取消；关闭标签不删除原文件。退出应用可保留草稿，下次恢复。
+- SQLite 按篇保存草稿元数据、正文和 `contentHash`；启动只读取元数据，当前标签通过固定 `read(id)` 按需读取正文。外部文件在首次读取或保存时核对，clean 文件跟随磁盘，dirty 文件保留草稿并显示冲突。
+- 草稿在输入停顿后自动备份，只有 SQLite 提交确认后才显示已自动保存；正常退出会先 flush。会话备份上限仍为100MiB，单篇最终文件上限10MiB，超限或不可写会明确提示。未确认的最后输入不承诺异常断电恢复。
+- 旧 `session.json` 只迁移一次并保留原件；已有 SQLite 数据库事务升级到 schema v2，不再次导入旧 JSON。
+- 临时草稿可独立命名；关闭临时草稿直接清除，已关联文件仍提供保存／放弃／取消。应用退出先完成正文、名称和阅读位置的备份。
+- 富文本编辑器只保留一套长期 Crepe/schema 和一个活跃 DOM；各标签在会话内保留正文、选区、滚动、公式／代码块编辑状态和 undo/redo。源码模式继续使用按访问保留的 textarea，不承诺跨重启撤销历史。
+- 访问过的正文树、撤销历史和源码 textarea 仍随访问过的笔记增长；按需加载主要释放未活跃标签的 DOM、KaTeX 和嵌入 CodeMirror，不承诺总内存与笔记数无关。
+
 - 文档目录内的 PNG/JPEG/GIF/WebP 相对图片可展示；阻止跨目录、外部网络图片和任意文件读取。
 - 本机 PDF 导出：使用 Electron 自带 Chromium，不需要单独运行网页预览或 Playwright 浏览器服务。
 
-保存通过同目录临时文件、flush及rename替换，降低写入中断损坏风险。保存前的外部修改检测不等于跨进程文件锁；其他程序在检查与写入极短窗口内再次保存的竞态仍存在。首版没有实时外部修改提醒，保存或重启时才检查。
+保存通过同目录临时文件、flush及rename替换，降低写入中断损坏风险。保存前的外部修改检测不等于跨进程文件锁；其他程序在检查与写入极短窗口内再次保存的竞态仍存在。当前没有实时外部修改提醒，在读取该篇或保存时检查。
 
 ## 数据与调试
 
@@ -53,12 +58,15 @@ npm run dist:win
 ## 模块
 
 - `packages/editor/src/`：可复用的 Vue 编辑器和 Markdown 工具；不依赖 Electron。
-- `apps/desktop/src/main/documentStore.js`：文档路径、内容版本、磁盘冲突、原子保存与恢复。
+- `apps/desktop/src/main/documentStore.js`：文档元数据、按篇正文读取、内容 hash、磁盘冲突、原子保存与恢复。
+- `apps/desktop/src/main/storageWorker.js`：SQLite 事务、旧 JSON／旧 SQLite 迁移、元数据初始化和单篇正文读取。
 - `apps/desktop/src/main/index.js`：窗口、菜单、对话框、受限 IPC、图片协议与 PDF。
-- `apps/desktop/src/preload/index.js`：固定操作API，不向正文暴露 fs 或任意 IPC。
-- `apps/desktop/src/renderer/`：简洁多标签应用；文件状态由主进程持有。
-- `tests/documents.test.mjs`：临时目录中的文件行为测试。
-- `tests/desktop.spec.mjs`：真实 Electron 启动；只替代系统文件选择/确认对话框结果，其余窗口、IPC、磁盘、PDF均实际运行。
+- `apps/desktop/src/preload/index.js`：固定操作 API，不向正文暴露 fs 或任意 IPC。
+- `apps/desktop/src/renderer/`：简洁多标签应用；正文按需读取，编辑器实例由共享 session 管理。
+- `packages/editor/src/MarkdownEditor.vue`：长期 Crepe/schema、会话 state、公式／代码块嵌入状态和 nodeView 清理。
+
+- `tests/documents.test.mjs`、`tests/lazy-storage.test.mjs`：临时目录中的文件、迁移、故障和按需存储测试。
+- `tests/desktop.spec.mjs`、`tests/drafts.desktop.spec.mjs`、`tests/lazy.desktop.spec.mjs`：真实 Electron 启动；只替代系统文件选择/确认对话框结果并控制指定IPC回执时机，其余窗口、IPC、磁盘、SQLite、PDF均实际运行。
 - `tests/editor.browser.spec.mjs`：从原独立编辑器迁移的56项行为回归，`tests/browser-harness`仅为浏览器测试宿主，不打包进桌面应用。
 
 包体和性能以实际产物为准。自动测试不能证明所有输入法和设备均无问题，发布状态与实际验证记录见 `VALIDATION.md`。

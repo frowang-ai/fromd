@@ -35,13 +35,15 @@ async function cleanup(directory) { await rm(directory, { recursive: true, force
 const body = page => page.getByRole('textbox', { name: 'Markdown 正文', exact: true })
 async function ready(app) {
   const page = await app.firstWindow()
-  await expect(page.getByRole('button', { name: '源码', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
   return page
 }
 async function putSource(page, text) {
-  await page.getByRole('button', { name: '源码', exact: true }).click()
-  await page.getByRole('textbox', { name: 'Markdown 源码' }).fill(text)
-  await page.getByRole('button', { name: '返回正文' }).click()
+  const toggle = page.getByRole('button', { name: '源码', exact: true })
+  await expect(toggle).toBeEnabled(); await toggle.click()
+  const editorSource = page.locator('.document-pane:visible').getByRole('textbox', { name: 'Markdown 源码', exact: true })
+  await expect(editorSource).toBeVisible(); await editorSource.fill(text)
+  await page.getByRole('button', { name: '返回正文', exact: true }).click()
 }
 async function chooseSave(app, path) { await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, path) }
 async function chooseMessage(app, response) { await app.evaluate(({ dialog }, response) => { dialog.showMessageBox = async () => ({ response }) }, response) }
@@ -81,6 +83,8 @@ test('SQLite桌面：旧会话迁移、命名与阅读位置、关闭后正常�
     await exited
     app = await launch(profile); page = await ready(app)
     await expect(page.getByRole('tab')).toHaveCount(1)
+    await expect(page.getByRole('textbox', { name: 'Markdown 源码', exact: true })).toHaveValue('keep 草稿正文')
+    await page.getByRole('button', { name: '返回正文', exact: true }).click()
     await expect(body(page)).toContainText('keep 草稿正文')
     expect(await page.evaluate(async () => (await window.desktop.read('keep')).title)).toBe('明天继续')
     expect(recoveryDocuments(profile).map(doc => doc.id)).toEqual(['keep'])
