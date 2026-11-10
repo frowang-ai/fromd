@@ -1,0 +1,208 @@
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell, Menu, session } from 'electron'
+import { join, resolve, relative, extname, dirname, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { readFile, realpath } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { randomUUID } from 'node:crypto'
+import { DocumentStore, atomicWrite } from './documentStore.js'
+import { openFileArguments, operationQueue } from './lifecycle.js'
+
+const require = createRequire(import.meta.url), here = dirname(fileURLToPath(import.meta.url))
+const rendererRoot = resolve(here, '../renderer')
+protocol.registerSchemesAsPrivileged([{ scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } }, { scheme: 'document-image', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }])
+// Explicit test/developer profile only; never points tests at a user's recovery.
+if (process.env.FROWANG_USER_DATA) app.setPath('userData', resolve(process.env.FROWANG_USER_DATA))
+const startupFiles = openFileArguments(process.argv.slice(app.isPackaged ? 1 : 2))
+const lock = app.requestSingleInstanceLock({ files: startupFiles })
+let window, store, quitting = false, closing = false, rendererGone = false, rendererReady = false
+let initialized, initializationFailed
+const startup = new Promise((resolve, reject) => { initialized = resolve; initializationFailed = reject })
+const prints = new Map()
+const serialize = operationQueue(startup)
+void startup.catch(() => {})
+function secureSender(event) {
+  if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('来源窗口无效。')
+  const url = new URL(event.senderFrame.url)
+  if (!(url.protocol === 'app:' && url.host === 'editor') && !(process.env.ELECTRON_RENDERER_URL && event.senderFrame.url.startsWith(process.env.ELECTRON_RENDERER_URL + '/'))) throw new Error('来源页面无效。')
+}
+function handle(name, fn) {
+  ipcMain.handle(name, (event, ...args) => {
+    secureSender(event)
+    return serialize(async () => { try { return { ok: true, value: await fn(...args) } } catch (error) { console.error(`[desktop:${name}]`, error.code || error.name); return { ok: false, error: error.message } } })
+  })
+}
+async function chooseSave(doc) {
+  const result = await dialog.showSaveDialog(window, { title: '保存 Markdown', defaultPath: doc.path || doc.title + '.md', filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }] })
+  return result.canceled ? null : result.filePath
+}
+async function saveDocument(id, saveAs = false) {
+  const doc = store.get(id), path = saveAs || !doc.path ? await chooseSave(doc) : doc.path
+  if (!path) return { cancelled: true }
+  return store.save(id, path)
+}
+async function confirmClose(id) {
+  const doc = store.get(id)
+  if (doc.markdown !== doc.savedText) {
+    const answer = await dialog.showMessageBox(window, { type: 'question', message: `保存「${doc.title}」的修改？`, buttons: ['保存', '不保存', '取消'], defaultId: 0, cancelId: 2, noLink: true })
+    if (answer.response === 2) return { cancelled: true }
+    if (answer.response === 0) { const saved = await saveDocument(id); if (!saved.saved) return saved }
+  }
+  return { closed: true, snapshot: await store.close(id) }
+}
+async function exportPdf(id, html) {
+  if (typeof html !== 'string' || Buffer.byteLength(html) > 20 * 1024 * 1024) throw new Error('导出内容过大。')
+  const doc = store.get(id)
+  const destination = await dialog.showSaveDialog(window, { title: '导出 PDF', defaultPath: doc.title.replace(/\.(md|markdown|txt)$/i, '') + '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+  if (destination.canceled) return { cancelled: true }
+  const cssPath = require.resolve('katex/dist/katex.min.css')
+  let css = await readFile(cssPath, 'utf8')
+  for (const [rule, source] of [...css.matchAll(/src:([^;}]+);?/g)]) {
+    const font = source.match(/url\(([^)]+\.woff2)\)/)?.[1]
+    if (font) css = css.replace(rule, `src:url(data:font/woff2;base64,${(await readFile(resolve(dirname(cssPath), font))).toString('base64')}) format('woff2');`)
+  }
+  const idPrint = randomUUID()
+  prints.set(idPrint, `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"><style>${css}</style>${html}`)
+  let printWindow, timer
+  try {
+    printWindow = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
+    printWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    printWindow.webContents.on('will-navigate', event => event.preventDefault())
+    timer = setTimeout(() => printWindow?.destroy(), 40000)
+    await printWindow.loadURL(`app://print/${idPrint}`)
+    await printWindow.webContents.executeJavaScript('Promise.all([document.fonts.ready, ...Array.from(document.images, image => image.decode())])')
+    const bytes = await printWindow.webContents.printToPDF({ pageSize: 'A4', printBackground: true, preferCSSPageSize: true, displayHeaderFooter: true,
+      headerTemplate: '<span></span>', footerTemplate: '<div style="font:9px Arial;width:100%;text-align:center"><span class="pageNumber"></span> / <span class="totalPages"></span></div>' })
+    await atomicWrite(destination.filePath, bytes)
+    return { saved: true }
+  } finally { clearTimeout(timer); if (printWindow && !printWindow.isDestroyed()) printWindow.destroy(); prints.delete(idPrint) }
+}
+function wireIPC() {
+  handle('application:renderer-ready', () => {
+    rendererReady = true
+    if (closing && !rendererGone) window.webContents.send('application:request-close')
+    return true
+  })
+  handle('documents:list', () => store.snapshot())
+  handle('documents:new', () => store.newDocument())
+  handle('documents:open', async () => {
+    const answer = await dialog.showOpenDialog(window, { title: '打开 Markdown', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }] })
+    if (!answer.canceled) {
+      const failures = []
+      for (const path of answer.filePaths) { try { await store.openFile(path) } catch (error) { failures.push(error.message) } }
+      const snapshot = store.snapshot()
+      if (failures.length) snapshot.warning = failures.join('\n')
+      return snapshot
+    }
+    return store.snapshot()
+  })
+  handle('documents:update', (id, markdown, revision) => store.update(id, markdown, revision))
+  handle('documents:activate', id => store.activate(id))
+  handle('documents:save', (id, saveAs) => saveDocument(id, saveAs === true))
+  handle('documents:close', id => confirmClose(id))
+  handle('documents:reload', async id => {
+    const doc = store.get(id)
+    const answer = await dialog.showMessageBox(window, { type: 'question', message: `从磁盘重新读取「${doc.title}」？`, detail: '当前标签中的未保存修改将被替换。', buttons: ['重新读取', '取消'], defaultId: 1, cancelId: 1 })
+    return answer.response === 0 ? { reloaded: true, snapshot: await store.reload(id) } : { cancelled: true }
+  })
+  handle('documents:pdf', exportPdf)
+  handle('application:close-ready', async () => {
+    if (!closing) return false
+    const backedUp = await store.tryPersist()
+    if (!backedUp && store.documents.some(doc => doc.markdown !== doc.savedText)) throw new Error('草稿备份不可用，请先保存所有修改再退出。')
+    // Exiting keeps recovery drafts; closing a document has its own save/discard dialog.
+    if (store.documents.some(doc => doc.markdown !== doc.savedText)) {
+      const choice = await dialog.showMessageBox(window, { type: 'question', message: '保留未保存草稿并退出？', detail: '重新打开应用时恢复。原 Markdown 文件不会被覆盖。', buttons: ['保留草稿并退出', '继续编辑'], defaultId: 1, cancelId: 1 })
+      if (choice.response !== 0) { closing = false; return false }
+    }
+    quitting = true; window.close(); return true
+  })
+  handle('application:close-cancel', () => { closing = false; return true })
+}
+const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' }
+async function protocols() {
+  protocol.handle('app', async request => {
+    const url = new URL(request.url)
+    if (url.host === 'print') return prints.has(url.pathname.slice(1)) ? new Response(prints.get(url.pathname.slice(1)), { headers: { 'content-type': 'text/html; charset=utf-8' } }) : new Response('', { status: 404 })
+    if (url.host !== 'editor') return new Response('', { status: 403 })
+    try {
+      const path = resolve(rendererRoot, '.' + decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname))
+      if (relative(rendererRoot, path).startsWith('..') || isAbsolute(relative(rendererRoot, path))) return new Response('', { status: 403 })
+      return new Response(await readFile(path), { headers: { 'content-type': mime[extname(path)] || 'application/octet-stream' } })
+    } catch { return new Response('', { status: 404 }) }
+  })
+  protocol.handle('document-image', async request => {
+    try {
+      const url = new URL(request.url), doc = store.get(url.host), source = decodeURIComponent(url.pathname.slice(1))
+      if (!doc.path || isAbsolute(source) || /^[a-z][\w+.-]*:/i.test(source)) return new Response('', { status: 403 })
+      const root = await realpath(dirname(doc.path)), path = await realpath(resolve(root, source)), delta = relative(root, path)
+      if (delta.startsWith('..') || isAbsolute(delta) || !/^\.(png|jpg|jpeg|gif|webp)$/i.test(extname(path))) return new Response('', { status: 403 })
+      const info = await statImage(path)
+      if (info.size > 10 * 1024 * 1024) return new Response('', { status: 413 })
+      return new Response(await readFile(path), { headers: { 'content-type': mime[extname(path).toLowerCase()], 'access-control-allow-origin': process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : 'app://editor' } })
+    } catch { return new Response('', { status: 404 }) }
+  })
+}
+// Separate import alias avoids conflating document-size and image-size checks.
+import { stat as statImage } from 'node:fs/promises'
+async function createWindow() {
+  window = new BrowserWindow({ width: 1160, height: 850, minWidth: 520, minHeight: 400, title: 'Frowang Markdown', show: false,
+    webPreferences: { preload: join(here, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false } })
+  window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//i.test(url)) void shell.openExternal(url); return { action: 'deny' } })
+  window.webContents.on('will-navigate', (event, url) => { event.preventDefault(); if (/^https?:\/\//i.test(url)) void shell.openExternal(url) })
+  window.on('close', event => {
+    if (quitting) return
+    event.preventDefault()
+    if (rendererGone) {
+      if (!closing) {
+        closing = true
+        void serialize(async () => {
+          const backedUp = await store.tryPersist()
+          if (!backedUp) {
+            for (const doc of store.documents.filter(doc => doc.markdown !== doc.savedText)) {
+              const choice = await dialog.showMessageBox(window, { type: 'warning', message: `页面停止且备份失败：请保存「${doc.title}」后退出。`, buttons: ['保存到文件', '取消'], defaultId: 0, cancelId: 1 })
+              if (choice.response !== 0 || !(await saveDocument(doc.id, true)).saved) { closing = false; return }
+            }
+          }
+          quitting = true; window.close()
+        }).catch(error => { closing = false; dialog.showErrorBox('退出失败', error.message) })
+      }
+      return
+    }
+    if (!rendererReady) { closing = true; return }
+    if (!closing) { closing = true; window.webContents.send('application:request-close') }
+  })
+  window.on('ready-to-show', () => window.show())
+  window.webContents.on('did-start-loading', () => { rendererReady = false })
+  window.webContents.on('did-finish-load', () => { rendererGone = false })
+  window.webContents.on('render-process-gone', async () => {
+    rendererGone = true; closing = false
+    const choice = await dialog.showMessageBox(window, { type: 'error', message: '编辑页面已停止。可重新载入已接收的草稿，或退出后恢复备份。', buttons: ['重新载入', '退出'], defaultId: 0, cancelId: 1 })
+    if (choice.response === 0) window.webContents.reload()
+    else window.close()
+  })
+  if (process.env.ELECTRON_RENDERER_URL) await window.loadURL(process.env.ELECTRON_RENDERER_URL)
+  else await window.loadURL('app://editor/index.html')
+}
+if (!lock) app.quit()
+else {
+  app.on('second-instance', (_event, argv, workingDirectory, additionalData) => { window?.show(); window?.focus(); const files = Array.isArray(additionalData?.files) && additionalData.files.every(path => typeof path === 'string' && isAbsolute(path)) ? additionalData.files : openFileArguments(argv, workingDirectory); void serialize(async () => { for (const path of files) await store.openFile(path); window?.webContents.send('documents:changed', store.snapshot()) }).catch(error => dialog.showErrorBox('打开失败', error.message)) })
+  app.whenReady().then(async () => {
+    store = new DocumentStore(app.getPath('userData')); await store.restore()
+    for (const path of startupFiles) { try { await store.openFile(path) } catch (error) { dialog.showErrorBox('打开失败', error.message) } }
+    await protocols()
+    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+    wireIPC()
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { label: '文件', submenu: [
+        { label: '新建', accelerator: 'CmdOrCtrl+N', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'new') },
+        { label: '打开', accelerator: 'CmdOrCtrl+O', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'open') },
+        { label: '保存', accelerator: 'CmdOrCtrl+S', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'save') },
+        { label: '另存为', accelerator: 'CmdOrCtrl+Shift+S', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'saveAs') },
+        { type: 'separator' }, { label: '退出', click: () => window?.close() },
+      ] }, { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
+      { label: '视图', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'toggleDevTools' }] },
+    ]))
+    await createWindow(); initialized()
+  }).catch(error => { initializationFailed(error); dialog.showErrorBox('启动失败', error.message); app.exit(1) })
+  app.on('window-all-closed', () => app.quit())
+}

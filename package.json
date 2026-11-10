@@ -1,0 +1,45 @@
+{
+  "name": "frowang-markdown",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first Markdown editor for Windows",
+  "author": "Frowang contributors",
+  "license": "MIT",
+  "type": "module",
+  "main": "out/main/index.js",
+  "workspaces": ["packages/editor"],
+  "scripts": {
+    "dev": "electron-vite dev",
+    "setup:electron": "node scripts/install-electron-runtime.mjs",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "test": "node --test tests/*.test.mjs",
+    "test:desktop": "playwright test -c playwright.config.mjs",
+    "test:editor": "playwright test -c playwright.editor.config.mjs",
+    "package:dir": "npm run build && electron-builder --win --x64 --dir --publish never",
+    "dist:win": "npm run build && electron-builder --win portable --x64 --publish never"
+  },
+  "dependencies": {
+    "@frowang/editor": "*",
+    "vue": "3.5.24"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@vitejs/plugin-vue": "5.2.4",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "electron-vite": "5.0.0",
+    "vite": "6.4.6"
+  },
+  "build": {
+    "appId": "com.frowang.markdown",
+    "productName": "Frowang Markdown",
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "package.json"],
+    "extraResources": ["LICENSE", "THIRD_PARTY_NOTICES.md"],
+    "win": { "target": ["portable"], "signAndEditExecutable": false },
+    "portable": { "artifactName": "Frowang-Markdown-${version}-${arch}.exe" }
+  }
+}

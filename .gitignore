@@ -1,0 +1,8 @@
+node_modules/
+out/
+release/
+output/
+test-results/
+playwright-report/
+.pi/
+*.log

@@ -1,0 +1,10 @@
+/* Restricted inline HTML formatting; scoped to document content. */
+.writing-editor .milkdown > .ProseMirror u { text-decoration: underline; text-underline-offset: .15em; }
+.writing-editor .milkdown > .ProseMirror mark { color: inherit; background: #fff0a8; padding: .03em .12em; border-radius: 2px; }
+.writing-editor .milkdown > .ProseMirror kbd {
+  display: inline; font: .85em/1.5 Consolas, 'Microsoft YaHei', monospace;
+  padding: .12em .4em; margin: 0 .12em; color: #39434a; background: #f2f4f5;
+  border: 1px solid #ccd2d5; border-bottom-width: 2px; border-radius: 4px;
+  box-decoration-break: clone; -webkit-box-decoration-break: clone;
+}
+.writing-editor .milkdown > .ProseMirror .writing-html-comment { display: none; }
