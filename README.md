@@ -2,7 +2,7 @@
 
 本地 Markdown 编辑器，第一轮目标是可靠打开、编辑、保存和恢复文件。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
 
-本机Windows x64初版产物：`release/Frowang-Markdown-0.1.0-x64.exe`（免安装）或 `release/win-unpacked/Frowang Markdown.exe`（同目录文件必须一起保留）。编辑内核56/56、文件层10/10、开发构建桌面5/5、打包程序桌面5/5通过。具体覆盖与限制见 `VALIDATION.md`。源码为独立目录，尚未初始化Git或创建远端；按当前工作区约定，未擅自向公共仓库发布。
+本机Windows x64初版产物：`release/Frowang-Markdown-0.1.0-x64.exe`（免安装）或 `release/win-unpacked/Frowang Markdown.exe`（同目录文件必须一起保留）。编辑内核56/56、文件层10/10、开发构建桌面5/5、打包程序桌面5/5通过。具体覆盖与限制见 `VALIDATION.md`。源码为独立 Git 仓库，远端为私有的 [frowang-ai/markdown-editor](https://github.com/frowang-ai/markdown-editor)，默认分支 `main`；首个 MVP 基线为 `b575e30`。尚未公开发布。
 
 ## 项目记忆
 
@@ -11,6 +11,8 @@
 `VALIDATION.md`继续维护可执行验证和覆盖范围，`MVP_PLAN.md`维护分轮范围，不用历史归档替代当前代码检查。`release/Frowang-Markdown-0.1.0-source.zip`是memory收尾前的交付快照，本次归档不重打应用或覆盖该快照。
 
 ## 开发与构建
+
+下一轮临时草稿、SQLite 和多标签工作的接口及分工见 [实施约定](docs/iteration-02-contract.md)。该文档描述目标行为，实际完成状态以代码、验证结果和各功能 PR 为准。
 
 环境：Node 22.19+、Windows x64。首次安装会下载 Electron。
 
