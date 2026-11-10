@@ -2,6 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { spawn } from 'node:child_process'
 
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const nameField = page => page.getByRole('textbox', { name: '草稿名称', exact: true })
@@ -255,5 +256,53 @@ test('已绑定文件显示路径，关闭保留保存／放弃／取消，另�
     expect(await readFile(copy, 'utf8')).toBe('另存的草稿正文')
     await expect(nameField(page)).toHaveCount(0)
     await expect(page.locator('.document-meta').getByText(copy, { exact: true })).toBeVisible()
+  } finally { await stop(app); await cleanup(directory) }
+})
+
+test('第二实例旧快照迟到不删除新建标签，也不复活已关闭标签', async () => {
+  const { directory, profile } = await sandbox()
+  const file = join(directory, '第二实例文件.md')
+  await writeFile(file, '从第二实例打开')
+  let app
+  try {
+    const launched = await launch(profile); app = launched.app; const page = launched.page
+    await nameDraft(page, '稍后关闭')
+    // Hold only delivery of the genuine second-instance event. Its file read,
+    // SQLite commit and ordering in the main operation queue execute normally.
+    await app.evaluate(({ BrowserWindow }) => {
+      const contents = BrowserWindow.getAllWindows()[0].webContents
+      const send = contents.send.bind(contents)
+      globalThis.__heldDocuments = null
+      contents.send = (channel, ...args) => {
+        if (channel === 'documents:changed') { globalThis.__heldDocuments = args[0]; return }
+        return send(channel, ...args)
+      }
+      globalThis.__deliverDocuments = () => send('documents:changed', globalThis.__heldDocuments)
+    })
+    const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
+    const executable = await app.evaluate(() => process.execPath)
+    const child = spawn(executable, process.env.PACKAGED_EXE ? [file] : [root, file], { env, stdio: 'ignore' })
+    await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', code => code === 0 ? resolve() : reject(new Error(`Second instance exit: ${code}`))) })
+    await expect.poll(() => app.evaluate(() => !!globalThis.__heldDocuments)).toBe(true)
+    await page.getByRole('button', { name: '新建', exact: true }).click()
+    await expect(page.getByRole('tab')).toHaveCount(3)
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
+    await nameDraft(page, '较晚新建的草稿')
+    await putSource(page, '不能被旧快照抹掉的新正文')
+    await expect(status(page)).toHaveText('已自动保存')
+    const before = await snapshot(page)
+    await app.evaluate(() => globalThis.__deliverDocuments())
+    await expect(page.getByRole('tab')).toHaveCount(3)
+    await expect(nameField(page)).toHaveValue('较晚新建的草稿')
+    await expect(source(page)).toHaveValue('不能被旧快照抹掉的新正文')
+    await page.getByRole('button', { name: '关闭 稍后关闭', exact: true }).click()
+    await expect(page.getByRole('tab')).toHaveCount(2)
+    await app.evaluate(() => globalThis.__deliverDocuments())
+    await expect(page.getByRole('tab')).toHaveCount(2)
+    await expect(page.getByRole('tab', { name: '稍后关闭', exact: true })).toHaveCount(0)
+    expect((await snapshot(page)).documents.map(doc => doc.id)).toEqual(before.documents.slice(1).map(doc => doc.id))
+    await closeWindow(app)
+    const restarted = await launch(profile); app = restarted.app
+    expect((await snapshot(restarted.page)).documents.map(doc => doc.title)).toEqual(['第二实例文件.md', '较晚新建的草稿'])
   } finally { await stop(app); await cleanup(directory) }
 })

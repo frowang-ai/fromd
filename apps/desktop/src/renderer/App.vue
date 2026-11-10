@@ -48,16 +48,19 @@ function saveStatus(doc) {
   return doc.path ? (doc.dirty ? '已自动保存 · 未写入文件' : '已保存') : '已自动保存'
 }
 function setSession(id, instance) { if (instance) sessions.set(id, instance); else sessions.delete(id) }
+function forgetDocument(id) {
+  closedIds.add(id)
+  clearTimeout(timers.get(id)); timers.delete(id)
+  clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
+  visited.delete(id); delete ready[id]; positions.delete(id)
+}
 function adopt(snapshot, reloadId = null, preserveEdits = false) {
   const previous = new Map(documents.value.map(doc => [doc.id, doc]))
   const nextIds = new Set(snapshot.documents.map(doc => doc.id))
-  for (const id of previous.keys()) {
-    if (nextIds.has(id)) continue
-    closedIds.add(id)
-    clearTimeout(timers.get(id)); timers.delete(id)
-    clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
-    visited.delete(id); delete ready[id]; positions.delete(id)
-  }
+  // documents:changed announces second-instance opens, never deletions. A
+  // delayed snapshot can omit newer local tabs; only an explicit close removes one.
+  const retained = documents.value.filter(doc => !nextIds.has(doc.id) && !closedIds.has(doc.id))
+  const selected = retained.some(doc => doc.id === activeId.value) || closedIds.has(snapshot.activeId) ? activeId.value : snapshot.activeId
   documents.value = snapshot.documents.filter(doc => !closedIds.has(doc.id)).map(doc => {
     const old = previous.get(doc.id)
     if (old && doc.id !== reloadId) {
@@ -74,8 +77,8 @@ function adopt(snapshot, reloadId = null, preserveEdits = false) {
     if (old) delete ready[doc.id]
     return { ...doc, draftName: doc.title, nameVersion: 0, nameAcknowledged: 0,
       nameBackup: snapshot.warning ? 'failed' : 'saved', backup: snapshot.warning ? 'failed' : 'saved', generation: (old?.generation || 0) + 1 }
-  })
-  activeId.value = documents.value.some(doc => doc.id === snapshot.activeId) ? snapshot.activeId : documents.value[0]?.id
+  }).concat(retained)
+  activeId.value = documents.value.some(doc => doc.id === selected) ? selected : documents.value[0]?.id
   if (activeId.value) visited.add(activeId.value)
   sourceMode.value = sessions.get(activeId.value)?.sourceMode ?? false
   if (snapshot.warning) message.value = snapshot.warning
@@ -190,7 +193,11 @@ async function closeDocument(id) {
   const doc = findDocument(id)
   if (!doc || busy.value || !loaded.value) return
   if (doc.path) {
-    await run(async () => { const result = await api.close(id); if (result.snapshot) adopt(result.snapshot) })
+    await run(async () => {
+      const result = await api.close(id)
+      if (result.closed) forgetDocument(id)
+      if (result.snapshot) adopt(result.snapshot)
+    })
     return
   }
   busy.value = true; discardingIds.add(id)
@@ -200,6 +207,7 @@ async function closeDocument(id) {
     // A draft's × means discard. Do not submit its still-unsent edits just to delete it.
     await flush(id)
     const result = await api.close(id)
+    if (result.closed) forgetDocument(id)
     if (result.snapshot) adopt(result.snapshot)
   } catch (error) { message.value = error.message }
   finally {
