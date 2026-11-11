@@ -14,7 +14,15 @@ async function launch() {
   return { directory, app, page }
 }
 async function cleanup(app, directory) {
-  await app.close()
+  // These cases intentionally leave commands waiting when an assertion fails.
+  // End only this fixture's app so cleanup cannot hide the original failure;
+  // ordinary exit/flush is covered by the lifecycle and portable suites.
+  const process = app.process()
+  if (process.exitCode === null && process.signalCode === null) {
+    const exited = new Promise(resolve => process.once('exit', resolve))
+    await app.evaluate(({ app }) => app.exit(0)).catch(() => {})
+    await exited
+  }
   await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }
 const plus = page => page.getByRole('button', { name: '新建笔记', exact: true })
@@ -185,3 +193,61 @@ test('原生菜单：恢复未ready、迟到命令、composition等待和忙碌�
     expect((await menuState(page, 'source')).checked).toBe(true)
   } finally { await cleanup(app, directory) }
 })
+
+for (const action of ['new', 'source', 'saveAs']) {
+  test(`原生菜单：真实IME预编辑期间${action}等待提交且重复命令只执行一次`, async () => {
+    const { app, page, directory } = await launch()
+    const cdp = await app.context().newCDPSession(page)
+    try {
+      await menuCommand(page, 'source'); await editorReady(page)
+      const input = page.locator('.document-pane textarea').first()
+      await input.fill('预编辑之前-'); await input.press('Control+End')
+      const id = await page.evaluate(async () => (await window.desktop.listMetadata()).activeId)
+      await page.evaluate(() => {
+        window.__imeMenuReceived = 0; window.__imeEnded = false
+        window.desktop.onCommand(() => { window.__imeMenuReceived++ })
+        document.addEventListener('compositionend', () => { window.__imeEnded = true }, { once: true })
+      })
+      await app.evaluate(({ dialog }) => {
+        globalThis.__imeSaveDialogs = 0
+        dialog.showSaveDialog = async () => { globalThis.__imeSaveDialogs++; return { canceled: true } }
+      })
+      await cdp.send('Input.imeSetComposition', { text: '中', selectionStart: 1, selectionEnd: 1 })
+      await expect(input).toHaveValue('预编辑之前-中')
+      // Two genuine callbacks before renderer state reaches main exercise the
+      // renderer lock too, rather than only the disabled native menu item.
+      await app.evaluate(({ Menu, BrowserWindow }, name) => {
+        const item = Menu.getApplicationMenu().getMenuItemById(`document-${name}`)
+        if (!item.enabled) throw new Error('Expected a ready native menu')
+        item.click(item, BrowserWindow.getAllWindows()[0], {})
+        item.click(item, BrowserWindow.getAllWindows()[0], {})
+      }, action)
+      await expect.poll(() => page.evaluate(() => window.__imeMenuReceived)).toBe(2)
+      await expect(input).toBeEnabled({ timeout: 1000 })
+      await expect(input).toBeFocused()
+      await expect(input).toHaveValue('预编辑之前-中')
+      expect(await page.evaluate(() => window.__imeEnded)).toBe(false)
+      await expect.poll(async () => (await menuState(page, 'new')).enabled).toBe(false)
+      expect(await app.evaluate(() => globalThis.__imeSaveDialogs)).toBe(0)
+      await cdp.send('Input.insertText', { text: '中' })
+      if (action === 'new') await expect(page.getByRole('tab')).toHaveCount(2)
+      if (action === 'source') await expect(page.getByRole('textbox', { name: 'Markdown 正文', exact: true })).toContainText('预编辑之前-中')
+      if (action === 'saveAs') await expect.poll(() => app.evaluate(() => globalThis.__imeSaveDialogs)).toBe(1)
+      await editorReady(page)
+      await expect.poll(() => page.evaluate(id => window.desktop.read(id).then(doc => doc.markdown), id)).toContain('预编辑之前-中')
+      if (action === 'saveAs') {
+        await app.evaluate(({ dialog }) => { dialog.showSaveDialog = async () => { throw new Error('测试：IME提交后另存失败') } })
+        await menuCommand(page, 'saveAs')
+        await expect(page.getByRole('alert')).toContainText('测试：IME提交后另存失败'); await editorReady(page)
+      }
+      // Both cancellation and failure release the lock; no delayed duplicate
+      // remains to act on the next tab.
+      await menuCommand(page, 'new')
+      await expect(page.getByRole('tab')).toHaveCount(action === 'new' ? 3 : 2)
+      await editorReady(page)
+    } finally {
+      await cdp.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 }).catch(() => {})
+      await cleanup(app, directory)
+    }
+  })
+}

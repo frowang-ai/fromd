@@ -1,6 +1,6 @@
 <template>
   <main :aria-busy="!commandReady">
-    <header class="app-bar" :inert="busy || !loaded" @pointerdown="rememberView">
+    <header class="app-bar" :inert="busy || operationPending || !loaded" @pointerdown="rememberView">
       <div class="tabs" role="tablist" aria-label="笔记标签页">
         <div v-for="doc in documents" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }">
           <button role="tab" :aria-label="doc.title" :aria-selected="doc.id === activeId" :title="doc.path || doc.title" @click="activate(doc.id)">{{ doc.title }}<span v-if="doc.dirty" aria-label="未保存"> ·</span></button>
@@ -12,7 +12,7 @@
     <div v-if="message" class="notice" role="alert">{{ message }}<button v-if="!fatal" @click="message = ''" aria-label="关闭提示">×</button></div>
     <div v-if="current?.conflict" class="conflict" role="alert">
       磁盘文件已变化，当前修改仍保留。
-      <button :disabled="busy" @click="save(true)">另存当前修改</button><button :disabled="busy" @click="reloadDocument">重新读取磁盘</button>
+      <button :disabled="busy || operationPending" @click="save(true)">另存当前修改</button><button :disabled="busy || operationPending" @click="reloadDocument">重新读取磁盘</button>
     </div>
     <div v-if="!loaded" role="status" class="loading">正在打开笔记…</div>
     <div :inert="busy">
@@ -38,11 +38,11 @@ const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrit
 const sharedEditor = ref(null), displayedId = ref(null), bodyLoading = ref(false)
 const editorStates = new Map(), dirtyViews = new Set()
 let loadVersion = 0, composing = false, compositionWaiters = []
-const busy = ref(false), loaded = ref(false), message = ref(''), fatal = ref(false), sourceMode = ref(false)
+const busy = ref(false), operationPending = ref(false), loaded = ref(false), message = ref(''), fatal = ref(false), sourceMode = ref(false)
 let disposers = [], selectionVersion = 0, openEventVersion = 0, menuRevision = 0
-const commandReady = computed(() => loaded.value && !busy.value && !!current.value && !!ready[activeId.value] && displayedId.value === activeId.value)
+const commandReady = computed(() => loaded.value && !busy.value && !operationPending.value && !!current.value && !!ready[activeId.value] && displayedId.value === activeId.value)
 watchEffect(() => {
-  api.setMenuState({ documentId: activeId.value, ready: commandReady.value, busy: busy.value,
+  api.setMenuState({ documentId: activeId.value, ready: commandReady.value, busy: busy.value || operationPending.value,
     sourceMode: sourceMode.value, revision: ++menuRevision })
 }, { flush: 'sync' })
 const normalizeName = title => title.trim() || '未命名笔记'
@@ -60,11 +60,16 @@ function setSession(id, instance) { if (instance) sessions.set(id, instance); el
 function startComposition() { composing = true }
 function endComposition() {
   composing = false
-  queueMicrotask(() => { const waiters = compositionWaiters; compositionWaiters = []; waiters.forEach(resolve => resolve()) })
+  // A native composition event can checkpoint microtasks between its listeners.
+  // Wait through the commit frame so the textarea/v-model input handlers finish
+  // before a pending command disables or replaces the focused editing surface.
+  requestAnimationFrame(() => { const waiters = compositionWaiters; compositionWaiters = []; waiters.forEach(resolve => resolve()) })
 }
 async function waitComposition() {
-  if (composing) await new Promise(resolve => compositionWaiters.push(resolve))
-  await sharedEditor.value?.settleComposition()
+  do {
+    if (composing) await new Promise(resolve => compositionWaiters.push(resolve))
+    await sharedEditor.value?.settleComposition()
+  } while (composing)
 }
 function rememberView() { captureDisplayed(); sharedEditor.value?.rememberView() }
 function sessionChanged({ id, generation, markdown }) {
@@ -289,18 +294,26 @@ async function flush(excludeId = null, allowNameFailure = false) {
   }))
 }
 async function run(operation, allowNameFailure = false) {
-  if (busy.value || !loaded.value) return
-  busy.value = true; selectionVersion++
+  if (busy.value || operationPending.value || !loaded.value) return
+  const id = activeId.value, doc = current.value, generation = doc?.generation, selection = selectionVersion
+  // Exclude a second command without disabling/defocusing the composing input.
+  // The accepted command's menuRevision changes with this lock, so after the
+  // wait check document identity and selection intent, not that menu revision.
+  operationPending.value = true
   try {
+    await waitComposition()
+    if (!doc || activeId.value !== id || !isLive(doc) || doc.generation !== generation ||
+      selectionVersion !== selection || !ready[id] || displayedId.value !== id) return
+    busy.value = true; selectionVersion++
     await flush(null, allowNameFailure)
     const snapshot = await operation()
     if (snapshot?.documents) { adopt(snapshot); await revealActive() }
   }
   catch (error) { message.value = error.message }
-  finally { busy.value = false }
+  finally { busy.value = false; operationPending.value = false }
 }
 async function activate(id) {
-  if (busy.value) return
+  if (busy.value || operationPending.value) return
   selectionVersion++
   if (activeId.value === id) { await api.activate(id); return }
   busy.value = true
@@ -315,17 +328,21 @@ async function activate(id) {
 async function toggleSource() {
   const id = activeId.value, doc = current.value, pane = sessions.get(id)
   if (!commandReady.value || !pane) return
-  busy.value = true
+  const generation = doc.generation, selection = selectionVersion
+  let switched = false
+  operationPending.value = true
   try {
     await waitComposition()
-    if (activeId.value !== id || !isLive(doc) || !ready[id]) return
+    if (activeId.value !== id || !isLive(doc) || doc.generation !== generation ||
+      selectionVersion !== selection || !ready[id] || displayedId.value !== id) return
+    busy.value = true
     rememberView()
     const mode = await pane.toggleSource()
-    if (activeId.value === id && isLive(doc)) sourceMode.value = mode
+    if (activeId.value === id && isLive(doc)) { sourceMode.value = mode; switched = true }
   } catch (error) { message.value = error.message }
   finally {
-    busy.value = false; await nextTick()
-    if (activeId.value === id && isLive(doc)) pane.focusEditor()
+    busy.value = false; operationPending.value = false; await nextTick()
+    if (switched && activeId.value === id && isLive(doc)) pane.focusEditor()
   }
 }
 async function save(saveAs) {
@@ -339,7 +356,7 @@ async function save(saveAs) {
 }
 async function closeDocument(id) {
   const doc = findDocument(id)
-  if (!doc || busy.value || !loaded.value) return
+  if (!doc || busy.value || operationPending.value || !loaded.value) return
   if (doc.path) {
     await run(async () => {
       const result = await api.close(id)
@@ -378,7 +395,7 @@ async function exportPdf() {
   })
 }
 async function closeApplication() {
-  if (busy.value) { await api.cancelClose(); return }
+  if (busy.value || operationPending.value) { await api.cancelClose(); return }
   await waitComposition()
   busy.value = true
   try { await flush(); await api.closeReady() }
