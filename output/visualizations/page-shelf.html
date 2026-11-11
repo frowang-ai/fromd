@@ -273,7 +273,7 @@ svg.icon { display:block; width:19px; height:19px; fill:none; stroke:currentColo
     canvas.width=Math.ceil(innerWidth*dpr);canvas.height=Math.ceil(innerHeight*dpr);canvas.style.width=`${innerWidth}px`;canvas.style.height=`${innerHeight}px`;
     const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas unavailable');
     document.body.append(canvas);root.classList.add('flying');
-    const duration=$('slow').checked?2400:(reverse?700:920);
+    const duration=$('slow').checked?2400:(reverse?450:550);
     try {
       await new Promise((resolve,reject) => {
         let start;
@@ -303,11 +303,12 @@ svg.icon { display:block; width:19px; height:19px; fill:none; stroke:currentColo
     if(busy||!opened.includes(id))return;
     capture();closeSettings();lock(true);
     try {
+      let animationFailed=false;
       try { if(active===id)await genie();else await tabFlight(id); }
-      catch(error){console.error('Page animation:',error);announce('动画未能加载，页面仍可收起。');}
+      catch(error){console.error('Page animation:',error);animationFailed=true;}
       const index=opened.indexOf(id);opened.splice(index,1);
       if(active===id)active=opened[Math.min(index,opened.length-1)]||null;
-      render();land();announce(`已收起${label(getPage(id))}`);
+      render();land();announce(`${animationFailed?'动画未能播放，页面已收起：':'已收起'}${label(getPage(id))}`);
     } finally{lock(false);}
     (root.querySelector('.tab.active [role=tab]')||$('pages-button')).focus({preventScroll:true});
   }
