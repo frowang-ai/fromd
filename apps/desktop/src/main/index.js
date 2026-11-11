@@ -10,6 +10,7 @@ import { guardUpdateRequests, guardInstallerLaunch } from './updaterSafety.js'
 import electronUpdater from 'electron-updater'
 import { existsSync } from 'node:fs'
 import { openFileArguments, operationQueue } from './lifecycle.js'
+import { createApplicationMenu } from './applicationMenu.js'
 
 const require = createRequire(import.meta.url), here = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = resolve(here, '../renderer')
@@ -19,6 +20,7 @@ if (process.env.FROWANG_USER_DATA) app.setPath('userData', resolve(process.env.F
 const startupFiles = openFileArguments(process.argv.slice(app.isPackaged ? 1 : 2))
 const lock = app.requestSingleInstanceLock({ files: startupFiles })
 let window, store, quitting = false, closing = false, rendererGone = false, rendererReady = false
+let applicationMenu
 let initialized, initializationFailed, updates
 const startup = new Promise((resolve, reject) => { initialized = resolve; initializationFailed = reject })
 const prints = new Map()
@@ -81,8 +83,14 @@ async function exportPdf(id, html) {
   } finally { clearTimeout(timer); if (printWindow && !printWindow.isDestroyed()) printWindow.destroy(); prints.delete(idPrint) }
 }
 function wireIPC() {
+  // State must not wait behind a modal dialog/document write in the operation queue.
+  ipcMain.on('application:menu-state', (event, state) => {
+    try { secureSender(event); applicationMenu?.update(state) }
+    catch (error) { console.error('[desktop:application:menu-state]', error.name) }
+  })
   handle('application:renderer-ready', () => {
     rendererReady = true
+    applicationMenu?.refresh()
     updates?.start()
     if (closing && !rendererGone) window.webContents.send('application:request-close')
     return true
@@ -201,10 +209,10 @@ async function createWindow() {
     if (!closing) { closing = true; window.webContents.send('application:request-close') }
   })
   window.on('ready-to-show', () => window.show())
-  window.webContents.on('did-start-loading', () => { rendererReady = false })
+  window.webContents.on('did-start-loading', () => { rendererReady = false; applicationMenu?.reset() })
   window.webContents.on('did-finish-load', () => { rendererGone = false })
   window.webContents.on('render-process-gone', async () => {
-    rendererGone = true; closing = false; updates?.cancelRestart()
+    rendererGone = true; closing = false; applicationMenu?.reset(); updates?.cancelRestart()
     const choice = await dialog.showMessageBox(window, { type: 'error', message: '编辑页面已停止。可重新载入已接收的草稿，或退出后恢复备份。', buttons: ['重新载入', '退出'], defaultId: 0, cancelId: 1 })
     if (choice.response === 0) window.webContents.reload()
     else window.close()
@@ -221,16 +229,11 @@ else {
     await protocols()
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
     wireIPC()
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: '文件', submenu: [
-        { label: '新建', accelerator: 'CmdOrCtrl+N', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'new') },
-        { label: '打开', accelerator: 'CmdOrCtrl+O', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'open') },
-        { label: '保存', accelerator: 'CmdOrCtrl+S', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'save') },
-        { label: '另存为', accelerator: 'CmdOrCtrl+Shift+S', registerAccelerator: false, click: () => window?.webContents.send('application:command', 'saveAs') },
-        { type: 'separator' }, { label: '退出', click: () => window?.close() },
-      ] }, { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
-      { label: '视图', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'toggleDevTools' }] },
-    ]))
+    applicationMenu = createApplicationMenu({ Menu,
+      canDispatch: () => rendererReady && !rendererGone && !closing && !!window && !window.isDestroyed(),
+      sendCommand: command => window.webContents.send('application:command', command),
+      closeWindow: () => window?.close(),
+    })
     const metadata = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
     const config = validateUpdateConfig(metadata.frowangUpdates, { packaged: app.isPackaged, platform: process.platform, portable: !!process.env.PORTABLE_EXECUTABLE_FILE, env: process.env })
     if (config.enabled && !existsSync(join(dirname(process.execPath), `Uninstall ${metadata.build?.productName || metadata.productName || 'Frowang Markdown'}.exe`))) {

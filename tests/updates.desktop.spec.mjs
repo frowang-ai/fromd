@@ -7,11 +7,13 @@ import { join, resolve, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 import { extractFile } from '@electron/asar'
+import { bindMenu, editorReady, menuCommand, menuState } from './native-menu.mjs'
 
 const processes = new WeakMap()
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
-const oldInstaller = join(root, 'release/update-test-0.2.900/Frowang-Update-Test-Setup-0.2.900.exe')
-const feedRoot = join(root, 'release/update-test-0.2.901')
+const artifactRoot = process.env.FROWANG_UPDATE_TEST_ARTIFACTS ? resolve(process.env.FROWANG_UPDATE_TEST_ARTIFACTS) : join(root, 'release')
+const oldInstaller = join(artifactRoot, 'update-test-0.2.900/Frowang-Update-Test-Setup-0.2.900.exe')
+const feedRoot = join(artifactRoot, 'update-test-0.2.901')
 const source = page => page.locator('.document-pane:visible').getByRole('textbox', { name: 'Markdown 源码', exact: true })
 const name = page => page.getByRole('textbox', { name: '草稿名称', exact: true })
 function run(executable, args, env) {
@@ -34,9 +36,14 @@ async function launch(executablePath, env) {
   const started = performance.now()
   const app = await electron.launch({ executablePath, env, timeout: 30000 })
   processes.set(app, app.process())
-  const page = await app.firstWindow()
-  await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
+  const page = await app.firstWindow(); bindMenu(app, page)
+  await editorReady(page)
   return { app, page, readyMs: performance.now() - started }
+}
+async function ensureSource(page) {
+  await editorReady(page)
+  if (!(await menuState(page, 'source')).checked) await menuCommand(page, 'source')
+  await expect(source(page)).toBeVisible(); await editorReady(page)
 }
 async function fullSnapshot(page) {
   return page.evaluate(async () => {
@@ -52,7 +59,7 @@ test('real installed NSIS update: failure protection, later, upgrade, same-entry
   const fixtures = join(root, 'output', 'update-fixtures'); await mkdir(fixtures, { recursive: true })
   const fixture = await mkdtemp(join(fixtures, 'case-'))
   const install = join(fixture, 'install')
-  const testMetadata = JSON.parse(extractFile(join(root, 'release/update-test-0.2.900/win-unpacked/resources/app.asar'), 'package.json'))
+  const testMetadata = JSON.parse(extractFile(join(artifactRoot, 'update-test-0.2.900/win-unpacked/resources/app.asar'), 'package.json'))
   const profile = testMetadata.frowangUpdates.testProfile
   expect(profile.replaceAll('\\', '/')).toContain(root.replaceAll('\\', '/') + '/output/update-fixtures/')
   await mkdir(profile, { recursive: true })
@@ -82,20 +89,24 @@ test('real installed NSIS update: failure protection, later, upgrade, same-entry
     metrics.emptyInstalledReadyMs = launched.readyMs
     expect(await app.evaluate(({ app }) => app.getVersion())).toBe('0.2.900')
     await expect(page.getByRole('button', { name: '检查更新', exact: true })).toBeVisible()
-    // A small six-draft workload, persisted before the measured ordinary launch.
-    await page.evaluate(async () => {
-      const api = window.desktop
-      const paragraph = '这是生成的启动测量样本，不含真实用户笔记。用于观察多标签恢复、列表与公式显示。\n\n- 第一条\n- 第二条\n\n公式 $a+b=c$。\n\n'
-      let firstId
-      for (let i = 0; i < 6; i++) {
-        const snapshot = i ? await api.newDocument() : await api.listMetadata(), id = snapshot.activeId
-        firstId ||= id
-        await api.rename(id, `升级草稿${i + 1}`)
-        await api.update(id, `# 启动样本 ${i + 1}\n\n` + paragraph.repeat(20), 1)
+    // Populate the same six synthetic documents through the new + and genuine
+    // source-menu path. Every switch/new command retains the normal flush path.
+    const paragraph = '这是生成的启动测量样本，不含真实用户笔记。用于观察多标签恢复、列表与公式显示。\n\n- 第一条\n- 第二条\n\n公式 $a+b=c$。\n\n'
+    for (let i = 0; i < 6; i++) {
+      if (i) {
+        await page.getByRole('button', { name: '新建笔记', exact: true }).click()
+        await expect(page.getByRole('tab')).toHaveCount(i + 1); await editorReady(page)
       }
-      await api.activate(firstId)
-    })
-    await page.reload(); await expect(page.getByRole('tab')).toHaveCount(6)
+      await name(page).fill(`升级草稿${i + 1}`); await name(page).press('Enter')
+      await ensureSource(page)
+      await source(page).fill(`# 启动样本 ${i + 1}\n\n` + paragraph.repeat(20))
+      await menuCommand(page, 'source')
+      await expect(page.getByRole('textbox', { name: 'Markdown 正文', exact: true })).toBeVisible(); await editorReady(page)
+    }
+    await page.getByRole('tab', { name: '升级草稿1', exact: true }).click()
+    await expect(page.getByRole('tab', { name: '升级草稿1', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await editorReady(page)
+    expect(Buffer.byteLength((await fullSnapshot(page)).documents[0].markdown)).toBe(3278)
     await normalClose(app)
     launched = await launch(executable, env); app = launched.app; page = launched.page
     metrics.sixDraftsInstalledReadyMs = launched.readyMs
@@ -103,9 +114,9 @@ test('real installed NSIS update: failure protection, later, upgrade, same-entry
     await writeFile(external, '\ufeff# BOM原文\r\n保留换行\r\n')
     await writeFile(externalConflict, '磁盘基线')
     await app.evaluate(({ dialog }, paths) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: paths }) }, [external, externalConflict])
-    await page.getByRole('button', { name: '打开', exact: true }).click()
+    await menuCommand(page, 'open')
     await expect(page.getByRole('tab')).toHaveCount(8)
-    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await ensureSource(page)
     await source(page).fill('保留的未写入磁盘正文')
     await expect(page.getByRole('status', { name: '自动保存状态', exact: true })).toHaveText('已自动保存 · 未写入文件')
     await writeFile(externalConflict, '外部程序新内容')
@@ -129,10 +140,40 @@ test('real installed NSIS update: failure protection, later, upgrade, same-entry
     await page.getByRole('button', { name: '下载更新', exact: true }).click()
     await expect(page.getByRole('button', { name: '重启更新', exact: true })).toBeVisible()
     expect(requests.filter(file => file.endsWith('.exe'))).toHaveLength(downloadedRequests)
+    // Joint scenario: a real menu command is waiting on genuine Chromium IME
+    // pre-edit. An update request already in flight must cancel its restart,
+    // leave the input enabled/focused and let the menu's normal flush complete.
+    await ensureSource(page)
+    await source(page).fill('菜单组合输入前-'); await source(page).press('Control+End')
+    const composingId = (await fullSnapshot(page)).activeId
+    const ime = await app.context().newCDPSession(page)
+    await app.evaluate(({ dialog }) => {
+      globalThis.__jointSaveDialogs = 0
+      dialog.showSaveDialog = async () => { globalThis.__jointSaveDialogs++; return { canceled: true } }
+    })
+    await ime.send('Input.imeSetComposition', { text: '中', selectionStart: 1, selectionEnd: 1 })
+    await menuCommand(page, 'saveAs')
+    await expect(page.locator('main')).toHaveAttribute('aria-busy', 'true')
+    await expect(page.getByLabel('应用更新')).toHaveAttribute('inert', '')
+    // Fixed updates API exercises the race after controls lock; no documents
+    // operation bypasses renderer flush or the real registered menu callback.
+    await page.evaluate(() => window.desktop.updates.restart())
+    await expect(page.getByLabel('应用更新')).toContainText('尚未重启')
+    await expect(source(page)).toBeEnabled(); await expect(source(page)).toBeFocused()
+    await expect(source(page)).toHaveValue('菜单组合输入前-中')
+    expect(await app.evaluate(() => globalThis.__jointSaveDialogs)).toBe(0)
+    expect(await app.evaluate(({ app }) => app.getVersion())).toBe('0.2.900')
+    await ime.send('Input.insertText', { text: '中' })
+    await editorReady(page)
+    await expect.poll(() => app.evaluate(() => globalThis.__jointSaveDialogs)).toBe(1)
+    expect((await page.evaluate(id => window.desktop.read(id), composingId)).markdown).toBe('菜单组合输入前-中')
+    await expect(page.getByRole('button', { name: '重启更新', exact: true })).toBeVisible()
+    metrics.menuCompositionRestartCancelled = true
+    await ime.detach()
     // Real SQLite rejection: renderer flush and close-ready run unchanged.
     sql(profile, "CREATE TRIGGER deny_update BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'integration write failure'); END;")
     await name(page).fill('保存失败仍保留的名称')
-    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await ensureSource(page)
     await source(page).fill('升级前最后的正文\n' + '阅读位置\n'.repeat(100))
     await page.getByRole('button', { name: '重启更新', exact: true }).click()
     await expect(page.getByRole('alert')).toContainText('草稿备份不可用')
@@ -178,7 +219,7 @@ test('real installed NSIS update: failure protection, later, upgrade, same-entry
     relaunchedBrowser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`)
     await expect.poll(() => relaunchedBrowser.contexts()[0].pages().some(page => page.url().startsWith('app://editor/'))).toBe(true)
     page = relaunchedBrowser.contexts()[0].pages().find(page => page.url().startsWith('app://editor/'))
-    await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
+    await editorReady(page)
     expect((await page.evaluate(() => window.desktop.updates.state())).currentVersion).toBe('0.2.901')
     await expect(page.getByRole('tab')).toHaveCount(8)
     await expect(name(page)).toHaveValue('升级后继续阅读')

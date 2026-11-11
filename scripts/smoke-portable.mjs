@@ -42,7 +42,7 @@ try {
   const page = browser.contexts()[0].pages().find(page => page.url() === 'app://editor/index.html')
   assert.ok(page, 'Portable editor target must exist')
   await page.waitForFunction(() => document.querySelector('[aria-label="Markdown 正文"]') &&
-    document.querySelector('nav button[aria-pressed]')?.disabled === false && !document.querySelector('header').inert)
+    document.querySelector('main')?.getAttribute('aria-busy') === 'false' && !document.querySelector('header').inert)
   const saved = await until(async () => {
     const db = new DatabaseSync(join(profile, 'drafts.sqlite'), { readOnly: true })
     try { return { version: db.prepare("SELECT value FROM settings WHERE key='version'").get()?.value, count: db.prepare('SELECT COUNT(*) AS count FROM documents').get().count } }
