@@ -24,6 +24,7 @@
         <MarkdownEditor ref="sharedEditor" @session-change="sessionChanged" />
       </div>
     </div>
+    <UpdateNotice :busy="!commandReady" />
   </main>
 </template>
 <script setup>
@@ -31,6 +32,7 @@ import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watchEff
 import MarkdownEditor from '@frowang/editor'
 import { buildPdfDocument } from '@frowang/editor/pdf'
 import DocumentPane from './DocumentPane.vue'
+import UpdateNotice from './UpdateNotice.vue'
 const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
 const current = computed(() => documents.value.find(doc => doc.id === activeId.value))

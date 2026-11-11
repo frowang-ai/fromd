@@ -172,11 +172,25 @@ test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', a
     await expect(page.getByRole('tab')).toHaveCount(2)
     // Bound dirty files still offer cancel/discard, without deleting disk files.
     await putSource(page, '文件关闭前未保存修改')
+    await app.evaluate(({ dialog }) => {
+      const answers = [2, 1]
+      globalThis.__fileCloseAnswers = []
+      dialog.showMessageBox = async () => {
+        const response = answers.shift()
+        if (response === undefined) throw new Error('Unexpected extra file-close dialog')
+        globalThis.__fileCloseAnswers.push(response)
+        return { response }
+      }
+    })
     await page.getByRole('button', { name: '关闭 另存.md', exact: true }).click()
+    // Existing tab count/text already hold before close runs. Wait for the
+    // actual cancel answer and completed UI operation before the second click.
+    await expect.poll(() => app.evaluate(() => globalThis.__fileCloseAnswers)).toEqual([2])
+    await expect(page.locator('header')).not.toHaveAttribute('inert', '')
     await expect(page.getByRole('tab')).toHaveCount(2)
     await expect(body(page)).toContainText('文件关闭前未保存修改')
-    await chooseMessage(app, 1)
     await page.getByRole('button', { name: '关闭 另存.md', exact: true }).click()
+    await expect.poll(() => app.evaluate(() => globalThis.__fileCloseAnswers)).toEqual([2, 1])
     await expect(page.getByRole('tab')).toHaveCount(1)
     expect(await readFile(copy, 'utf8')).toBe('外部版本')
   } finally { await stop(app); await cleanup(directory) }
