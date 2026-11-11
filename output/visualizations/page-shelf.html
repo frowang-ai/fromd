@@ -273,7 +273,7 @@ svg.icon { display:block; width:19px; height:19px; fill:none; stroke:currentColo
     canvas.width=Math.ceil(innerWidth*dpr);canvas.height=Math.ceil(innerHeight*dpr);canvas.style.width=`${innerWidth}px`;canvas.style.height=`${innerHeight}px`;
     const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas unavailable');
     document.body.append(canvas);root.classList.add('flying');
-    const duration=$('slow').checked?2400:(reverse?350:400);
+    const duration=$('slow').checked?2400:(reverse?400:450);
     try {
       await new Promise((resolve,reject) => {
         let start;
