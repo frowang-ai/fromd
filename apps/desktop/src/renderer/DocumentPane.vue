@@ -72,5 +72,6 @@ async function toggleSource() {
   else { source.value = getMarkdown(); sourceCreated.value = true; emit('change', source.value); sourceMode.value = true; await nextTick(); sourceInput.value.focus() }
   return sourceMode.value
 }
-defineExpose({ getMarkdown, toggleSource, sourceMode, resolveImage, syncMarkdown, captureViewState, restoreViewState })
+function focusEditor() { if (sourceMode.value) sourceInput.value?.focus(); else props.engine?.focusSessionView() }
+defineExpose({ getMarkdown, toggleSource, focusEditor, sourceMode, resolveImage, syncMarkdown, captureViewState, restoreViewState })
 </script>

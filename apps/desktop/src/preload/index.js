@@ -11,6 +11,7 @@ const listen = (channel, callback) => {
 }
 contextBridge.exposeInMainWorld('desktop', {
   ready: () => invoke('application:renderer-ready'),
+  setMenuState: state => ipcRenderer.send('application:menu-state', state),
   list: () => invoke('documents:list'),
   listMetadata: () => invoke('documents:list-metadata'),
   read: id => invoke('documents:read', id),

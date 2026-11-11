@@ -1,5 +1,34 @@
 # Windows MVP 0.2 验证记录
 
+## 原生菜单与标签入口（2026-11-11）
+
+本次基于 `9be2f8abcab11e74aaa2aaf5bb17a12e4c7d546b`，只调整桌面菜单、标签入口和相关回归，不改变编辑内核、SQLite、依赖或版本。所有样本使用独立 `FROWANG_USER_DATA`。首个候选 `e3a5e88` 在独立审核中发现真实预编辑丢字；下表为采纳该 high 并修复后的重新验证结果，旧候选的31/31不能排除此问题。
+
+| 检查 | 本次结果与证据 |
+| --- | --- |
+| `npm test` | **22/22**，`output/menu-ime-core-desktop.log` |
+| `npm run build` | **通过**，`output/menu-ime-focused.log`；输出供以下开发及打包测试使用 |
+| `npx playwright test -c playwright.config.mjs tests/menu.desktop.spec.mjs` | **6/6**，`output/menu-ime-focused.log` |
+| `npm run test:desktop` | **34/34**（原28项 + 菜单6项），`output/menu-ime-core-desktop.log` |
+| 打包后的同一菜单用例 | **6/6**，`output/menu-ime-packaged-validation.log` |
+| `node scripts/smoke-portable.mjs release/menu-preview/Frowang-Markdown-0.2.0-x64.exe` | **通过、exit 0**，真实编辑ready、SQLite创建及原10秒退出期限；同上日志 |
+
+- `tests/menu.desktop.spec.mjs`：加号是普通按钮、一次新建并激活；少量标签紧随末尾，520px窄窗与11标签溢出时仍可点；原生菜单结构与源码勾选；Ctrl+N/O/S/Shift+S调用次数；取消／错误恢复；未ready／忙碌／迟到跨标签命令。新增三项以CDP `Input.imeSetComposition`建立真实浏览器预编辑状态，在同一主进程tick两次调用真正MenuItem后，检查源码仍enabled/focused、预编辑字符和composition未被打断；再用 `Input.insertText`提交，确认新建／源码切换／另存只执行一次，原篇不丢字，取消和失败后命令锁释放。
+- 菜单命令通过真正注册的 `MenuItem.click → main → preload → renderer` 进入原有flush业务流程。菜单上下文序号不使用正文revision；用例在菜单保存消息延迟期间继续真实输入、等待自动备份，再放行后验证磁盘为最新正文。原有保存目标竞态、真实fill后不足200ms点击关闭及文件内容断言保留并通过。
+- `tests/native-menu.mjs` 只提供实际菜单回调和就绪观察；原生菜单不是DOM按钮。`main[aria-busy=false]`反映当前文档恢复完成且没有正在执行的操作，portable改用此条件取代已移除的nav按钮。
+- 打包证据目录 `output/packaged-results/menu.desktop-原生菜单：标签末尾加号、窄窗溢出、真实菜单结构和源码状态/` 含 `native-menu.json`、`menu-tabs-wide.png`、`menu-tabs-narrow.png`。页面截图已视觉检查；没有用DOM截图冒称OS菜单截图。OS原生菜单的鼠标展开、所有真实输入法和设备未逐项验证。
+- 本地预览产物 `release/menu-preview/Frowang-Markdown-0.2.0-x64.exe`（115,466,281字节），以及同目录 `win-unpacked/Frowang Markdown.exe`，已从修复后的 `out/` 重新构建。命令为 `npx electron-builder --win portable --x64 --publish never --config.directories.output=release/menu-preview`，无并发build；main、preload、renderer入口及主bundle与受测 `out/` 直接字节比较一致。本次仅重跑打包菜单与portable，未声称打包完整34项也已重跑；旧0.2验收件保留。未签名、未发布。
+- 首轮新增spec使用带尾分隔符的Windows项目路径，启动时误解析引号；已仅将该入口改为既有 `resolve(fileURLToPath(...))` 规范。单次隔离probe确认PID11824进入ready并退出；失败任务已终止、定点查询无自有残留，没有操作用户Frowang进程或数据。另一次测试读取尚未创建的另存文件抛ENOENT，已仅对该预期瞬态等待。失败日志保留在 `output/menu-initial-launch-failure.log`、`output/menu-file-wait-failure.log`，启动验证见 `output/menu-launch-probe.log`。
+
+审核回修证据：
+
+- `output/review-menu.md` 的唯一high已采纳。旧实现先busy再等待composition，使textarea失焦／禁用；原三项菜单测试的人工composition事件未建立浏览器预编辑状态，因此漏检。新增真实CDP三项先在未修复构建全部失败，见 `output/menu-ime-red.log`：new为disabled，source/saveAs为失焦。
+- `operationPending`仅排斥命令和标签操作，不使编辑区inert或disabled。等待后按原文档ID、对象、generation、selectionVersion及ready核对，再进入busy/flush；不以锁本身更新的menuRevision否决已接受命令。取消、异常及目标变化的返回路径均在finally释放锁。
+- 第一版只拆pending锁仍在最终提交后漏字，见 `output/menu-ime-first-fix-failure.log`。`output/menu-composition-order.json`记录输入处理未结束时已禁用控件；compositionend释放从微任务改到提交后的渲染帧，并在等待结束后复查composing。最终六项在开发及新包均通过，不使用固定sleep或修改编辑内核。
+- 首轮红灯在断言已失败后卡住fixture的 `app.close()`，见 `output/menu-ime-red-cleanup-timeout.log`；菜单fixture现只退出自己启动的隔离应用，避免掩盖原断言。原生命周期、真实fill/click及不足200ms关闭断言没有替换；正常退出继续由完整桌面与portable检查。CDP回归不等同于所有真实Windows输入法或OS菜单鼠标展开验收。
+
+下方为既有0.2交付记录，其56项内核回归和28项打包全量结果为历史证据，不计作本次重跑。
+
 本轮以 `8b750c610ee490b89b88cec2550fd734a8939a58`（A/B 已合入）为基线，在 Windows x64、Node22.19.0、Electron45.2.3、Playwright1.63.0 环境验证。所有样本使用隔离 `FROWANG_USER_DATA` 或临时目录，没有读取真实用户草稿。
 
 ## 当前验收状态
