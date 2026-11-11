@@ -25,8 +25,15 @@ async function seed(profile, documents) {
   await store.close(store.documents[0].id); await store.activate(ids[0]); await store.dispose(); return ids
 }
 async function switchTab(page, name) {
-  await page.getByRole('tab', { name: new RegExp(name) }).click()
+  const target = page.getByRole('tab', { name: new RegExp(name) })
+  await target.click()
+  // The old tab's toolbar can stay enabled while activate's IPC reply is in
+  // flight. Wait for the requested selection and its restored pane, not just
+  // any enabled toolbar or the shared editor that already exists.
+  await expect(target).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
+  await expect(page.locator('.document-pane:visible')).not.toHaveAttribute('inert', '')
+  await expect(page.locator('header')).not.toHaveAttribute('inert', '')
   await expect(page.locator('.ProseMirror')).toHaveCount(1)
 }
 async function reading(page, id) { return page.evaluate(id => window.desktop.read(id), id) }

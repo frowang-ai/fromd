@@ -10,6 +10,13 @@ const listen = (channel, callback) => {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 contextBridge.exposeInMainWorld('desktop', {
+  updates: {
+    state: () => invoke('updates:state'),
+    check: () => invoke('updates:check'),
+    download: () => invoke('updates:download'),
+    restart: () => invoke('updates:restart'),
+    onChanged: callback => listen('updates:changed', callback),
+  },
   ready: () => invoke('application:renderer-ready'),
   list: () => invoke('documents:list'),
   listMetadata: () => invoke('documents:list-metadata'),

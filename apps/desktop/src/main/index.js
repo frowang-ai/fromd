@@ -5,6 +5,9 @@ import { readFile, realpath } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { DocumentStore, atomicWrite, suggestedFilename } from './documentStore.js'
+import { UpdateController, validateUpdateConfig } from './updates.js'
+import electronUpdater from 'electron-updater'
+import { existsSync } from 'node:fs'
 import { openFileArguments, operationQueue } from './lifecycle.js'
 
 const require = createRequire(import.meta.url), here = dirname(fileURLToPath(import.meta.url))
@@ -15,7 +18,7 @@ if (process.env.FROWANG_USER_DATA) app.setPath('userData', resolve(process.env.F
 const startupFiles = openFileArguments(process.argv.slice(app.isPackaged ? 1 : 2))
 const lock = app.requestSingleInstanceLock({ files: startupFiles })
 let window, store, quitting = false, closing = false, rendererGone = false, rendererReady = false
-let initialized, initializationFailed
+let initialized, initializationFailed, updates
 const startup = new Promise((resolve, reject) => { initialized = resolve; initializationFailed = reject })
 const prints = new Map()
 const serialize = operationQueue(startup)
@@ -79,6 +82,7 @@ async function exportPdf(id, html) {
 function wireIPC() {
   handle('application:renderer-ready', () => {
     rendererReady = true
+    updates?.start()
     if (closing && !rendererGone) window.webContents.send('application:request-close')
     return true
   })
@@ -112,14 +116,31 @@ function wireIPC() {
   handle('application:close-ready', async () => {
     if (!closing) return false
     const backedUp = await store.tryPersist()
-    if (!backedUp && !store.canExitWithoutRecovery()) {
+    if (!backedUp && (updates?.installIntent || !store.canExitWithoutRecovery())) {
       closing = false
+      updates?.cancelRestart()
       throw new Error('草稿备份不可用，请先保存所有修改再退出；未完成的草稿删除需恢复备份后重试。')
+    }
+    // An update is application exit, never tab closure. It must have a confirmed
+    // SQLite commit even when the external files happen to be clean.
+    if (updates?.installIntent) {
+      quitting = true
+      if (!updates.install()) { quitting = false; closing = false }
+      return quitting
     }
     // The renderer has flushed pending edits; committed drafts survive normal exit.
     quitting = true; window.close(); return true
   })
-  handle('application:close-cancel', () => { closing = false; return true })
+  handle('application:close-cancel', () => { closing = false; updates?.cancelRestart(); return true })
+  // Updates must not hold the document queue while networking or asking the
+  // renderer to flush through documents:update / rename / view-state.
+  for (const [name, action] of Object.entries({ state: () => updates.snapshot(), check: () => updates.check(), download: () => updates.download(), restart: () => updates.restart() })) {
+    ipcMain.handle(`updates:${name}`, async event => {
+      secureSender(event)
+      try { await startup; return { ok: true, value: await action() } }
+      catch { return { ok: false, error: '更新操作失败，请稍后重试。' } }
+    })
+  }
 }
 const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml' }
 async function protocols() {
@@ -179,7 +200,7 @@ async function createWindow() {
   window.webContents.on('did-start-loading', () => { rendererReady = false })
   window.webContents.on('did-finish-load', () => { rendererGone = false })
   window.webContents.on('render-process-gone', async () => {
-    rendererGone = true; closing = false
+    rendererGone = true; closing = false; updates?.cancelRestart()
     const choice = await dialog.showMessageBox(window, { type: 'error', message: '编辑页面已停止。可重新载入已接收的草稿，或退出后恢复备份。', buttons: ['重新载入', '退出'], defaultId: 0, cancelId: 1 })
     if (choice.response === 0) window.webContents.reload()
     else window.close()
@@ -206,7 +227,20 @@ else {
       ] }, { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: '视图', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'toggleDevTools' }] },
     ]))
+    const metadata = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
+    const config = validateUpdateConfig(metadata.frowangUpdates, { packaged: app.isPackaged, platform: process.platform, portable: !!process.env.PORTABLE_EXECUTABLE_FILE, env: process.env })
+    if (config.enabled && !existsSync(join(dirname(process.execPath), `Uninstall ${metadata.build?.productName || metadata.productName || 'Frowang Markdown'}.exe`))) {
+      config.enabled = false; config.reason = '请从安装后的应用入口检查更新。'
+    }
+    const updater = config.enabled ? new electronUpdater.NsisUpdater({ provider: 'generic', url: config.url, channel: 'latest' }) : null
+    updates = new UpdateController({ updater, config, currentVersion: app.getVersion(),
+      notify: state => { if (window && !window.isDestroyed()) window.webContents.send('updates:changed', state) },
+      requestRestart: () => {
+        if (closing || rendererGone || !rendererReady || !window || window.isDestroyed()) return false
+        window.close(); return closing
+      },
+    })
     await createWindow(); initialized()
   }).catch(error => { initializationFailed(error); dialog.showErrorBox('启动失败', error.message); app.exit(1) })
-  app.on('window-all-closed', () => { void store.dispose().finally(() => app.quit()) })
+  app.on('window-all-closed', () => { updates?.stop(); void store.dispose().finally(() => app.quit()) })
 }

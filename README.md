@@ -26,10 +26,31 @@ npm run build
 npm run test:desktop
 npm run test:editor
 npm run package:dir
-npm run dist:win
+npm run dist:win         # portable
+npm run dist:installer   # 按当前用户安装的 NSIS 安装包
 ```
 
 `package:dir` 默认生成 `release/0.2.0/win-unpacked/Frowang Markdown.exe`，需要保留同目录所有文件。`dist:win` 默认生成 `release/0.2.0/Frowang-Markdown-0.2.0-x64.exe`。本轮为避开旧诊断输出占用，以 `npx electron-builder --win portable --x64 --publish never --config.directories.output=release/0.2.0-verified` 生成单独验收产物；portable检查使用 `node scripts/smoke-portable.mjs release/0.2.0-verified/Frowang-Markdown-0.2.0-x64.exe`。构建默认不发布、未进行代码签名。便携版表示无需安装，草稿仍保存在用户数据目录，不跟随 exe。
+
+## Windows 安装与更新
+
+`npm run dist:installer` 使用 electron-builder 26.18.0 生成 `release/0.2.0/Frowang-Markdown-Setup-0.2.0-x64.exe`，按当前用户安装，保留固定的 `com.frowang.markdown` 身份、安装入口及桌面／开始菜单快捷方式。后续直接运行已安装的 exe，无需每次执行 portable 外壳。安装／升级不删除应用数据或外部 `.md`，卸载默认也保留用户数据。portable 构建入口继续保留。
+
+更新由固定的 electron-updater 6.8.9 `NsisUpdater` 处理。安装版启动就绪 30 秒后检查一次，此后至多每 6 小时检查；手动检查至少间隔 10 秒。只用 stable（`latest.yml`），不降级、不取 prerelease。发现版本后由用户点击下载，下载完成可“稍后”或“重启更新”；普通退出不会自动安装。重启先复用正文／名称／阅读位置 flush，再等待 SQLite 提交；失败保持窗口及草稿，不要求先 Ctrl+S 保存为外部文件。应用内不接收任意 URL、token 或 IPC 名称。
+
+默认没有更新源，不会请求更新网络。开发、解包和 portable 入口也停用更新。正式源由构建者配置，源码仓库保持 private，不使用其 GitHub Releases，也不把 GitHub token 打包：
+
+```powershell
+# URL 指向你已准备好的 HTTPS 静态目录；这里不预设真实地址。
+$env:FROWANG_UPDATE_URL = '<已确认的 HTTPS 更新目录>'
+$env:FROWANG_UPDATE_PUBLISHER = '<代码签名证书的发布者名称>'
+# 按 electron-builder 的签名方式配置 CSC_LINK / CSC_KEY_PASSWORD 或签名服务。
+npm run dist:installer
+```
+
+带正式源时构建强制代码签名，启用 builder 的 publisher 签名验证；未配置凭据的构建不能冒充可发布签名版本。`app-update.yml` 和固定 URL 随包生成。将版本对应的安装器、`.blockmap` 与 `latest.yml` 放入同一 HTTPS 目录，最后替换 `latest.yml`；这是单独的发布动作，本项目命令均 `--publish never`，不会上传或创建 Release。新版本号应由发布流程明确决定，本功能不提前修改根版本。更新源故障或签名不匹配不能保证更新可用；失败可手动重试。安装器启动后遭系统中断不具备事务回滚保证。
+
+隔离真实升级回归使用两个实际 NSIS 安装包与 loopback 源，命令见 `VALIDATION.md`。HTTP 仅限显式 `FROWANG_UPDATE_TEST_BUILD=1` 的测试构建，构建时还必须指定绝对路径 `FROWANG_UPDATE_TEST_PROFILE`。测试包携带这个固定路径，在同一测试 appId／productName 下初装、升级、自动重开均使用它，并将 updater 缓存放在旁边。原因是 NSIS 经桌面 shell 自动重开时不继承父进程环境变量。仅测试安装包使用同步 CJS 启动入口，在导入完全相同的产品主入口前设置隔离目录和随机 loopback CDP 端口，测试直接连接 NSIS 自动重开的 UI；测试包不创建快捷方式，不可作为用户交付包。正式包不包含测试启动文件或路径字段，产品 main 不含测试证据写入，renderer／更新元数据无法更改该路径。
 
 ## 当前范围（0.1 与 0.2）
 
@@ -53,15 +74,17 @@ npm run dist:win
 
 默认数据位置由 Electron `app.getPath('userData')` 决定（Windows 通常在 `%APPDATA%/frowang-markdown`）；可通过开发者环境变量 `FROWANG_USER_DATA` 指定独立测试目录。恢复文件损坏时保留原文件，提示备份不可用，仍可将当前笔记另存为。备份目录不可写时也允许进入应用并保存到其他目录；全部文件已保存后可退出。页面进程崩溃可重载已接收草稿或从主进程退出，不依赖已死亡的页面完成握手。
 
-原网页 `127.0.0.1:5199` 的 localStorage 不会自动转移进 Electron。第一轮请在原网页下载 `.md` 后从桌面版打开；旧网页与原草稿不删除。整份会话迁移、文件树、查找替换、主题设置、自动更新留到后续版本，不在首版冒充已实现。
+原网页 `127.0.0.1:5199` 的 localStorage 不会自动转移进 Electron。第一轮请在原网页下载 `.md` 后从桌面版打开；旧网页与原草稿不删除。整份会话迁移、文件树、查找替换和主题设置留到后续版本。安装版更新的配置边界见上文。
 
-内容日志沿用浏览器元数据诊断（视图→开发者工具，`window.__writingDebug`）；主进程错误只记录操作类别和错误类型，不记录笔记正文。应用无自动更新、无遥测、无后台模型请求。外部链接只在用户打开时交系统浏览器。
+内容日志沿用浏览器元数据诊断（视图→开发者工具，`window.__writingDebug`）；主进程错误只记录操作类别和错误类型，不记录笔记正文。应用无遥测、无后台模型请求；只有已配置更新源的安装版会按上述周期请求版本元数据，下载需用户点击。外部链接只在用户打开时交系统浏览器。
 
 ## 模块
 
 - `packages/editor/src/`：可复用的 Vue 编辑器和 Markdown 工具；不依赖 Electron。
 - `apps/desktop/src/main/documentStore.js`：文档元数据、按篇正文读取、内容 hash、磁盘冲突、原子保存与恢复。
 - `apps/desktop/src/main/storageWorker.js`：SQLite 事务、旧 JSON／旧 SQLite 迁移、元数据初始化和单篇正文读取。
+- `apps/desktop/src/main/updates.js`：更新配置边界、低频检查、手动下载和重启意图；通过既有退出握手确认 SQLite 后安装。
+- `apps/desktop/src/renderer/UpdateNotice.vue`：左下角更新状态、进度、重试与稍后入口。
 - `apps/desktop/src/main/index.js`：窗口、菜单、对话框、受限 IPC、图片协议与 PDF。
 - `apps/desktop/src/preload/index.js`：固定操作 API，不向正文暴露 fs 或任意 IPC。
 - `apps/desktop/src/renderer/`：简洁多标签应用；正文按需读取，编辑器实例由共享 session 管理。
