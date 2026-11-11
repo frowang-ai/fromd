@@ -141,6 +141,18 @@ test('real installed NSIS update: failure protection, later, upgrade, same-entry
     expect((await fullSnapshot(page)).documents).toHaveLength(8)
     sql(profile, 'DROP TRIGGER deny_update;')
     await page.getByRole('button', { name: '关闭提示', exact: true }).click()
+    await name(page).fill('安装启动失败仍可编辑')
+    await source(page).fill('安装启动前的已保存正文')
+    await app.evaluate(() => { globalThis.__updateTestRejectSpawn = true })
+    await page.getByRole('button', { name: '重启更新', exact: true }).click()
+    await expect(page.getByLabel('应用更新')).toContainText('无法启动安装')
+    await expect(name(page)).toBeEnabled(); await expect(source(page)).toBeEnabled()
+    expect(await app.evaluate(({ app }) => app.getVersion())).toBe('0.2.900')
+    expect((await fullSnapshot(page)).documents).toHaveLength(8)
+    await app.evaluate(() => { globalThis.__updateTestRejectSpawn = false })
+    metrics.asyncLaunchFailureKeptWindow = true
+    // Retry in the same window/library instance, with another final edit. The
+    // successful recovery below also proves closing/quitting did not bypass flush.
     await name(page).fill('升级后继续阅读')
     const finalText = '重启点击前最后输入\n' + '保留源码和阅读位置\n'.repeat(100)
     await source(page).fill(finalText)

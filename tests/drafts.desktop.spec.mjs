@@ -247,14 +247,24 @@ test('已绑定文件显示路径，关闭保留保存／放弃／取消，另�
     await expect(nameField(page)).toHaveCount(0)
     await expect(page.locator('.document-meta').getByText(file, { exact: true })).toBeVisible()
     await putSource(page, '第一次未保存')
-    await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 2 }) })
+    await app.evaluate(({ dialog }) => {
+      const answers = [2, 0, 1]
+      globalThis.__boundFileCloseAnswers = []
+      dialog.showMessageBox = async () => {
+        const response = answers.shift()
+        if (response === undefined) throw new Error('Unexpected extra file-close dialog')
+        globalThis.__boundFileCloseAnswers.push(response)
+        return { response }
+      }
+    })
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
+    await expect.poll(() => app.evaluate(() => globalThis.__boundFileCloseAnswers)).toEqual([2])
+    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await expect(source(page)).toHaveValue('第一次未保存')
     expect(await readFile(file, 'utf8')).toBe('磁盘原文')
-    await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 0 }) })
-    await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
+    await expect.poll(() => app.evaluate(() => globalThis.__boundFileCloseAnswers)).toEqual([2, 0])
     await expect(page.getByRole('tab', { name: /外部文件.md/ })).toHaveCount(0)
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     expect(await readFile(file, 'utf8')).toBe('第一次未保存')
@@ -263,9 +273,9 @@ test('已绑定文件显示路径，关闭保留保存／放弃／取消，另�
     await expect(page.getByRole('tab', { name: '外部文件.md', exact: true })).toBeVisible()
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await putSource(page, '这次放弃修改')
-    await app.evaluate(({ dialog }) => { dialog.showMessageBox = async () => ({ response: 1 }) })
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
+    await expect.poll(() => app.evaluate(() => globalThis.__boundFileCloseAnswers)).toEqual([2, 0, 1])
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await expect(nameField(page)).toBeVisible()
     expect(await readFile(file, 'utf8')).toBe('第一次未保存')

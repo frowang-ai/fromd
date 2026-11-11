@@ -1,4 +1,22 @@
 import { isAbsolute } from 'node:path'
+import semver from 'semver'
+import { assertUpdateUrl } from './updaterSafety.js'
+
+function validateCandidate(entry, config, currentVersion) {
+  const info = entry?.info
+  if (!info || !semver.valid(info.version) || semver.prerelease(info.version) || !semver.gt(info.version, currentVersion)) throw new Error('更新不是更高的稳定版本。')
+  // Only the modern manifest emitted by our locked builder is supported.
+  if (!Array.isArray(info.files) || !info.files.length || info.packages || info.isAdminRightsRequired) throw new Error('更新元数据不受支持。')
+  for (const file of info.files) {
+    if (typeof file.url !== 'string' || !file.url || file.isAdminRightsRequired) throw new Error('更新安装器不受支持。')
+    assertUpdateUrl(file.url, config)
+  }
+  for (const file of entry.provider.resolveFiles(info)) {
+    assertUpdateUrl(file.url, config)
+    if (file.packageInfo || file.info.isAdminRightsRequired) throw new Error('仅支持按当前用户安装的完整 NSIS 包。')
+  }
+  return JSON.stringify(info)
+}
 
 // The feed is a build-time choice. Renderer IPC can never supply a URL or headers.
 export function validateUpdateConfig(config, { packaged, platform, portable, env = process.env } = {}) {
@@ -28,6 +46,7 @@ export class UpdateController {
     this.lastCheck = -Infinity
     this.pending = null
     this.downloaded = false
+    this.accepted = null
     this.stopped = false
     this.installIntent = false
     if (!config.enabled) return
@@ -38,10 +57,24 @@ export class UpdateController {
     updater.allowDowngrade = false
     updater.disableWebInstaller = true
     updater.on('download-progress', value => this.set({ status: 'downloading', progress: Math.max(0, Math.min(100, Number(value.percent) || 0)) }))
-    updater.on('update-downloaded', () => { this.downloaded = true; this.set({ status: 'ready', progress: 100, message: '' }) })
-    updater.on('error', () => this.fail('更新失败，请检查网络后重试。'))
+    updater.on('update-downloaded', info => {
+      if (!this.matchesCandidate() || info.version !== this.state.version) { this.invalidateCandidate(); this.fail('下载候选已变化，请重新检查更新。'); return }
+      this.downloaded = true; this.set({ status: 'ready', progress: 100, message: '' })
+    })
+    updater.on('error', () => { if (this.state.status === 'checking') this.invalidateCandidate(); this.fail('更新失败，请检查网络后重试。') })
   }
   snapshot() { return { ...this.state } }
+  invalidateCandidate() {
+    this.accepted = null; this.downloaded = false
+    this.updater.updateInfoAndProvider = null
+    this.state.version = null; this.state.progress = 0
+  }
+  matchesCandidate() {
+    try {
+      const entry = this.updater.updateInfoAndProvider
+      return !!this.accepted && entry === this.accepted.entry && validateCandidate(entry, this.config, this.state.currentVersion) === this.accepted.fingerprint
+    } catch { return false }
+  }
   set(patch) { Object.assign(this.state, patch); this.notify(this.snapshot()); return this.snapshot() }
   fail(message) { this.installIntent = false; return this.set({ status: this.downloaded ? 'ready' : 'error', message }) }
   start() {
@@ -57,27 +90,28 @@ export class UpdateController {
     if (!this.config.enabled || this.pending || this.downloaded || this.installIntent || this.state.status === 'available') return this.snapshot()
     if (this.now() - this.lastCheck < (manual ? 10000 : 6 * 60 * 60 * 1000)) return this.snapshot()
     this.lastCheck = this.now()
+    this.invalidateCandidate()
     this.set({ status: 'checking', message: '' })
     this.pending = (async () => {
       try {
         const result = await this.updater.checkForUpdates()
         if (result?.isUpdateAvailable) {
-          // Reject insecure artifact URLs before electron-updater downloads them.
-          for (const file of result.updateInfo.files || []) {
-            const url = new URL(file.url, this.config.url)
-            if (url.username || url.password || (this.config.testOnly ? url.origin !== new URL(this.config.url).origin : url.protocol !== 'https:')) throw new Error('Invalid artifact URL')
-          }
-          this.set({ status: 'available', version: result.updateInfo.version, progress: 0, message: '' })
+          const entry = this.updater.updateInfoAndProvider
+          if (entry?.info !== result.updateInfo) throw new Error('更新候选不一致。')
+          const fingerprint = validateCandidate(entry, this.config, this.state.currentVersion)
+          this.accepted = { entry, fingerprint }
+          this.set({ status: 'available', version: entry.info.version, progress: 0, message: '' })
         }
-        else this.set({ status: 'current', version: null, message: '已是最新版本' })
-      } catch { this.fail('检查更新失败，请检查网络后重试。') }
+        else { this.invalidateCandidate(); this.set({ status: 'current', message: '已是最新版本' }) }
+      } catch { this.invalidateCandidate(); this.fail('检查更新失败或候选不受支持，请稍后重试。') }
       finally { this.pending = null }
     })()
     await this.pending
     return this.snapshot()
   }
   async download() {
-    if (!this.config.enabled || this.pending || this.downloaded || !this.state.version || this.installIntent) return this.snapshot()
+    if (!this.config.enabled || this.pending || this.downloaded || !this.accepted || this.installIntent) return this.snapshot()
+    if (!this.matchesCandidate()) { this.invalidateCandidate(); return this.fail('更新候选已变化，请重新检查更新。') }
     this.set({ status: 'downloading', progress: 0, message: '' })
     this.pending = (async () => {
       try { await this.updater.downloadUpdate() }
@@ -101,10 +135,10 @@ export class UpdateController {
     this.installIntent = false
     this.set({ status: 'ready', message: '尚未重启；请完成笔记保存后重试。' })
   }
-  install() {
+  async install() {
     if (!this.installIntent || !this.downloaded) return false
-    this.set({ status: 'installing', message: '正在重启更新…' })
-    try { this.updater.quitAndInstall(true, true); return this.installIntent }
+    this.set({ status: 'installing', message: '正在启动更新安装器…' })
+    try { return await this.updater.quitAndInstall(true, true) }
     catch { this.fail('无法启动安装，请稍后重试。'); return false }
   }
 }

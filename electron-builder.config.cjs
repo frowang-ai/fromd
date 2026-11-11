@@ -20,7 +20,7 @@ module.exports = {
   ...(feed ? {
     publish: [{ provider: 'generic', url: feed.href, channel: 'latest' }],
     extraMetadata: { frowangUpdates: { url: feed.href, testOnly, ...(publisherName && !testOnly ? { publisherName } : {}) } },
-    ...(!testOnly ? { forceCodeSigning: true, win: { ...base.win, publisherName, signAndEditExecutable: true, verifyUpdateCodeSignature: true } } : {}),
+    ...(!testOnly ? { forceCodeSigning: true, win: { ...base.win, signtoolOptions: { publisherName }, signAndEditExecutable: true, verifyUpdateCodeSignature: true } } : {}),
   } : { publish: null, extraMetadata: { frowangUpdates: null } }),
   nsis: {
     oneClick: true, perMachine: false, allowElevation: false,

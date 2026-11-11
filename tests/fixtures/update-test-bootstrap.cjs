@@ -13,4 +13,18 @@ process.env.FROWANG_UPDATE_TEST = '1'
 process.env.LOCALAPPDATA = join(dirname(profile), 'local-app-data')
 app.setPath('userData', profile)
 app.commandLine.appendSwitch('remote-debugging-port', '0')
+// An actual main-process integration fault, limited to this test package and
+// explicitly toggled by Playwright. Reject after BaseUpdater has requested quit.
+const childProcess = require('node:child_process')
+const { EventEmitter } = require('node:events')
+const nativeSpawn = childProcess.spawn
+childProcess.spawn = function (command, args, options) {
+  if (globalThis.__updateTestRejectSpawn && args?.includes('--updated')) {
+    const child = new EventEmitter(); child.unref = () => {}
+    setTimeout(() => child.emit('error', Object.assign(new Error('Injected installer launch denial'), { code: 'EACCES' })), 50)
+    return child
+  }
+  return nativeSpawn(command, args, options)
+}
+require('node:module').syncBuiltinESMExports()
 import(pathToFileURL(join(__dirname, 'out/main/index.js')).href).catch(error => { console.error(error); app.exit(1) })

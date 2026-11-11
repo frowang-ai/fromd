@@ -76,7 +76,7 @@
 - `npm run test:update` 单独执行 `tests/updates.desktop.spec.mjs`：两个真实 NSIS 版本、同一测试身份与安装目录；应用内检查→下载故障→重试→稍后普通退出不安装→缓存复用→SQLite 拒写阻止更新→恢复写入→显式重启安装→直接连接自动重开的 UI→同入口再次启动，核对名称／正文／标签／源码选区／BOM／CRLF／原文件和冲突。安装／更新／卸载使用真实 NSIS；只替换系统打开文件对话框答案，更新库及安装器没有 mock。
 - `tests/fixtures/update-test-bootstrap.cjs` 只进测试安装包。同步设置专有 profile、缓存和随机 CDP 端口后，导入相同的 `out/main/index.js`。NSIS 的 shell 重开不继承父环境，所以仅用 `FROWANG_USER_DATA` 启动第一版不能证明自动重开仍在同一 profile；本回归显式覆盖这个边界。生产包 main、路径和启动方式不因此改变。
 
-本轮已执行结果：
+首个候选 `ee17544` 的已执行结果（审核回修前）：
 
 | 检查 | 结果与证据 |
 | --- | --- |
@@ -87,7 +87,7 @@
 | 正式身份／无更新源安装包 | 构建通过；asar 内 `name=frowang-markdown`、`main=out/main/index.js`、`frowangUpdates=null`，没有测试 bootstrap 或 `app-update.yml` |
 | 正式打包桌面 | 最终 28/28，`output/updates-packaged-final.log`；修正下述测试同步缺口后，受影响 lazy 组先 6/6（`output/updates-lazy-synchronized.log`），再跑此完整套件。原首次 27/28 日志仍保留 |
 
-正式身份安装器：`release/nsis-candidate/Frowang-Markdown-Setup-0.2.0-x64.exe`（130,351,862 字节），未签名／未发布／更新源未配置。两份测试包的版本仅为构建 override，不能替代正式版本决策。新增 electron-updater 的运行时许可证已用现有 `scripts/licenses.mjs` 更新。
+首个候选的正式身份安装器已归档到 `release/review-v1/nsis-candidate/Frowang-Markdown-Setup-0.2.0-x64.exe`（130,351,862 字节），两份原测试安装器也在 `release/review-v1/` 对应子目录；未签名／未发布／更新源未配置。两份测试包的版本仅为构建 override，不能替代正式版本决策。新增 electron-updater 的运行时许可证已用现有 `scripts/licenses.mjs` 更新。
 
 安装版启动观察复用主 agent 的 6 篇合成正文、每篇 3278 UTF-8 字节，首次激活第一篇；同机顺序运行，未清 OS 缓存。首次安装耗时 13,650.6ms（独立于启动）；空 profile 首次启动到 UI 就绪 2,038.9ms；六篇已保存笔记普通启动 910.7ms；升级后同入口启动 876.2ms。计时包含 Playwright 连接与 UI 条件观察，不保证其他机器耗时，也不把 portable 外壳阶段全部归为纯解压。
 
@@ -99,6 +99,22 @@
 - 曾尝试在 ESM 产品入口设置固定调试端口；自动重开进程存在且 profile 正确，但主进程无 listener，根因未完全确认。同步 bootstrap 小探针实测设置前／产品入口导入后 `app.isReady=false`、随机端口可连、UI 就绪、退出0，之后真实 NSIS 自动重开直接 UI 验收通过；不把小 probe 等同完整升级。
 - 正式打包的 `lazy.desktop.spec.mjs:192` 失败：恢复期间切到 C 再回 B，期望选区／滚动 `[4,9,300]`，实得 `[11,12,0]`。该用例与编辑行为未改；开发套件通过不能解释打包失败。原 trace/report 保存在 `output/packaged-full-failure*`。随后仅对该用例用已验收 0.2 打包基线和本候选各做一次对照，均 1/1 通过（`output/updates-baseline-lazy-control.log`、`output/updates-candidate-lazy-control.log`）；这只能说明当时定向观察未复现，不能单凭重跑解释原失败。
 - 后续经授权做一次有界同步 probe：原 `documents:activate` 已完成但扣住 B 的回执；旧 `switchTab` 已返回，实际仍选中 C、可见正文为 C、源码框 disabled／header inert、选区 `[11,12,40]`。释放回执并等 B 选中／恢复就绪，原精确 `[4,9,300]` 成立（`output/probe-lazy-switch.log`）。由此确认旧 helper 能把旧标签的 enabled toolbar／共享 DOM 误当切换完成；只在 helper 增加目标选中和 pane/header 非 inert 等待，未改编辑器、原精确断言或产品包体。随后 lazy 6/6、同一候选完整桌面28/28通过；原失败与两次对照证据继续保留，不将旧运行改记为通过。
+
+## 审核回修的边界回归
+
+`tests/updates-real.test.mjs` 使用锁定的实际 `NsisUpdater`、`BaseUpdater`、`GenericProvider`、`ElectronHttpExecutor` 和差量下载器；只替代远端响应／网络发送／受控启动回执，不修改依赖代码。首轮 7 项真实依赖红测均复现审核问题（`output/updates-review-red.log`）。
+
+- R1：直接调用 builder 26.18.0 的 `validateConfiguration`，验证正式配置使用 `win.signtoolOptions.publisherName` 并保留强制签名；不构建、不签名，也不声称已有证书。
+- R3/R4/R6：先好候选下载失败，再拒绝新候选，重试不会下载被拒内容；无 `files`／空 `files` 的 legacy 清单明确拒绝；稳定版本显式 semver 校验；下载前再次绑定库内实际 entry 和完整清单，拒绝管理员／web installer 候选。
+- R5：在单个 updater 的 executor 上，实际创建请求前传 `redirect: manual`，原始 redirect URL 先验证，再允许原处理器或直接 follow。覆盖 metadata、安装器、blockmap、差量范围与差量直接 redirect；拒绝 HTTP 降级、URL 凭据、测试跨 origin 时不发下一请求／不 follow，Promise 正常拒绝。允许的 HTTPS redirect 仍可完成，另一 executor 不受影响；不改变全应用网络或 TLS。
+- R2：使用库实际 `quitAndInstall`／安装参数路径，只在该实例 `spawnLog` 与 app adapter `quit` 扩展点确认和暂扣退出。真实 ChildProcess `spawn` 和库 quit 请求都到达后才提供一次性 commit；失败保留 cause／originalCode，禁用不可确认的 shell／提权 fallback，重置安装锁并允许同实例重试。回归覆盖错误／quit／spawn 不同先后、重复请求、迟到进程错误及实际不存在 exe 触发的 native 异步 `ENOENT`。
+- 仅测试 NSIS bootstrap 另提供受控的 50ms 异步安装启动拒绝。真实 Electron 回归已验证窗口仍可编辑、版本仍旧，再在同窗口解除拒绝，完成实际下载→保存→安装→自动重开；它不属于生产包，也不替代成功路径的真实安装器。
+
+回修验证：`npm test` **57/57**（`output/updates-r2-unit.log`），构建通过；真实 NSIS **1/1**（`output/updates-r2-nsis.log`，`case-Plzz6N/result.json` 同时记录 `asyncLaunchFailureKeptWindow: true`、`automaticRelaunchRecovered: true`），新生产包打包桌面首轮 **28/28**（`output/updates-r2-packaged-desktop.log`）。新安装器 `release/nsis-candidate/Frowang-Markdown-Setup-0.2.0-x64.exe` 为 **130,386,043 字节**。`output/updates-r2-production-inspection.json` 确认普通 main、无测试 bootstrap／`app-update.yml`、无更新源，且 asar 内 main 与本轮新 `out/main/index.js` 字节一致；没有沿用旧包冒充回修产物。
+
+回修开发套件初次 27/28：旧 `desktop.spec` 在取消未完成时覆盖为放弃答案，第二次 click 目标消失。一次有界 probe 在真实 close handler 开始前延后：旧 tabs/body 断言已经通过时，answers=[]、header inert=true；换答案再放行，首次关闭消费了 `[1]`（`output/probe-close-race.log`）。仅将该用例改为 `[2,1]` 队列、确认消费取消及操作完成后再第二次真实点击；开发该文件 **8/8**（`output/updates-r2-desktop-group-final.log`）。随后整套27/28暴露 `drafts.desktop.spec` 的同类 `[取消→保存→放弃]` 答案覆盖；经授权一次性改为 `[2,0,1]` 队列并确认消费，不增加第二个 probe、不改产品／原标题正文磁盘断言。两次失败现场保存在 `output/updates-r2-dev-first-*` 与 `output/updates-r2-packed-second-*`，不将所有历史失败一概归为此原因。最终目标用例 **1/1**（`output/updates-r2-draft-close-final.log`），同一新候选完整打包套件 **28/28**（`output/updates-r2-final-desktop.log`）；没有重建或用不同产品版本替换本轮成功的 NSIS 包体。
+
+安装器已启动后的安装失败不承诺自动回滚。未配置生产 HTTPS 源／签名凭据的边界保持；本节真实依赖测试不冒充正式签名发布。
 
 在本机 Windows x64 运行真实升级回归前，准备两个版本；每轮选择一个新的测试 profile，两个版本必须使用同一路径：
 

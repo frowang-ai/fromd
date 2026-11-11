@@ -36,7 +36,7 @@ npm run dist:installer   # 按当前用户安装的 NSIS 安装包
 
 `npm run dist:installer` 使用 electron-builder 26.18.0 生成 `release/0.2.0/Frowang-Markdown-Setup-0.2.0-x64.exe`，按当前用户安装，保留固定的 `com.frowang.markdown` 身份、安装入口及桌面／开始菜单快捷方式。后续直接运行已安装的 exe，无需每次执行 portable 外壳。安装／升级不删除应用数据或外部 `.md`，卸载默认也保留用户数据。portable 构建入口继续保留。
 
-更新由固定的 electron-updater 6.8.9 `NsisUpdater` 处理。安装版启动就绪 30 秒后检查一次，此后至多每 6 小时检查；手动检查至少间隔 10 秒。只用 stable（`latest.yml`），不降级、不取 prerelease。发现版本后由用户点击下载，下载完成可“稍后”或“重启更新”；普通退出不会自动安装。重启先复用正文／名称／阅读位置 flush，再等待 SQLite 提交；失败保持窗口及草稿，不要求先 Ctrl+S 保存为外部文件。应用内不接收任意 URL、token 或 IPC 名称。
+更新由固定的 electron-updater 6.8.9 `NsisUpdater` 处理。安装版启动就绪 30 秒后检查一次，此后至多每 6 小时检查；手动检查至少间隔 10 秒。只用 stable（`latest.yml`），显式拒绝预发布及降级；只接受包含非空 `files` 的现代清单，拒绝需要管理员权限或 web installer 的候选。检查失败会取消旧候选的下载资格，下载前再次核对库中实际候选与已接受的版本、文件信息一致。发现版本后由用户点击下载，下载完成可“稍后”或“重启更新”；普通退出不会自动安装。重启先复用正文／名称／阅读位置 flush，再等待 SQLite 提交；随后仅在安装器的真实 `ChildProcess` 确认启动、更新库也请求退出后放行应用退出。保存或安装器启动失败均保持窗口及草稿，可在同一窗口重试，不要求先 Ctrl+S 保存为外部文件。按用户安装的更新不转交 shell 或提权 fallback；安装器已经启动后的安装失败不承诺自动回滚。应用内不接收任意 URL、token 或 IPC 名称。
 
 默认没有更新源，不会请求更新网络。开发、解包和 portable 入口也停用更新。正式源由构建者配置，源码仓库保持 private，不使用其 GitHub Releases，也不把 GitHub token 打包：
 
@@ -48,7 +48,7 @@ $env:FROWANG_UPDATE_PUBLISHER = '<代码签名证书的发布者名称>'
 npm run dist:installer
 ```
 
-带正式源时构建强制代码签名，启用 builder 的 publisher 签名验证；未配置凭据的构建不能冒充可发布签名版本。`app-update.yml` 和固定 URL 随包生成。将版本对应的安装器、`.blockmap` 与 `latest.yml` 放入同一 HTTPS 目录，最后替换 `latest.yml`；这是单独的发布动作，本项目命令均 `--publish never`，不会上传或创建 Release。新版本号应由发布流程明确决定，本功能不提前修改根版本。更新源故障或签名不匹配不能保证更新可用；失败可手动重试。安装器启动后遭系统中断不具备事务回滚保证。
+带正式源时构建强制代码签名，使用锁定 builder 支持的 `win.signtoolOptions.publisherName` 和签名验证；未配置凭据的构建不能冒充可发布签名版本。版本元数据、安装器、blockmap 和差量请求均在此 updater 实例的实际请求／重定向边界校验 HTTPS 与无 URL 凭据，测试请求仅限指定 loopback origin，不改变应用其他网络或 TLS。`app-update.yml` 和固定 URL 随包生成。将版本对应的安装器、`.blockmap` 与 `latest.yml` 放入同一 HTTPS 目录，最后替换 `latest.yml`；这是单独的发布动作，本项目命令均 `--publish never`，不会上传或创建 Release。新版本号应由发布流程明确决定，本功能不提前修改根版本。更新源故障或签名不匹配不能保证更新可用；失败可手动重试。安装器启动后遭系统中断不具备事务回滚保证。
 
 隔离真实升级回归使用两个实际 NSIS 安装包与 loopback 源，命令见 `VALIDATION.md`。HTTP 仅限显式 `FROWANG_UPDATE_TEST_BUILD=1` 的测试构建，构建时还必须指定绝对路径 `FROWANG_UPDATE_TEST_PROFILE`。测试包携带这个固定路径，在同一测试 appId／productName 下初装、升级、自动重开均使用它，并将 updater 缓存放在旁边。原因是 NSIS 经桌面 shell 自动重开时不继承父进程环境变量。仅测试安装包使用同步 CJS 启动入口，在导入完全相同的产品主入口前设置隔离目录和随机 loopback CDP 端口，测试直接连接 NSIS 自动重开的 UI；测试包不创建快捷方式，不可作为用户交付包。正式包不包含测试启动文件或路径字段，产品 main 不含测试证据写入，renderer／更新元数据无法更改该路径。
 

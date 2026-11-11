@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { DocumentStore, atomicWrite, suggestedFilename } from './documentStore.js'
 import { UpdateController, validateUpdateConfig } from './updates.js'
+import { guardUpdateRequests, guardInstallerLaunch } from './updaterSafety.js'
 import electronUpdater from 'electron-updater'
 import { existsSync } from 'node:fs'
 import { openFileArguments, operationQueue } from './lifecycle.js'
@@ -124,9 +125,12 @@ function wireIPC() {
     // An update is application exit, never tab closure. It must have a confirmed
     // SQLite commit even when the external files happen to be clean.
     if (updates?.installIntent) {
-      quitting = true
-      if (!updates.install()) { quitting = false; closing = false }
-      return quitting
+      const commitQuit = await updates.install()
+      if (!commitQuit) { quitting = false; closing = false; return false }
+      // The actual installer process is now started and the library has asked
+      // to quit. Only now may closing bypass another renderer handshake.
+      try { quitting = true; commitQuit(); return true }
+      catch (error) { quitting = false; closing = false; updates.cancelRestart(); throw error }
     }
     // The renderer has flushed pending edits; committed drafts survive normal exit.
     quitting = true; window.close(); return true
@@ -233,6 +237,7 @@ else {
       config.enabled = false; config.reason = '请从安装后的应用入口检查更新。'
     }
     const updater = config.enabled ? new electronUpdater.NsisUpdater({ provider: 'generic', url: config.url, channel: 'latest' }) : null
+    if (updater) { guardUpdateRequests(updater.httpExecutor, config); guardInstallerLaunch(updater) }
     updates = new UpdateController({ updater, config, currentVersion: app.getVersion(),
       notify: state => { if (window && !window.isDestroyed()) window.webContents.send('updates:changed', state) },
       requestRestart: () => {
