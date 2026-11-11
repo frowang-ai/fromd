@@ -6,13 +6,15 @@
 
 ## 项目记忆
 
-第一轮Windows MVP已于2026-11-10经用户确认收束。当前状态、约束和下一轮入口见[模块记忆](../_worktrees/markdown-editor-memory/modules/markdown-editor.md)，调研、审核及排障证据见[阶段归档](../_worktrees/markdown-editor-memory/archive/20261110_markdown_editor_mvp/README.md)。这两份记录位于独立docs任务分支，避免混入工作区docs其他未提交修改；已提交 `74d071e`，并以 `a32fe37` 对齐到文档维护分支 `refactor-docs-20260725`；文档 [PR #7](https://github.com/frowang-ai/docs/pull/7) 待合并。合入后规范路径为 `website/docs/modules/markdown-editor.md`。
+Windows MVP 0.1与0.2均已由用户确认收束，当前状态、约束和下一轮入口归[模块记忆](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/modules/markdown-editor.md)。阶段过程分别见[0.1归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261110_markdown_editor_mvp/README.md)和[0.2归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v02/README.md)。文档更新提交 `13545ef` 已随 [docs PR #7](https://github.com/frowang-ai/docs/pull/7) 合入维护分支 `refactor-docs-20260725`（`dc8d4d6`）。
+
+本机可读副本仍在[独立记忆工作区](../_worktrees/markdown-editor-memory/modules/markdown-editor.md)；共享 `website/docs` 中的其他未提交改动保留，未强行同步。规范归属为 `website/docs/modules/markdown-editor.md`，判断最新结论应以该维护分支或已同步的独立工作区为准。
 
 `VALIDATION.md`继续维护可执行验证和覆盖范围，`MVP_PLAN.md`维护分轮范围，不用历史归档替代当前代码检查。`release/Frowang-Markdown-0.1.0-source.zip`是0.1.0交付快照，0.2.0不覆盖它。
 
 ## 开发与构建
 
-下一轮临时草稿、SQLite 和多标签工作的接口及分工见 [实施约定](docs/iteration-02-contract.md)。该文档描述目标行为，实际完成状态以代码、验证结果和各功能 PR 为准。
+本轮临时草稿、SQLite和多标签工作的接口及分工见 [实施约定](docs/iteration-02-contract.md)。三个功能PR已合入；本机交付0.2.0产物和验证范围见上方入口及 `VALIDATION.md`，后续按实际试用反馈迭代。
 
 环境：Node 22.19+、Windows x64。首次安装会下载 Electron。
 
