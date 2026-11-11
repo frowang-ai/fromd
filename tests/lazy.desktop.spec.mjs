@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { bindMenu, editorReady, menuCommand, menuState } from './native-menu.mjs'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -11,7 +12,8 @@ async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
   const page = await app.firstWindow()
-  await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
+  bindMenu(app, page)
+  await editorReady(page)
   return { app, page }
 }
 async function stop(app) {
@@ -26,7 +28,7 @@ async function seed(profile, documents) {
 }
 async function switchTab(page, name) {
   await page.getByRole('tab', { name: new RegExp(name) }).click()
-  await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
+  await editorReady(page)
   await expect(page.locator('.ProseMirror')).toHaveCount(1)
 }
 async function reading(page, id) { return page.evaluate(id => window.desktop.read(id), id) }
@@ -108,7 +110,7 @@ test('按需桌面：源码原文、选区、滚动和native undo跨切换，退
   await seed(profile, [['A', raw], ['B', '# B']]); let app
   try {
     const started = await launch(profile); app = started.app; let page = started.page
-    await page.getByRole('button', { name: '源码', exact: true }).click(); await expect(source(page)).toHaveValue(raw)
+    await menuCommand(page, 'source'); await expect(source(page)).toHaveValue(raw)
     // One native insertion has one deterministic undo entry; sequential typing
     // can split the leading space into its own platform-dependent undo group.
     await source(page).press('Control+End'); await page.keyboard.insertText(' SOURCE EDIT')
@@ -122,7 +124,7 @@ test('按需桌面：源码原文、选区、滚动和native undo跨切换，退
     const closed = app.waitForEvent('close'); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close()); await closed
     const restarted = await launch(profile); app = restarted.app; page = restarted.page
     await expect(source(page)).toHaveValue(raw + ' SOURCE EDIT')
-    await expect(page.getByRole('button', { name: '返回正文', exact: true })).toBeVisible()
+    expect((await menuState(page, 'source')).checked).toBe(true)
   } finally { await stop(app); await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 })
 
@@ -133,14 +135,14 @@ test('按需桌面：未编辑原文不被规范化，快速富文本转源码�
   let app
   try {
     const started = await launch(profile); app = started.app; const page = started.page
-    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await menuCommand(page, 'source')
     await expect(source(page)).toHaveValue(raw)
     await switchTab(page, '^B$')
     expect((await reading(page, id)).markdown).toBe(raw)
     await switchTab(page, '^A$')
-    await page.getByRole('button', { name: '返回正文', exact: true }).click()
+    await menuCommand(page, 'source')
     await body(page).press('Control+End'); await page.keyboard.insertText('LATEST')
-    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await menuCommand(page, 'source')
     await expect(source(page)).toHaveValue(/LATEST/)
     await source(page).fill('源码的更新正文')
     await switchTab(page, '^B$')
@@ -181,7 +183,8 @@ test('按需桌面：恢复阅读位置期间改选目标，迟到恢复不得�
       return input?.value.startsWith('C') && input.closest('section').inert && input.disabled
     })).toBe(true)
     await page.evaluate(() => window.__resumeRestoreFrames())
-    await expect(page.getByRole('button', { name: '返回正文', exact: true })).toBeEnabled()
+    await editorReady(page)
+    expect((await menuState(page, 'source')).checked).toBe(true)
     await expect(page.getByRole('tab', { name: 'C', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(source(page)).toHaveValue(long('C'))
     await expect(source(page)).toBeEnabled()
@@ -212,7 +215,7 @@ test('按需桌面：相同Markdown不同目录图片重建，组合输入结束
     await expect.poll(() => image.evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true)
     await switchTab(page, 'B.md'); expect(await image.getAttribute('src')).toBe(urlB)
     // Synthetic event coverage only; not a real Windows IME qualification.
-    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await menuCommand(page, 'source')
     await source(page).evaluate(el => { el.focus(); el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })); el.value = '组合输入最终正文' })
     await page.getByRole('tab', { name: 'A.md', exact: true }).click()
     await expect(page.getByRole('tab', { name: 'B.md', exact: true })).toHaveAttribute('aria-selected', 'true')

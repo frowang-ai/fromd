@@ -1,5 +1,5 @@
 <template>
-  <main>
+  <main :aria-busy="!commandReady">
     <header class="app-bar" :inert="busy || !loaded" @pointerdown="rememberView">
       <div class="tabs" role="tablist" aria-label="笔记标签页">
         <div v-for="doc in documents" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }">
@@ -7,12 +7,7 @@
           <button class="close-tab" :aria-label="`关闭 ${doc.title}`" @click="closeDocument(doc.id)">×</button>
         </div>
       </div>
-      <nav aria-label="文档操作">
-        <button @click="run(() => api.newDocument())">新建</button><button @click="run(() => api.open())">打开</button>
-        <button :disabled="!ready[activeId]" :aria-pressed="sourceMode" @click="toggleSource">{{ sourceMode ? '返回正文' : '源码' }}</button>
-        <button :disabled="!ready[activeId]" @click="save(false)">保存</button><button :disabled="!ready[activeId]" @click="save(true)">另存为</button>
-        <button :disabled="!ready[activeId]" @click="exportPdf">PDF</button>
-      </nav>
+      <button class="new-tab" :disabled="!commandReady" aria-label="新建笔记" title="新建笔记 (Ctrl+N)" @click="command('new')">+</button>
     </header>
     <div v-if="message" class="notice" role="alert">{{ message }}<button v-if="!fatal" @click="message = ''" aria-label="关闭提示">×</button></div>
     <div v-if="current?.conflict" class="conflict" role="alert">
@@ -44,7 +39,12 @@ const sharedEditor = ref(null), displayedId = ref(null), bodyLoading = ref(false
 const editorStates = new Map(), dirtyViews = new Set()
 let loadVersion = 0, composing = false, compositionWaiters = []
 const busy = ref(false), loaded = ref(false), message = ref(''), fatal = ref(false), sourceMode = ref(false)
-let disposers = [], selectionVersion = 0, openEventVersion = 0
+let disposers = [], selectionVersion = 0, openEventVersion = 0, menuRevision = 0
+const commandReady = computed(() => loaded.value && !busy.value && !!current.value && !!ready[activeId.value] && displayedId.value === activeId.value)
+watchEffect(() => {
+  api.setMenuState({ documentId: activeId.value, ready: commandReady.value, busy: busy.value,
+    sourceMode: sourceMode.value, revision: ++menuRevision })
+}, { flush: 'sync' })
 const normalizeName = title => title.trim() || '未命名笔记'
 const nameError = title => new TextEncoder().encode(title).length > 1024 ? '笔记名称过长，最多支持 1024 UTF-8 字节；请缩短名称，或另存正文。' : ''
 const findDocument = id => documents.value.find(doc => doc.id === id)
@@ -290,8 +290,6 @@ async function flush(excludeId = null, allowNameFailure = false) {
 }
 async function run(operation, allowNameFailure = false) {
   if (busy.value || !loaded.value) return
-  await waitComposition()
-  if (busy.value) return
   busy.value = true; selectionVersion++
   try {
     await flush(null, allowNameFailure)
@@ -314,7 +312,22 @@ async function activate(id) {
   } catch (error) { message.value = error.message }
   finally { busy.value = false; showActive() }
 }
-async function toggleSource() { await waitComposition(); sourceMode.value = await sessions.get(activeId.value)?.toggleSource() }
+async function toggleSource() {
+  const id = activeId.value, doc = current.value, pane = sessions.get(id)
+  if (!commandReady.value || !pane) return
+  busy.value = true
+  try {
+    await waitComposition()
+    if (activeId.value !== id || !isLive(doc) || !ready[id]) return
+    rememberView()
+    const mode = await pane.toggleSource()
+    if (activeId.value === id && isLive(doc)) sourceMode.value = mode
+  } catch (error) { message.value = error.message }
+  finally {
+    busy.value = false; await nextTick()
+    if (activeId.value === id && isLive(doc)) pane.focusEditor()
+  }
+}
 async function save(saveAs) {
   const id = activeId.value
   await run(async () => {
@@ -372,11 +385,16 @@ async function closeApplication() {
   catch (error) { message.value = error.message; await api.cancelClose() }
   finally { busy.value = false }
 }
-async function command(name) {
+async function command(request) {
+  const name = typeof request === 'string' ? request : request?.name
+  if (!commandReady.value) return
+  if (typeof request !== 'string' && (request.documentId !== activeId.value || request.revision !== menuRevision)) return
   if (name === 'new') await run(() => api.newDocument())
   if (name === 'open') await run(() => api.open())
   if (name === 'save') await save(false)
   if (name === 'saveAs') await save(true)
+  if (name === 'pdf') await exportPdf()
+  if (name === 'source') await toggleSource()
 }
 function shortcut(event) {
   if (event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey) return
@@ -405,14 +423,12 @@ button:hover { background: #edf2ed; }
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, input:focus-visible { outline: 2px solid #6c9b86; outline-offset: 2px; }
 .app-bar { position: sticky; top: 0; z-index: 20; min-height: 48px; padding: 6px 20px; display: flex; align-items: center; gap: 12px; background: #fffefaed; backdrop-filter: blur(12px); border-bottom: 1px solid #edf0e8; }
-.tabs { display: flex; flex: 1; min-width: 0; overflow-x: auto; gap: 2px; scrollbar-width: thin; }
+.tabs { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; gap: 2px; scrollbar-width: thin; }
 .tab-item { display: flex; flex: 0 0 auto; align-items: center; max-width: 210px; border-bottom: 1px solid transparent; }
 .tab-item.selected { border-bottom-color: #71917e; }
 .tab-item [role=tab] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .close-tab { padding: 4px 6px; font-size: 15px; color: #8b958c; }
-nav { display: flex; flex-shrink: 0; }
-nav button { font-size: 12px; }
-nav button[aria-pressed=true] { background: #e6eee5; }
+.new-tab { flex: 0 0 32px; width: 32px; height: 32px; padding: 0; font-size: 23px; line-height: 1; }
 .document-shell { max-width: 900px; margin: 0 auto; padding: 30px 38px 100px; }
 .document-pane { padding-bottom: 0; }
 .shared-editor { padding-top: 0; }
@@ -425,5 +441,5 @@ nav button[aria-pressed=true] { background: #e6eee5; }
 .notice, .conflict { padding: 10px 24px; background: #f4edda; color: #735d33; }
 .notice button { float: right; }
 .loading { padding: 40px; color: #849085; }
-@media (max-width: 700px) { .app-bar { flex-wrap: wrap; gap: 4px; } .tabs { flex-basis: 100%; } nav { margin-left: auto; } .document-shell { padding: 24px 22px 60px; } }
+@media (max-width: 700px) { .app-bar { padding-inline: 12px; gap: 6px; } .document-shell { padding: 24px 22px 60px; } }
 </style>

@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { bindMenu, editorReady, menuCommand, menuState } from './native-menu.mjs'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,7 +17,8 @@ async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
   const page = await app.firstWindow()
-  await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
+  bindMenu(app, page)
+  await editorReady(page)
   return { app, page }
 }
 async function stop(app) {
@@ -39,9 +41,8 @@ async function sandbox() {
 }
 async function cleanup(directory) { await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) }
 async function putSource(page, text) {
-  const toggle = page.getByRole('button', { name: /^(源码|返回正文)$/ })
-  await expect(toggle).toBeVisible(); await expect(toggle).toBeEnabled()
-  if (await page.getByRole('button', { name: '源码', exact: true }).count()) await page.getByRole('button', { name: '源码', exact: true }).click()
+  await editorReady(page)
+  if (!(await menuState(page, 'source')).checked) await menuCommand(page, 'source')
   await expect(source(page)).toBeVisible()
   await source(page).fill(text)
 }
@@ -101,13 +102,13 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     await expect(status(page)).toHaveText('已自动保存')
     expect((await snapshot(page)).documents[0].revision).toBe(initialRevision)
     await putSource(page, '# 第一篇\n\n保留的 Agent 回复')
-    await page.getByRole('button', { name: '新建', exact: true }).click()
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(2)
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await nameDraft(page, '用完即弃')
     await expect(page.getByRole('tab', { name: '用完即弃', exact: true })).toHaveAttribute('aria-selected', 'true')
     await putSource(page, '第二篇稍后删除')
-    await page.getByRole('button', { name: '新建', exact: true }).click()
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(3)
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await nameDraft(page, '第三篇')
@@ -259,7 +260,7 @@ test('已绑定文件显示路径，关闭保留保存／放弃／取消，另�
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     expect(await readFile(file, 'utf8')).toBe('第一次未保存')
     await app.evaluate(({ dialog }, filePath) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [filePath] }) }, file)
-    await page.getByRole('button', { name: '打开', exact: true }).click()
+    await menuCommand(page, 'open')
     await expect(page.getByRole('tab', { name: '外部文件.md', exact: true })).toBeVisible()
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await putSource(page, '这次放弃修改')
@@ -308,7 +309,7 @@ test('第二实例旧快照迟到不删除新建标签，也不复活已关闭�
     const child = spawn(executable, process.env.PACKAGED_EXE ? [file] : [root, file], { env, stdio: 'ignore' })
     await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', code => code === 0 ? resolve() : reject(new Error(`Second instance exit: ${code}`))) })
     await expect.poll(() => app.evaluate(() => !!globalThis.__heldDocuments)).toBe(true)
-    await page.getByRole('button', { name: '新建', exact: true }).click()
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(3)
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await nameDraft(page, '较晚新建的草稿')
@@ -381,7 +382,7 @@ test('审核回归：旧打开事件不能解绑已保存文件，立即关闭�
       dialog.showSaveDialog = async () => ({ canceled: false, filePath })
       dialog.showMessageBox = async (_window, options) => { globalThis.__fileCloseDialogs.push(options.message); return { response: 2 } }
     }, destination)
-    await page.getByRole('button', { name: '保存', exact: true }).click()
+    await menuCommand(page, 'save')
     await expect(page.getByRole('tab', { name: '已保存.md', exact: true })).toBeVisible()
     await app.evaluate(() => globalThis.__deliverOpen())
     await page.getByRole('tab', { name: '已保存.md', exact: true }).click()
@@ -419,13 +420,13 @@ for (const invalidName of ['x'.repeat(1025), '中'.repeat(342)]) {
       }, destination)
       await nameField(page).fill(invalidName); await nameField(page).press('Enter')
       await expect(page.getByRole('alert')).toContainText(/名称.*(过长|1024)/)
-      await page.getByRole('button', { name: '另存为', exact: true }).click()
+      await menuCommand(page, 'saveAs')
       await expect.poll(() => app.evaluate(() => globalThis.__nameSaveDialogs.length)).toBe(1)
       expect(await app.evaluate(() => globalThis.__nameSaveDialogs[0])).toMatch(/安全名称\.md$/)
       await expect(page.getByRole('tab', { name: '正文出口.md', exact: true })).toBeVisible()
       await expect(page.locator('header')).not.toHaveAttribute('inert', '')
       expect(await readFile(destination, 'utf8')).toBe('需要另存的有效正文')
-      await page.getByRole('button', { name: '新建', exact: true }).click()
+      await page.getByRole('button', { name: '新建笔记', exact: true }).click()
       await expect(page.getByRole('tab')).toHaveCount(2)
       await expect(page.locator('header')).not.toHaveAttribute('inert', '')
       await expect(nameField(page)).toBeVisible()
@@ -496,7 +497,7 @@ for (const saveAs of [false, true]) {
       // A flush now writes only changed bodies. Create a real pending edit before
       // holding its receipt, rather than depending on a redundant all-tab write.
       await putSource(page, '原目标的修改正文（最后编辑）')
-      await page.getByRole('button', { name: saveAs ? '另存为' : '保存', exact: true }).click()
+      await menuCommand(page, saveAs ? 'saveAs' : 'save')
       await expect.poll(() => app.evaluate(() => globalThis.__updateHeld)).toBe(true)
       await openSecondInstance(app, profile, other)
       await expect(page.locator('[role=tab]').filter({ hasText: '另一篇.md' })).toHaveAttribute('aria-selected', 'true')
@@ -516,7 +517,7 @@ test('审核回归：迟到打开事件不回退已有标签上较新的主动�
   try {
     const launched = await launch(profile); app = launched.app; const page = launched.page
     await nameDraft(page, '已有一')
-    await page.getByRole('button', { name: '新建', exact: true }).click()
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(2)
     await nameDraft(page, '已有二')
     await holdOpenEvent(app); await openSecondInstance(app, profile, other)

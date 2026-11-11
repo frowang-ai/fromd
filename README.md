@@ -34,7 +34,7 @@ npm run dist:win
 ## 当前范围（0.1 与 0.2）
 
 - Vue + Milkdown/ProseMirror 编辑内核，现有公式、列表、文本格式、源码切换与 AI 粘贴恢复。
-- 多笔记标签；新建、打开 UTF-8 Markdown、保存回原文件、另存为。
+- 多笔记标签；标签末尾的「+」新建并激活笔记，标签过多时可横向滚动，「+」始终留在滚动区外。窗口原生「文件」菜单提供新建、打开、保存、另存为和 PDF 导出，「视图 → 源码模式」切换源码／正文；编辑菜单与 Ctrl+N/O/S、Ctrl+Shift+S 保留。
 - 保留 UTF-8 BOM 与 CRLF/LF；暂不支持其他编码和超过10MB的文件。
 - 保存前比对磁盘内容；外部修改/删除时停止覆盖，支持重新读取或另存当前修改。
 - SQLite 按篇保存草稿元数据、正文和 `contentHash`；启动只读取元数据，当前标签通过固定 `read(id)` 按需读取正文。外部文件在首次读取或保存时核对，clean 文件跟随磁盘，dirty 文件保留草稿并显示冲突。
@@ -62,7 +62,7 @@ npm run dist:win
 - `packages/editor/src/`：可复用的 Vue 编辑器和 Markdown 工具；不依赖 Electron。
 - `apps/desktop/src/main/documentStore.js`：文档元数据、按篇正文读取、内容 hash、磁盘冲突、原子保存与恢复。
 - `apps/desktop/src/main/storageWorker.js`：SQLite 事务、旧 JSON／旧 SQLite 迁移、元数据初始化和单篇正文读取。
-- `apps/desktop/src/main/index.js`：窗口、菜单、对话框、受限 IPC、图片协议与 PDF。
+- `apps/desktop/src/main/index.js`：窗口、对话框、受限 IPC、图片协议与 PDF；`applicationMenu.js`维护原生菜单和当前文档可用状态。
 - `apps/desktop/src/preload/index.js`：固定操作 API，不向正文暴露 fs 或任意 IPC。
 - `apps/desktop/src/renderer/`：简洁多标签应用；正文按需读取，编辑器实例由共享 session 管理。
 - `packages/editor/src/MarkdownEditor.vue`：长期 Crepe/schema、会话 state、公式／代码块嵌入状态和 nodeView 清理。

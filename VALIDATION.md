@@ -1,5 +1,27 @@
 # Windows MVP 0.2 验证记录
 
+## 原生菜单与标签入口（2026-11-11）
+
+本次基于 `9be2f8abcab11e74aaa2aaf5bb17a12e4c7d546b`，只调整桌面菜单、标签入口和相关回归，不改变编辑内核、SQLite、依赖或版本。所有样本使用独立 `FROWANG_USER_DATA`。
+
+| 检查 | 本次结果与证据 |
+| --- | --- |
+| `npm test` | **22/22**，`output/menu-storage.log` |
+| `npm run build` | **通过**，输出供以下开发及打包测试使用 |
+| `npx playwright test -c playwright.config.mjs tests/menu.desktop.spec.mjs` | **3/3**，`output/menu-focused.log` |
+| `npm run test:desktop` | **31/31**（原28项 + 菜单3项），`output/menu-desktop.log` |
+| 打包后的同一菜单用例 | **3/3**，`output/menu-packaged-validation.log` |
+| `node scripts/smoke-portable.mjs release/menu-preview/Frowang-Markdown-0.2.0-x64.exe` | **通过、exit 0**，真实编辑ready、SQLite创建及原10秒退出期限；同上日志 |
+
+- `tests/menu.desktop.spec.mjs`：加号是普通按钮、一次新建并激活；少量标签紧随末尾，520px窄窗与11标签溢出时仍可点；原生菜单结构与源码勾选；Ctrl+N/O/S/Shift+S调用次数；取消／错误恢复；未ready／忙碌／迟到跨标签命令及组合输入屏障。
+- 菜单命令通过真正注册的 `MenuItem.click → main → preload → renderer` 进入原有flush业务流程。菜单上下文序号不使用正文revision；用例在菜单保存消息延迟期间继续真实输入、等待自动备份，再放行后验证磁盘为最新正文。原有保存目标竞态、真实fill后不足200ms点击关闭及文件内容断言保留并通过。
+- `tests/native-menu.mjs` 只提供实际菜单回调和就绪观察；原生菜单不是DOM按钮。`main[aria-busy=false]`反映当前文档恢复完成且没有正在执行的操作，portable改用此条件取代已移除的nav按钮。
+- 打包证据目录 `output/packaged-results/menu.desktop-原生菜单：标签末尾加号、窄窗溢出、真实菜单结构和源码状态/` 含 `native-menu.json`、`menu-tabs-wide.png`、`menu-tabs-narrow.png`。页面截图已视觉检查；没有用DOM截图冒称OS菜单截图。OS原生菜单的鼠标展开、所有真实输入法和设备未逐项验证。
+- 本地预览产物 `release/menu-preview/Frowang-Markdown-0.2.0-x64.exe`（115,466,066字节），以及同目录 `win-unpacked/Frowang Markdown.exe`。命令为 `npx electron-builder --win portable --x64 --publish never --config.directories.output=release/menu-preview`。本次仅重跑打包菜单与portable，未声称打包完整31项也已重跑；旧0.2验收件保留。未签名、未发布。
+- 首轮新增spec使用带尾分隔符的Windows项目路径，启动时误解析引号；已仅将该入口改为既有 `resolve(fileURLToPath(...))` 规范。单次隔离probe确认PID11824进入ready并退出；失败任务已终止、定点查询无自有残留，没有操作用户Frowang进程或数据。另一次测试读取尚未创建的另存文件抛ENOENT，已仅对该预期瞬态等待。失败日志保留在 `output/menu-initial-launch-failure.log`、`output/menu-file-wait-failure.log`，启动验证见 `output/menu-launch-probe.log`。
+
+下方为既有0.2交付记录，其56项内核回归和28项打包全量结果为历史证据，不计作本次重跑。
+
 本轮以 `8b750c610ee490b89b88cec2550fd734a8939a58`（A/B 已合入）为基线，在 Windows x64、Node22.19.0、Electron45.2.3、Playwright1.63.0 环境验证。所有样本使用隔离 `FROWANG_USER_DATA` 或临时目录，没有读取真实用户草稿。
 
 ## 当前验收状态

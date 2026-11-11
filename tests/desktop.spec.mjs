@@ -1,4 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
+import { bindMenu, editorReady, menuCommand, clickNativeMenu } from './native-menu.mjs'
 import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { join, resolve } from 'node:path'
@@ -35,15 +36,15 @@ async function cleanup(directory) { await rm(directory, { recursive: true, force
 const body = page => page.getByRole('textbox', { name: 'Markdown 正文', exact: true })
 async function ready(app) {
   const page = await app.firstWindow()
-  await expect(page.getByRole('button', { name: /^(源码|返回正文)$/ })).toBeEnabled()
+  bindMenu(app, page)
+  await editorReady(page)
   return page
 }
 async function putSource(page, text) {
-  const toggle = page.getByRole('button', { name: '源码', exact: true })
-  await expect(toggle).toBeEnabled(); await toggle.click()
+  await editorReady(page); await menuCommand(page, 'source')
   const editorSource = page.locator('.document-pane:visible').getByRole('textbox', { name: 'Markdown 源码', exact: true })
   await expect(editorSource).toBeVisible(); await editorSource.fill(text)
-  await page.getByRole('button', { name: '返回正文', exact: true }).click()
+  await menuCommand(page, 'source')
 }
 async function chooseSave(app, path) { await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, path) }
 async function chooseMessage(app, response) { await app.evaluate(({ dialog }, response) => { dialog.showMessageBox = async () => ({ response }) }, response) }
@@ -84,7 +85,7 @@ test('SQLite桌面：旧会话迁移、命名与阅读位置、关闭后正常�
     app = await launch(profile); page = await ready(app)
     await expect(page.getByRole('tab')).toHaveCount(1)
     await expect(page.getByRole('textbox', { name: 'Markdown 源码', exact: true })).toHaveValue('keep 草稿正文')
-    await page.getByRole('button', { name: '返回正文', exact: true }).click()
+    await menuCommand(page, 'source')
     await expect(body(page)).toContainText('keep 草稿正文')
     expect(await page.evaluate(async () => (await window.desktop.read('keep')).title)).toBe('明天继续')
     expect(recoveryDocuments(profile).map(doc => doc.id)).toEqual(['keep'])
@@ -140,24 +141,24 @@ test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', a
     await putSource(page, '# 原文件\n\n修改内容 $x^2$\n')
     await page.keyboard.press('ControlOrMeta+s')
     await expect.poll(() => readFile(file, 'utf8')).toBe('\ufeff# 原文件\r\n\r\n修改内容 $x^2$\r\n')
-    await chooseSave(app, copy); await page.getByRole('button', { name: '另存为', exact: true }).click()
+    await chooseSave(app, copy); await menuCommand(page, 'saveAs')
     await expect(page.getByRole('tab', { name: '另存.md', exact: true })).toBeVisible()
     await expect.poll(() => readFile(copy, 'utf8')).toContain('修改内容')
     await writeFile(copy, '外部版本')
     await putSource(page, '# 内部修改\n\n还未保存')
-    await page.getByRole('button', { name: '保存', exact: true }).click()
+    await menuCommand(page, 'save')
     await expect(page.getByText('磁盘文件已变化，当前修改仍保留。')).toBeVisible()
     expect(await readFile(copy, 'utf8')).toBe('外部版本')
     await expect(body(page)).toContainText('内部修改')
     await chooseMessage(app, 0); await page.getByRole('button', { name: '重新读取磁盘' }).click()
     await expect(body(page)).toHaveText('外部版本')
-    await page.getByRole('button', { name: '新建', exact: true }).click()
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click()
     await expect(page.getByRole('tab')).toHaveCount(3)
-    await expect(page.getByRole('button', { name: '源码', exact: true })).toBeEnabled()
+    await editorReady(page)
     await putSource(page, '# 未保存草稿\n\n- 第一项\n- 第二项\n\n公式 $p=0.012$\n\n<u>下划线</u> <mark>重点</mark> <kbd>Ctrl+S</kbd>\n\n<!-- hidden -->')
     await expect(body(page).locator('u')).toHaveText('下划线'); await expect(body(page).locator('kbd')).toHaveText('Ctrl+S')
     const pdfPath = join(directory, 'out.pdf'); await chooseSave(app, pdfPath)
-    await page.getByRole('button', { name: 'PDF', exact: true }).click()
+    await menuCommand(page, 'pdf')
     await expect.poll(async () => (await readFile(pdfPath).catch(() => Buffer.alloc(0))).subarray(0, 5).toString(), { timeout: 60000 }).toBe('%PDF-')
     await expect.poll(async () => recoveryDocuments(profile).at(-1).markdown).toContain('未保存草稿')
     await page.screenshot({ path: info.outputPath('desktop-mvp.png') })
@@ -201,7 +202,7 @@ test('页面崩溃可重载草稿，备份失败但文件已保存仍可退出',
     await expect.poll(() => app.evaluate(async ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.executeJavaScript(
       `document.querySelector('[aria-label="Markdown 正文"]')?.textContent || ''`
     ))).toContain('recovered draft')
-    await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0].webContents.send('application:command', 'save') })
+    await clickNativeMenu(app, 'save')
     await expect.poll(() => readFile(file, 'utf8')).toBe('recovered draft')
     // Simulate recovery failure without touching the saved Markdown file.
     recoverySQL(profile, "CREATE TRIGGER deny_settings BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT, 'injected write failure'); END;")
@@ -275,7 +276,7 @@ test('桌面编辑：有序列表、公式编辑、格式与本地图片', async
     await expect.poll(() => body(page).getByRole('img', { name: '像素', exact: true }).evaluate(el => el.complete && el.naturalWidth > 0)).toBe(true)
     const imagePdf = join(directory, 'local-image.pdf')
     await chooseSave(app, imagePdf)
-    await page.getByRole('button', { name: 'PDF', exact: true }).click()
+    await menuCommand(page, 'pdf')
     await expect.poll(async () => {
       const alert = page.getByRole('alert')
       if (await alert.count()) return await alert.first().innerText()
@@ -299,7 +300,7 @@ test('桌面编辑：有序列表、公式编辑、格式与本地图片', async
     await page.getByRole('textbox', { name: '行间公式 LaTeX' }).fill('a+b=c')
     await page.getByRole('button', { name: '完成公式编辑' }).click()
     await expect(body(page).locator('.writing-math-block annotation')).toHaveText('a+b=c')
-    await page.getByRole('button', { name: '保存', exact: true }).click()
+    await menuCommand(page, 'save')
     await expect.poll(() => readFile(path, 'utf8')).toContain('a+b=c')
     await page.screenshot({ path: info.outputPath('desktop-editor.png') })
   } finally { await stop(app); await cleanup(directory) }
