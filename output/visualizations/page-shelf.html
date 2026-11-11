@@ -381,7 +381,13 @@ svg { width:20px; height:20px; display:block; fill:none; stroke:currentColor; st
     else if (button.dataset.filter) { filter = button.dataset.filter; menuId = null; renderCards(); }
   });
   $('page-title').addEventListener('input', () => { capture(); renderTabs(); $('paper-status').textContent = '已保留在本次预览'; });
-  $('page-title').addEventListener('blur', () => { const page = pageById(active); if (page && !page.title.trim()) { page.title = '未命名页面'; $('page-title').value = page.title; renderTabs(); } });
+  $('page-title').addEventListener('blur', () => {
+    const page = pageById(active);
+    if (page && !page.title.trim()) {
+      page.title = '未命名页面'; $('page-title').value = page.title;
+      // title() already renders this fallback. Keep the tab buttons alive through the click after blur.
+    }
+  });
   $('editor').addEventListener('input', () => { capture(); $('paper-status').textContent = '已保留在本次预览'; });
   document.addEventListener('keydown', event => {
     if (busy) return;

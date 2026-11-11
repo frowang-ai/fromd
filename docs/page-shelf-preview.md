@@ -14,7 +14,7 @@ node node_modules/vite/bin/vite.js output/visualizations --host 127.0.0.1 --port
 
 然后打开 `http://127.0.0.1:5198/page-shelf.html`。独立 worktree 没有依赖时，可以把命令中的 Vite 路径指向来源仓库已安装的版本；直接打开 HTML 不需要 Vite。
 
-此文件是明确提交的原型源码，尽管所在的 `output/` 默认被忽略，Git 仍会正常跟踪该 HTML；截图和检查输出继续忽略。后续修改用 `git add output/visualizations/page-shelf.html`，不要把整个输出目录加入提交。
+此文件是明确提交的原型源码，尽管所在的 `output/` 默认被忽略，Git 仍会跟踪该 HTML；截图和检查输出继续忽略。后续修改用 `git add -f output/visualizations/page-shelf.html` 明确暂存这个文件，避免忽略目录的提示；不要把整个输出目录加入提交。
 
 ## 体验顺序
 
@@ -44,6 +44,7 @@ node node_modules/vite/bin/vite.js output/visualizations --host 127.0.0.1 --port
 - 删除当前页面：卡片和标签一起消失、总数减一；撤销后内容、标签和位置恢复。
 - 按标题搜索、只看已收起页面、收起全部标签、删除全部页面、最后一次删除撤销、新建和重置。
 - 标题中的 `<script>` 按字面文本显示，不作为 HTML 插入。
+- 独立审核发现清空标题后第一次点击减号被失焦重绘打断；先复现，再移除失焦时多余的标签重建。空标题首次收起、纯空格标题首次切换均复验通过。
 - 1320×900桌面与390×844窄屏，页面面板处于窗口内，无页面级横向溢出；减少动态效果设置下无残留动画。
 - 直接打开 `file://` HTML 可以使用；已观察流程无浏览器运行错误。
 
