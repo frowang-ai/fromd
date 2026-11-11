@@ -9,7 +9,7 @@ import { chromium } from '@playwright/test'
 import assert from 'node:assert/strict'
 const root = fileURLToPath(new URL('../', import.meta.url))
 const { version } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
-const executable = resolve(process.argv[2] || join(root, `release/${version}/Frowang-Markdown-${version}-x64.exe`))
+const executable = resolve(process.argv[2] || join(root, `release/${version}/frowd-${version}-x64.exe`))
 const profile = await mkdtemp(join(tmpdir(), 'frowang-portable-'))
 const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
 const child = spawn(executable, ['--remote-debugging-port=0'], { env, stdio: 'ignore' })
@@ -32,7 +32,7 @@ try {
   })
   await until(async () => {
     const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) })).json()
-    return pages.some(page => page.url === 'app://editor/index.html' && page.title.includes('Frowang Markdown')) ? pages : null
+    return pages.some(page => page.url === 'app://editor/index.html' && page.title.endsWith(' — frowd')) ? pages : null
   })
   // Loading app:// is earlier than renderer initialization/close-ready wiring.
   // Wait for the real editor before exercising an ordinary portable close.

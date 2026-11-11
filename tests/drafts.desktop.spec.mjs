@@ -96,7 +96,7 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     const initialRevision = (await snapshot(page)).documents[0].revision
     await nameField(page).fill('  Agent 回复一  ')
     await expect(page.getByRole('tab', { name: 'Agent 回复一', exact: true })).toBeVisible()
-    await expect(page).toHaveTitle('Agent 回复一 — Frowang Markdown')
+    await expect(page).toHaveTitle('Agent 回复一 — frowd')
     await nameField(page).press('Enter')
     await expect(nameField(page)).toHaveValue('Agent 回复一')
     await expect(status(page)).toHaveText('已自动保存')
@@ -127,7 +127,7 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     await nameField(page).fill('   ')
     await source(page).click() // blur finishes and normalizes an empty name
     await expect(nameField(page)).toHaveValue('未命名笔记')
-    await expect(page).toHaveTitle('未命名笔记 — Frowang Markdown')
+    await expect(page).toHaveTitle('未命名笔记 — frowd')
     // Leave the final name focused: application close must flush without blur.
     await nameField(page).fill('明日继续')
     expect(await app.evaluate(() => globalThis.__draftDialogs)).toEqual([])
@@ -161,7 +161,7 @@ for (const fail of [false, true]) {
       await nameField(page).fill('更新中')
       await nameField(page).fill('最终名称')
       await putSource(page, '与命名同时修改的最新正文')
-      await expect(page).toHaveTitle('最终名称 — Frowang Markdown')
+      await expect(page).toHaveTitle('最终名称 — frowd')
       await expect.poll(async () => (await snapshot(page)).documents[0].markdown).toBe('与命名同时修改的最新正文')
       await expect(status(page)).toHaveText('正在自动保存…')
       expect(await app.evaluate(() => globalThis.__renameProbe.calls)).toEqual(['旧名称'])
@@ -171,7 +171,7 @@ for (const fail of [false, true]) {
       await app.evaluate(({ BrowserWindow }, snapshot) => BrowserWindow.getAllWindows()[0].webContents.send('documents:changed', snapshot), oldSnapshot)
       await expect(nameField(page)).toHaveValue('最终名称')
       await expect(source(page)).toHaveValue('与命名同时修改的最新正文')
-      await expect(page).toHaveTitle('最终名称 — Frowang Markdown')
+      await expect(page).toHaveTitle('最终名称 — frowd')
       expect(await app.evaluate(() => globalThis.__renameProbe.calls)).toEqual(['旧名称', '最终名称'])
       const doc = (await snapshot(page)).documents[0]
       expect(doc.title).toBe('最终名称'); expect(doc.markdown).toBe('与命名同时修改的最新正文')
@@ -538,7 +538,7 @@ test('审核回归：迟到打开事件不回退已有标签上较新的主动�
     await app.evaluate(() => globalThis.__deliverOpen())
     await expect(page.getByRole('tab')).toHaveCount(3)
     await expect(page.getByRole('tab', { name: '已有一', exact: true })).toHaveAttribute('aria-selected', 'true')
-    await expect(page).toHaveTitle('已有一 — Frowang Markdown')
+    await expect(page).toHaveTitle('已有一 — frowd')
     expect((await snapshot(page)).activeId).toBe(selectedId)
     // Also delay the authoritative metadata reply itself: a later user choice wins.
     await app.evaluate(({ ipcMain }) => {
@@ -561,6 +561,6 @@ test('审核回归：迟到打开事件不回退已有标签上较新的主动�
     await app.evaluate(() => globalThis.__releaseMetadata())
     await snapshot(page) // an IPC round trip after releasing the earlier reply
     await expect(page.getByRole('tab', { name: '已有二', exact: true })).toHaveAttribute('aria-selected', 'true')
-    await expect(page).toHaveTitle('已有二 — Frowang Markdown')
+    await expect(page).toHaveTitle('已有二 — frowd')
   } finally { await stop(app); await cleanup(directory) }
 })
