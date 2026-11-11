@@ -29,7 +29,7 @@
       <p>{{ documents.length ? '页面已收起，内容仍保留。' : '暂无页面。' }}</p>
       <button v-if="documents.length" @click="toggleShelf">查看页面</button><button @click="command('new')">新建笔记</button>
     </section>
-    <PageShelf v-if="shelfOpen" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" />
+    <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" />
     <div v-if="undoRemoval" class="removal-notice" role="status">已从列表移除「{{ undoRemoval }}」<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
     <UpdateNotice :busy="!commandReady" />
   </main>
@@ -45,7 +45,7 @@ const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
 const openDocuments = computed(() => documents.value.filter(doc => !doc.shelved))
 const current = computed(() => openDocuments.value.find(doc => doc.id === activeId.value))
-const shelfOpen = ref(false), pagesButton = ref(null), editorContent = ref(null), undoRemoval = ref(null)
+const shelfOpen = ref(false), shelfPanel = ref(null), pagesButton = ref(null), editorContent = ref(null), undoRemoval = ref(null)
 const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), closedIds = new Set()
 const sharedEditor = ref(null), displayedId = ref(null), bodyLoading = ref(false)
 const editorStates = new Map(), dirtyViews = new Set()
@@ -407,11 +407,13 @@ async function shelveDocument(id) {
 }
 async function closeDocument(id) {
   if (!findDocument(id)) return
+  let removed = false
   await run(async () => {
     const result = await api.close(id)
-    if (result.closed) forgetDocument(id)
+    if (result.closed) { removed = true; forgetDocument(id) }
     return result.snapshot
   }, true)
+  if (removed && shelfOpen.value) { await nextTick(); shelfPanel.value?.focusSearch() }
 }
 async function undoRemove() {
   await run(async () => {

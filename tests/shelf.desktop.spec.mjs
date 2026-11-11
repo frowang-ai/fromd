@@ -143,6 +143,21 @@ test('脏文件收起不询问保存，卡片移除保留取消/放弃与磁盘�
   } finally { await stop(app); await clean(directory) }
 })
 
+test('键盘删除最后一页后焦点留在列表，Escape关闭并返回页面入口', async () => {
+  const { directory, profile } = await fixture(); let app
+  try {
+    const launched = await launch(profile); app = launched.app; const page = launched.page
+    await removePage(page, 'B')
+    await openShelf(page)
+    const remove = page.getByRole('button', { name: '删除 A', exact: true })
+    await remove.focus(); await remove.press('Enter')
+    await expect(page.locator('.page-card')).toHaveCount(0); await editorReady(page)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.page-shelf')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '页面列表', exact: true })).toBeFocused()
+  } finally { await stop(app); await clean(directory) }
+})
+
 test('收起和删除持久化失败时保留页面，恢复写入后可以重试', async () => {
   const { directory, profile, first } = await fixture(); let app, db
   try {

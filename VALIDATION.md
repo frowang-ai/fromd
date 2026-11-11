@@ -1,4 +1,30 @@
-# Windows 0.3.0 联合验证记录
+# Windows 桌面验证记录
+
+## 页面收起与右上角移除（当前任务分支）
+
+基于 `529bae0`，复用 PR #8 / `prototype/page-shelf`。接入提交 `7fbe088` 将原型中的“收起／恢复／删除”接入真实 Electron、固定 preload IPC 和 SQLite，随后回修键盘删除后的焦点。界面沿用现有背景、字体和标签；页面列表卡片右上角为直接删除/移除按钮。未替换已交付的0.3.0安装器，未合入 main。
+
+| 检查 | 实际结果 | 本机证据 |
+| --- | --- | --- |
+| 完整 `npm test` | **65/65**，无跳过 | `output/shelf-unit-final.log` |
+| `npm run build` | **通过** | `output/shelf-build-final.log` |
+| 完整 `npm run test:desktop` | **38/38** | `output/shelf-desktop-final.log` |
+| 焦点回修后重新构建 | **通过** | `output/shelf-focus-build.log` |
+| 焦点回修后 `tests/shelf.desktop.spec.mjs` | **5/5**，含新增键盘场景 | `output/shelf-focus-desktop.log` |
+| 独立审核 | **PASS**；无 blocker/high/medium，唯一 low 已采纳回修 | 原 Paseo reviewer `0c5887bc-2e67-4d8e-b82a-7900b31a207f` |
+
+完整38项结果对应 `7fbe088`。最后仅增加删除完成后的焦点恢复和相应测试，再跑受影响的5项桌面场景，不宣称完整39项套件已重新运行。编辑内核源码未改，本轮未重跑独立56项浏览器内核测试或 NSIS 真实升级；本次交付为源码分支和隔离的真实编辑器预览，不是新安装器发布。
+
+- `tests/shelf-storage.test.mjs` 共8项：schema 2→3、全部收起重启恢复、有限预览、文件复用与原件保护、删除/撤销、旧 ID 迟到写入、失败回滚与撤销重试。文件已经重新打开后再撤销，先复现原阻断，再验证旧内容作为独立草稿恢复，不覆盖重新打开的页面。
+- `tests/shelf.desktop.spec.mjs` 共5项：真实源码编辑、选区/滚动、全部收起重启和空桌面菜单；缩略预览不调用整篇read；右上角按钮位置与删除/撤销；绑定文件收起不弹确认、移除保留取消/放弃；数据库拒写后保留页面；键盘删除最后一页后 Escape 可关闭列表并返回入口焦点。
+- 既有删除测试改用实际页面列表和卡片按钮，不用直接 API 替代 UI。移除前等待正文写入的竞态使用受控真实 IPC 回执，继续保留正文及磁盘原件断言。完整桌面覆盖既有文件/PDF、菜单、IME屏障、迟到读取、第二实例和源码/公式状态。
+- 审核 low 先用真实 Enter 删除最后一页复现：卡片消失后焦点落到 BODY，Escape 无效。回修在成功移除且列表仍打开时等待 DOM 更新后聚焦搜索框；失败/取消不强抢焦点。失败 trace 保留在 `output/shelf-focus-before/`，新增行为用例已加入桌面入口。
+- 实际 Electron 窗口用 `output/shelf-preview-profile/` 合成样本；截图 `output/playwright/integrated-editor.png` 与 `integrated-page-shelf.png` 已视觉检查。原生浏览器连接曾漂到空白托管页，随后用项目 Playwright 直接连接该预览的 CDP，并核对 `app://editor/index.html` 后截图；未把空白截图作为验收结果。
+- 新工作区依赖安装成功，官方 Electron 下载超时；复用来源仓库的同版本归档，经既有安装脚本 checksum 校验后提取为45.2.3。没有修改依赖版本、生产应用或真实笔记。
+
+本轮数据/撤销边界见 [页面收起说明](docs/page-shelf.md)。下文保留0.3和更早版本的历史验证，不作为当前分支重跑证据。
+
+## Windows 0.3.0 联合验证记录
 
 ## 0.3.0 菜单与更新整合
 

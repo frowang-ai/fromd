@@ -31,6 +31,8 @@ const search = ref(''), onlyShelved = ref(false), list = ref(null), searchInput 
 const visible = reactive(new Set()), cache = new Map()
 const filtered = computed(() => props.documents.filter(doc => (!onlyShelved.value || doc.shelved) && doc.title.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
 let observer
+function focusSearch() { searchInput.value?.focus({ preventScroll: true }) }
+defineExpose({ focusSearch })
 function preview(doc) {
   const text = (doc.markdown ?? doc.preview ?? '').slice(0, 1200)
   if (cache.get(doc.id)?.text !== text) {
@@ -55,7 +57,7 @@ async function observe() {
 }
 onMounted(() => {
   observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting) visible.add(entry.target.dataset.pageId) }), { root: list.value, rootMargin: '120px' })
-  void observe(); searchInput.value.focus({ preventScroll: true })
+  void observe(); focusSearch()
 })
 watch(filtered, observe)
 onBeforeUnmount(() => observer?.disconnect())
