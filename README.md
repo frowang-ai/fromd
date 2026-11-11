@@ -8,7 +8,7 @@
 
 ## 项目记忆
 
-Windows MVP 0.1与0.2均已由用户确认收束，当前状态、约束和下一轮入口归[模块记忆](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/modules/markdown-editor.md)。阶段过程分别见[0.1归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261110_markdown_editor_mvp/README.md)和[0.2归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v02/README.md)。文档更新提交 `13545ef` 已随 [docs PR #7](https://github.com/frowang-ai/docs/pull/7) 合入维护分支 `refactor-docs-20260725`（`dc8d4d6`）。
+Windows 0.1、0.2与0.3均已由用户确认收束。当前状态、约束和后续入口归[模块记忆](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/modules/markdown-editor.md)；阶段过程分别见[0.1归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261110_markdown_editor_mvp/README.md)、[0.2归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v02/README.md)和[0.3归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v03/README.md)。记忆维护在独立docs仓库的 `refactor-docs-20260725` 分支进行，与应用功能发布分开管理。0.3功能交付提交为 `027069d`（验收 `a82252c`），其后的文档收尾不改变安装器。
 
 本机可读副本仍在[独立记忆工作区](../_worktrees/markdown-editor-memory/modules/markdown-editor.md)；共享 `website/docs` 中的其他未提交改动保留，未强行同步。规范归属为 `website/docs/modules/markdown-editor.md`，判断最新结论应以该维护分支或已同步的独立工作区为准。
 
