@@ -14,9 +14,11 @@ Windows 0.1、0.2与0.3均已由用户确认收束。当前状态、约束和后
 
 `VALIDATION.md`继续维护可执行验证和覆盖范围，`MVP_PLAN.md`维护分轮范围，不用历史归档替代当前代码检查。`release/Frowang-Markdown-0.1.0-source.zip`是0.1.0交付快照，0.2.0不覆盖它。
 
-## 交互原型
+## 页面收起（当前任务分支）
 
-[页面收起预览](docs/page-shelf-preview.md)：独立 HTML，可体验标签减号收起、左侧缩略卡片展开、删除与撤销。仅使用示例内容，刷新重置，尚未接入正式应用。
+当前分支已将收起、页面卡片列表和右上角删除按钮接入桌面运行路径，沿用现有编辑器样式。收起的页面保留在 SQLite，退出重启仍可找回；删除/移除为独立动作，本次会话可撤销最近一次。行为、迁移与测试入口见[页面收起说明](docs/page-shelf.md)，实际验证见 `VALIDATION.md`。此变更尚未替换已交付的0.3.0安装器。
+
+[早期交互原型](docs/page-shelf-preview.md)继续保留为独立 HTML 示例，刷新重置，不读取真实笔记。
 
 ## 开发与构建
 
@@ -66,8 +68,8 @@ npm run dist:installer
 - 保存前比对磁盘内容；外部修改/删除时停止覆盖，支持重新读取或另存当前修改。
 - SQLite 按篇保存草稿元数据、正文和 `contentHash`；启动只读取元数据，当前标签通过固定 `read(id)` 按需读取正文。外部文件在首次读取或保存时核对，clean 文件跟随磁盘，dirty 文件保留草稿并显示冲突。
 - 草稿在输入停顿后自动备份，只有 SQLite 提交确认后才显示已自动保存；正常退出会先 flush。会话备份上限仍为100MiB，单篇最终文件上限10MiB，超限或不可写会明确提示。未确认的最后输入不承诺异常断电恢复。
-- 旧 `session.json` 只迁移一次并保留原件；已有 SQLite 数据库事务升级到 schema v2，不再次导入旧 JSON。
-- 临时草稿可独立命名；关闭临时草稿直接清除，已关联文件仍提供保存／放弃／取消。应用退出先完成正文、名称和阅读位置的备份。
+- 旧 `session.json` 只迁移一次并保留原件；已有 SQLite 数据库事务升级到 schema v3（增加收起状态），不再次导入旧 JSON。
+- 临时草稿可独立命名；标签减号只收起，左上角页面列表可恢复。卡片右上角删除/移除保留本次会话最近一次撤销；关联文件不会从磁盘删除，有未写回修改仍提供保存／放弃／取消。应用退出先完成正文、名称、收起状态和阅读位置的备份。
 - 富文本编辑器只保留一套长期 Crepe/schema 和一个活跃 DOM；各标签在会话内保留正文、选区、滚动、公式／代码块编辑状态和 undo/redo。源码模式继续使用按访问保留的 textarea，不承诺跨重启撤销历史。
 - 访问过的正文树、撤销历史和源码 textarea 仍随访问过的笔记增长；按需加载主要释放未活跃标签的 DOM、KaTeX 和嵌入 CodeMirror，不承诺总内存与笔记数无关。
 
@@ -93,7 +95,7 @@ npm run dist:installer
 - `apps/desktop/src/renderer/UpdateNotice.vue`：左下角更新状态、进度、重试与稍后入口。
 - `apps/desktop/src/main/index.js`：窗口、对话框、受限 IPC、图片协议与 PDF；`applicationMenu.js`维护原生菜单和当前文档可用状态。
 - `apps/desktop/src/preload/index.js`：固定操作 API，不向正文暴露 fs 或任意 IPC。
-- `apps/desktop/src/renderer/`：简洁多标签应用；正文按需读取，编辑器实例由共享 session 管理。
+- `apps/desktop/src/renderer/`：简洁多标签应用；正文按需读取，编辑器实例由共享 session 管理。`PageShelf.vue`负责页面列表与有界缩略预览，收起/移除状态由主进程存储负责。
 - `packages/editor/src/MarkdownEditor.vue`：长期 Crepe/schema、会话 state、公式／代码块嵌入状态和 nodeView 清理。
 
 - `tests/documents.test.mjs`、`tests/lazy-storage.test.mjs`：临时目录中的文件、迁移、故障和按需存储测试。

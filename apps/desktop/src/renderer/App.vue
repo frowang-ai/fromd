@@ -1,10 +1,11 @@
 <template>
   <main :aria-busy="!commandReady">
     <header class="app-bar" :inert="busy || operationPending || !loaded" @pointerdown="rememberView">
+      <button ref="pagesButton" class="pages-button" aria-label="页面列表" :aria-expanded="shelfOpen" @click="toggleShelf"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="13" height="16" rx="1"/><path d="M15 2H3v15M9 10h7M9 14h7"/></svg><span>{{ documents.length }}</span></button>
       <div class="tabs" role="tablist" aria-label="笔记标签页">
-        <div v-for="doc in documents" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }">
+        <div v-for="doc in openDocuments" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }">
           <button role="tab" :aria-label="doc.title" :aria-selected="doc.id === activeId" :title="doc.path || doc.title" @click="activate(doc.id)">{{ doc.title }}<span v-if="doc.dirty" aria-label="未保存"> ·</span></button>
-          <button class="close-tab" :aria-label="`关闭 ${doc.title}`" @click="closeDocument(doc.id)">×</button>
+          <button class="close-tab" :aria-label="`收起 ${doc.title}`" title="收起页面，内容会保留" @click="shelveDocument(doc.id)">−</button>
         </div>
       </div>
       <button class="new-tab" :disabled="!commandReady" aria-label="新建笔记" title="新建笔记 (Ctrl+N)" @click="command('new')">+</button>
@@ -15,15 +16,21 @@
       <button :disabled="busy || operationPending" @click="save(true)">另存当前修改</button><button :disabled="busy || operationPending" @click="reloadDocument">重新读取磁盘</button>
     </div>
     <div v-if="!loaded" role="status" class="loading">正在打开笔记…</div>
-    <div :inert="busy">
+    <div ref="editorContent" class="editor-content" :inert="busy || shelfOpen">
       <template v-for="doc in documents" :key="`${doc.id}-${doc.generation || 0}`">
         <DocumentPane v-if="visited.has(doc.id)" :ref="instance => setSession(doc.id, instance)" :document="doc" :active="doc.id === activeId" :editable="doc.id === activeId && ready[doc.id] && displayedId === doc.id && !busy" :inert="!ready[doc.id] || displayedId !== doc.id" :status="saveStatus(doc)" :engine="sharedEditor" :rich-active="displayedId === doc.id" @rename="title => rename(doc.id, title)" @finish-name="finishName(doc.id)" @change="text => change(doc.id, text)" />
       </template>
       <p v-if="bodyLoading" class="loading" role="status">正在读取笔记…</p>
-      <div v-show="displayedId === activeId && !bodyLoading && !sourceMode" :inert="!ready[activeId]" class="document-shell shared-editor">
+      <div v-show="activeId && displayedId === activeId && !bodyLoading && !sourceMode" :inert="!ready[activeId]" class="document-shell shared-editor">
         <MarkdownEditor ref="sharedEditor" @session-change="sessionChanged" />
       </div>
     </div>
+    <section v-if="loaded && !current && !bodyLoading" class="empty-workspace">
+      <p>{{ documents.length ? '页面已收起，内容仍保留。' : '暂无页面。' }}</p>
+      <button v-if="documents.length" @click="toggleShelf">查看页面</button><button @click="command('new')">新建笔记</button>
+    </section>
+    <PageShelf v-if="shelfOpen" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" />
+    <div v-if="undoRemoval" class="removal-notice" role="status">已从列表移除「{{ undoRemoval }}」<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
     <UpdateNotice :busy="!commandReady" />
   </main>
 </template>
@@ -33,16 +40,19 @@ import MarkdownEditor from '@frowang/editor'
 import { buildPdfDocument } from '@frowang/editor/pdf'
 import DocumentPane from './DocumentPane.vue'
 import UpdateNotice from './UpdateNotice.vue'
+import PageShelf from './PageShelf.vue'
 const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
-const current = computed(() => documents.value.find(doc => doc.id === activeId.value))
-const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), closedIds = new Set(), discardingIds = new Set()
+const openDocuments = computed(() => documents.value.filter(doc => !doc.shelved))
+const current = computed(() => openDocuments.value.find(doc => doc.id === activeId.value))
+const shelfOpen = ref(false), pagesButton = ref(null), editorContent = ref(null), undoRemoval = ref(null)
+const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), closedIds = new Set()
 const sharedEditor = ref(null), displayedId = ref(null), bodyLoading = ref(false)
 const editorStates = new Map(), dirtyViews = new Set()
 let loadVersion = 0, composing = false, compositionWaiters = []
 const busy = ref(false), operationPending = ref(false), loaded = ref(false), message = ref(''), fatal = ref(false), sourceMode = ref(false)
 let disposers = [], selectionVersion = 0, openEventVersion = 0, menuRevision = 0
-const commandReady = computed(() => loaded.value && !busy.value && !operationPending.value && !!current.value && !!ready[activeId.value] && displayedId.value === activeId.value)
+const commandReady = computed(() => loaded.value && !busy.value && !operationPending.value && (!current.value || (!!ready[activeId.value] && displayedId.value === activeId.value)))
 watchEffect(() => {
   api.setMenuState({ documentId: activeId.value, ready: commandReady.value, busy: busy.value || operationPending.value,
     sourceMode: sourceMode.value, revision: ++menuRevision })
@@ -82,7 +92,7 @@ function sessionChanged({ id, generation, markdown }) {
 }
 function captureDisplayed() {
   const id = displayedId.value, doc = findDocument(id), pane = sessions.get(id)
-  if (!doc || !pane || !ready[id] || discardingIds.has(id)) return
+  if (!doc || !pane || !ready[id]) return
   const text = pane.sourceMode ? pane.getMarkdown() : sharedEditor.value?.getMarkdown()
   if (typeof text === 'string') change(id, text)
   if (id === activeId.value && !bodyLoading.value) {
@@ -92,10 +102,20 @@ function captureDisplayed() {
   const snapshot = sharedEditor.value.captureSession()
   if (snapshot) editorStates.set(id, { generation: doc.generation, snapshot })
 }
-function showActive() { void revealActive().catch(error => { message.value = error.message }) }
+function showActive(origin = null) {
+  const id = activeId.value
+  void revealActive().then(async () => {
+    if (!origin || activeId.value !== id || !ready[id] || busy.value || operationPending.value) return
+    busy.value = true
+    try { await animatePage(origin, false) } finally { busy.value = false }
+  }).catch(error => { message.value = error.message })
+}
 async function revealActive() {
   const ticket = ++loadVersion, id = activeId.value, doc = findDocument(id)
-  if (!doc) return
+  if (!doc) {
+    sharedEditor.value?.clearSession(); displayedId.value = null; bodyLoading.value = false; sourceMode.value = false
+    return
+  }
   ready[id] = false; bodyLoading.value = true
   await waitComposition()
   if (ticket !== loadVersion) return
@@ -144,13 +164,13 @@ function forgetDocument(id) {
   loadVersion++
   if (displayedId.value === id) { sharedEditor.value?.clearSession(); displayedId.value = null }
 }
-function adopt(snapshot, reloadId = null, preserveEdits = false, preferredActiveId = null) {
+function adopt(snapshot, reloadId = null, preserveEdits = false, preferredActiveId = undefined, preserveLayout = false) {
   const previous = new Map(documents.value.map(doc => [doc.id, doc]))
   const nextIds = new Set(snapshot.documents.map(doc => doc.id))
   // documents:changed announces second-instance opens, never deletions. A
   // delayed snapshot can omit newer local tabs; only an explicit close removes one.
   const retained = documents.value.filter(doc => !nextIds.has(doc.id) && !closedIds.has(doc.id))
-  const selected = preferredActiveId || snapshot.activeId
+  const selected = preferredActiveId !== undefined ? preferredActiveId : snapshot.activeId
   documents.value = snapshot.documents.filter(doc => !closedIds.has(doc.id)).map(doc => {
     const old = previous.get(doc.id)
     if (old && doc.id !== reloadId) {
@@ -160,6 +180,7 @@ function adopt(snapshot, reloadId = null, preserveEdits = false, preferredActive
       if (!doc.path && (preserveEdits || old.nameVersion !== old.nameAcknowledged || old.nameBackup === 'failed')) local.title = old.title
       if (preserveEdits && old.path) Object.assign(local, { path: old.path, title: old.title, conflict: old.conflict })
       if (dirtyViews.has(doc.id)) local.viewState = old.viewState
+      if (preserveLayout) local.shelved = old.shelved
       Object.assign(old, doc, local)
       if (old.path) { old.draftName = old.title; old.nameBackup = 'saved'; old.nameError = '' }
       else if (!preserveEdits && old.nameVersion === old.nameAcknowledged && old.nameBackup !== 'failed') old.draftName = old.title
@@ -174,7 +195,8 @@ function adopt(snapshot, reloadId = null, preserveEdits = false, preferredActive
       nameBackup: snapshot.warning ? 'failed' : 'saved', backup: snapshot.warning ? 'failed' : 'saved', generation: (old?.generation || 0) + 1 }
   }).concat(retained)
   if (!preserveEdits) selectionVersion++
-  activeId.value = documents.value.some(doc => doc.id === selected) ? selected : documents.value[0]?.id
+  activeId.value = openDocuments.value.some(doc => doc.id === selected) ? selected : openDocuments.value[0]?.id || null
+  if (!preserveLayout) undoRemoval.value = snapshot.undoRemoval || null
   sourceMode.value = sessions.get(activeId.value)?.sourceMode ?? false
   if (snapshot.warning) message.value = snapshot.warning
 }
@@ -186,17 +208,17 @@ async function documentsChanged(snapshot) {
     const metadata = await api.listMetadata()
     await waitComposition(); captureDisplayed()
     const selected = selection === selectionVersion && eventVersion === openEventVersion ? metadata.activeId : activeId.value
-    adopt({ ...snapshot, activeId: selected }, null, true, selected)
+    adopt({ ...metadata, activeId: selected }, null, true, selected, selection !== selectionVersion || eventVersion !== openEventVersion)
     if (displayedId.value !== activeId.value || !ready[activeId.value]) showActive()
   } catch (error) {
-    adopt({ ...snapshot, activeId: activeId.value }, null, true, activeId.value)
+    adopt({ ...snapshot, activeId: activeId.value }, null, true, activeId.value, true)
     if (displayedId.value !== activeId.value || !ready[activeId.value]) showActive()
     message.value = error.message
   }
 }
 function rename(id, title) {
   const doc = findDocument(id)
-  if (!doc || doc.path || discardingIds.has(id) || doc.draftName === title) return
+  if (!doc || doc.path || doc.draftName === title) return
   const previousError = doc.nameError
   doc.draftName = title; doc.nameVersion++; doc.nameError = nameError(title)
   if (!doc.nameError && message.value === previousError) message.value = ''
@@ -213,18 +235,18 @@ function finishName(id) {
   void persistName(doc).catch(() => {})
 }
 async function persistName(doc) {
-  if (!isLive(doc) || doc.path || discardingIds.has(doc.id)) return
+  if (!isLive(doc) || doc.path) return
   if (nameWrites.has(doc.id)) return nameWrites.get(doc.id)
   if (doc.nameError) throw new Error(doc.nameError)
   if (doc.nameVersion === doc.nameAcknowledged && doc.nameBackup !== 'failed') return
   const pending = (async () => {
     // Only one request per document is sent at a time; newer input is coalesced.
-    while (isLive(doc) && !doc.path && !discardingIds.has(doc.id)) {
+    while (isLive(doc) && !doc.path) {
       if (doc.nameError) throw new Error(doc.nameError)
       const version = doc.nameVersion, title = doc.title
       try {
         const result = await api.rename(doc.id, title)
-        if (!isLive(doc) || doc.path || discardingIds.has(doc.id)) return
+        if (!isLive(doc) || doc.path) return
         if (result.id !== doc.id || result.stale || result.closed) throw new Error('草稿名称未能保存，请重试。')
         if (doc.nameVersion === version) {
           doc.title = result.title; doc.nameAcknowledged = version
@@ -233,7 +255,7 @@ async function persistName(doc) {
           return
         }
       } catch (error) {
-        if (!isLive(doc) || discardingIds.has(doc.id)) return
+        if (!isLive(doc)) return
         if (doc.nameVersion !== version) continue
         doc.nameBackup = 'failed'; message.value = error.message; throw error
       }
@@ -244,8 +266,8 @@ async function persistName(doc) {
 }
 function change(id, markdown) {
   const doc = findDocument(id)
-  if (!doc || discardingIds.has(id) || typeof markdown !== 'string' || doc.markdown === markdown) return
-  doc.markdown = markdown; doc.revision++; doc.dirty = true; doc.backup = 'pending'; doc.bodyPending = true
+  if (!doc || typeof markdown !== 'string' || doc.markdown === markdown) return
+  doc.markdown = markdown; doc.preview = markdown.slice(0, 1200); doc.revision++; doc.dirty = true; doc.backup = 'pending'; doc.bodyPending = true
   clearTimeout(timers.get(id))
   timers.set(id, setTimeout(() => { timers.delete(id); void backup(doc).catch(() => {}) }, 200))
 }
@@ -268,10 +290,10 @@ async function backup(doc) {
   writes.add(pending)
   try { await pending } finally { writes.delete(pending) }
 }
-async function flush(excludeId = null, allowNameFailure = false) {
+async function flush(allowNameFailure = false) {
   await waitComposition()
   captureDisplayed()
-  const pendingDocuments = documents.value.filter(doc => doc.id !== excludeId)
+  const pendingDocuments = [...documents.value]
   for (const doc of pendingDocuments) {
     const pane = sessions.get(doc.id)
     const text = pane?.sourceMode ? pane.getMarkdown() : (doc.id === displayedId.value ? sharedEditor.value?.getMarkdown() : undefined)
@@ -304,28 +326,30 @@ async function run(operation, allowNameFailure = false) {
   operationPending.value = true
   try {
     await waitComposition()
-    if (!doc || activeId.value !== id || !isLive(doc) || doc.generation !== generation ||
-      selectionVersion !== selection || !ready[id] || displayedId.value !== id) return
+    if (activeId.value !== id || selectionVersion !== selection ||
+      (doc && (!isLive(doc) || doc.generation !== generation || !ready[id] || displayedId.value !== id))) return
     busy.value = true; selectionVersion++
-    await flush(null, allowNameFailure)
+    await flush(allowNameFailure)
     const snapshot = await operation()
     if (snapshot?.documents) { adopt(snapshot); await revealActive() }
   }
   catch (error) { message.value = error.message }
   finally { busy.value = false; operationPending.value = false }
 }
-async function activate(id) {
+async function activate(id, origin = null) {
   if (busy.value || operationPending.value) return
-  selectionVersion++
+  const doc = findDocument(id)
+  if (!doc) return
+  selectionVersion++; shelfOpen.value = false
   if (activeId.value === id) { await api.activate(id); return }
-  busy.value = true
+  operationPending.value = true
   try {
-    await waitComposition(); captureDisplayed(); await flush()
+    await waitComposition(); captureDisplayed(); busy.value = true; await flush()
     await api.activate(id)
-    selectionVersion++
+    doc.shelved = false; selectionVersion++
     activeId.value = id; sourceMode.value = sessions.get(id)?.sourceMode ?? false
-  } catch (error) { message.value = error.message }
-  finally { busy.value = false; showActive() }
+  } catch (error) { message.value = error.message; origin = null }
+  finally { busy.value = false; operationPending.value = false; showActive(origin) }
 }
 async function toggleSource() {
   const id = activeId.value, doc = current.value, pane = sessions.get(id)
@@ -356,33 +380,45 @@ async function save(saveAs) {
     return result.snapshot
   }, true)
 }
+async function toggleShelf() {
+  if (busy.value || operationPending.value || !loaded.value) return
+  if (shelfOpen.value) { hideShelf(); return }
+  operationPending.value = true
+  try { await waitComposition(); rememberView(); shelfOpen.value = true }
+  finally { operationPending.value = false }
+}
+function hideShelf() { shelfOpen.value = false; void nextTick(() => pagesButton.value?.focus({ preventScroll: true })) }
+async function animatePage(origin, shrinking) {
+  const element = editorContent.value
+  if (!element || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  const rect = element.getBoundingClientRect(), target = origin || pagesButton.value?.getBoundingClientRect()
+  if (!target || !rect.width || !rect.height) return
+  const small = { transform: `translate(${target.left - rect.left}px, ${target.top - rect.top}px) scale(${shrinking ? .06 : Math.min(.35, target.width / rect.width)})`, opacity: 0 }
+  const full = { transform: 'none', opacity: 1 }
+  const animation = element.animate(shrinking ? [full, small] : [small, full], { duration: shrinking ? 240 : 200, easing: 'cubic-bezier(.2,.6,.3,1)' })
+  try { await animation.finished } finally { animation.cancel() }
+}
+async function shelveDocument(id) {
+  await run(async () => {
+    const snapshot = await api.shelve(id)
+    if (id === activeId.value) await animatePage(null, true)
+    return snapshot
+  })
+}
 async function closeDocument(id) {
-  const doc = findDocument(id)
-  if (!doc || busy.value || operationPending.value || !loaded.value) return
-  if (doc.path) {
-    await run(async () => {
-      const result = await api.close(id)
-      if (result.closed) forgetDocument(id)
-      return result.snapshot
-    })
-    return
-  }
-  await waitComposition()
-  busy.value = true; selectionVersion++; discardingIds.add(id)
-  clearTimeout(timers.get(id)); timers.delete(id)
-  clearTimeout(nameTimers.get(id)); nameTimers.delete(id)
-  try {
-    // A draft's × means discard. Do not submit its still-unsent edits just to delete it.
-    await flush(id)
+  if (!findDocument(id)) return
+  await run(async () => {
     const result = await api.close(id)
     if (result.closed) forgetDocument(id)
-    if (result.snapshot) adopt(result.snapshot)
-  } catch (error) { message.value = error.message }
-  finally {
-    discardingIds.delete(id); busy.value = false; showActive()
-    // If deletion failed, keep the local draft and resume its pending writes.
-    if (isLive(doc)) { void backup(doc).catch(() => {}); void persistName(doc).catch(() => {}) }
-  }
+    return result.snapshot
+  }, true)
+}
+async function undoRemove() {
+  await run(async () => {
+    const snapshot = await api.undoRemove()
+    if (snapshot.info) message.value = snapshot.info
+    return snapshot
+  })
 }
 async function reloadDocument() {
   const id = activeId.value
@@ -408,8 +444,9 @@ async function command(request) {
   const name = typeof request === 'string' ? request : request?.name
   if (!commandReady.value) return
   if (typeof request !== 'string' && (request.documentId !== activeId.value || request.revision !== menuRevision)) return
-  if (name === 'new') await run(() => api.newDocument())
-  if (name === 'open') await run(() => api.open())
+  if (name === 'new') { shelfOpen.value = false; await run(() => api.newDocument()) }
+  if (name === 'open') { shelfOpen.value = false; await run(() => api.open()) }
+  if (!current.value) return
   if (name === 'save') await save(false)
   if (name === 'saveAs') await save(true)
   if (name === 'pdf') await exportPdf()
@@ -442,6 +479,14 @@ button:hover { background: #edf2ed; }
 button:disabled { opacity: .45; cursor: default; }
 button:focus-visible, input:focus-visible { outline: 2px solid #6c9b86; outline-offset: 2px; }
 .app-bar { position: sticky; top: 0; z-index: 20; min-height: 48px; padding: 6px 20px; display: flex; align-items: center; gap: 12px; background: #fffefaed; backdrop-filter: blur(12px); border-bottom: 1px solid #edf0e8; }
+.pages-button { display:flex; align-items:center; gap:4px; flex-shrink:0; padding:4px 5px; font-size:10px; }
+.pages-button svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.4; }
+.pages-button[aria-expanded=true] { background:#edf2ed; }
+.editor-content { transform-origin:top left; }
+.empty-workspace { padding:100px 20px; text-align:center; color:#849085; font-size:13px; }
+.empty-workspace button { font-size:12px; }
+.removal-notice { position:fixed; bottom:38px; left:50%; transform:translateX(-50%); max-width:calc(100vw - 28px); z-index:30; padding:6px 12px; background:#fffefa; border:1px solid #dce3d9; border-radius:4px; box-shadow:0 2px 10px #2738290c; font-size:12px; overflow-wrap:anywhere; }
+.removal-notice button { margin-left:10px; color:#467657; }
 .tabs { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; gap: 2px; scrollbar-width: thin; }
 .tab-item { display: flex; flex: 0 0 auto; align-items: center; max-width: 210px; border-bottom: 1px solid transparent; }
 .tab-item.selected { border-bottom-color: #71917e; }

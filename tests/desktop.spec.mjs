@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { bindMenu, editorReady, menuCommand, clickNativeMenu } from './native-menu.mjs'
+import { bindMenu, removePage, finishRemovePage, editorReady, menuCommand, clickNativeMenu } from './native-menu.mjs'
 import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { join, resolve } from 'node:path'
@@ -168,7 +168,7 @@ test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', a
     await expect(body(page)).toContainText('未保存草稿'); await expect(page.getByRole('tab')).toHaveCount(3)
     // Temporary drafts close immediately, regardless of message-box answers.
     await chooseMessage(app, 2)
-    await page.getByRole('button', { name: '关闭 未命名笔记', exact: true }).last().click()
+    await removePage(page, '未命名笔记')
     await expect(page.getByRole('tab')).toHaveCount(2)
     // Bound dirty files still offer cancel/discard, without deleting disk files.
     await putSource(page, '文件关闭前未保存修改')
@@ -182,14 +182,14 @@ test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', a
         return { response }
       }
     })
-    await page.getByRole('button', { name: '关闭 另存.md', exact: true }).click()
+    await removePage(page, '另存.md')
     // Existing tab count/text already hold before close runs. Wait for the
     // actual cancel answer and completed UI operation before the second click.
     await expect.poll(() => app.evaluate(() => globalThis.__fileCloseAnswers)).toEqual([2])
     await expect(page.locator('header')).not.toHaveAttribute('inert', '')
     await expect(page.getByRole('tab')).toHaveCount(2)
     await expect(body(page)).toContainText('文件关闭前未保存修改')
-    await page.getByRole('button', { name: '关闭 另存.md', exact: true }).click()
+    await removePage(page, '另存.md')
     await expect.poll(() => app.evaluate(() => globalThis.__fileCloseAnswers)).toEqual([2, 1])
     await expect(page.getByRole('tab')).toHaveCount(1)
     expect(await readFile(copy, 'utf8')).toBe('外部版本')

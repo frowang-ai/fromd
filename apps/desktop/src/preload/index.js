@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('desktop', {
   activate: id => invoke('documents:activate', id),
   save: (id, saveAs = false) => invoke('documents:save', id, saveAs),
   close: id => invoke('documents:close', id),
+  shelve: id => invoke('documents:shelve', id),
+  undoRemove: () => invoke('documents:undo-remove'),
   reload: id => invoke('documents:reload', id),
   exportPdf: (id, html) => invoke('documents:pdf', id, html),
   closeReady: () => invoke('application:close-ready'),

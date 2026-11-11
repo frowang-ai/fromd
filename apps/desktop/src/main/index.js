@@ -53,7 +53,7 @@ async function confirmClose(id) {
     if (answer.response === 2) return { cancelled: true }
     if (answer.response === 0) { const saved = await saveDocument(id); if (!saved.saved) return saved }
   }
-  return { closed: true, snapshot: await store.close(id) }
+  return { closed: true, snapshot: await store.remove(id) }
 }
 async function exportPdf(id, html) {
   if (typeof html !== 'string' || Buffer.byteLength(html) > 20 * 1024 * 1024) throw new Error('导出内容过大。')
@@ -114,6 +114,8 @@ function wireIPC() {
   })
   handle('documents:update', (id, markdown, revision) => store.update(id, markdown, revision))
   handle('documents:activate', id => store.activate(id))
+  handle('documents:shelve', id => store.shelve(id))
+  handle('documents:undo-remove', () => store.undoRemove())
   handle('documents:save', (id, saveAs) => saveDocument(id, saveAs === true))
   handle('documents:close', id => confirmClose(id))
   handle('documents:reload', async id => {
