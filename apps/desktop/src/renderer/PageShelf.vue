@@ -9,7 +9,7 @@
     </div>
     <div ref="list" class="shelf-list">
       <article v-for="doc in filtered" :key="doc.id" :data-page-id="doc.id" class="page-card" :class="{ current: doc.id === activeId }">
-        <button class="page-card-open" :aria-label="`打开 ${doc.title}`" @click="$emit('open', doc.id, true)">
+        <button class="page-card-open" :aria-label="`打开 ${doc.title}`" @click="$emit('open', doc.id)">
           <div class="page-thumbnail" aria-hidden="true" inert>
             <div v-if="visible.has(doc.id)" class="page-thumbnail-content" v-html="preview(doc)"></div>
           </div>

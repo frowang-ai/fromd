@@ -64,7 +64,30 @@ async function restore(page) {
   await editorReady(page)
 }
 
-test('真实画面收尖与反向展开：公式/图片/文字被绘入，编辑和阅读状态保留', async ({}, info) => {
+test('恢复页面直接显示，不请求画面捕获或创建动画，保留正文和阅读位置', async () => {
+  const { directory, app, page } = await fixture()
+  try {
+    const id = await page.evaluate(async () => (await window.desktop.listMetadata()).activeId)
+    await body(page).click(); await page.keyboard.press('Control+End'); await page.keyboard.insertText(' DIRECT-RESTORE')
+    await page.evaluate(() => window.scrollTo(0, 180))
+    await shelve(page)
+    await app.evaluate(({ ipcMain }) => {
+      const handler = ipcMain._invokeHandlers.get('application:capture-page'); globalThis.__restoreCaptures = 0
+      ipcMain.removeHandler('application:capture-page')
+      ipcMain.handle('application:capture-page', (...args) => { globalThis.__restoreCaptures++; return handler(...args) })
+    })
+    await observeMotion(page)
+    await restore(page)
+    expect(await app.evaluate(() => globalThis.__restoreCaptures)).toBe(0)
+    expect(await page.evaluate(() => window.__motions)).toEqual([])
+    await expect(body(page)).toContainText('DIRECT-RESTORE')
+    expect(await page.evaluate(() => window.scrollY)).toBe(180)
+    expect((await page.evaluate(id => window.desktop.read(id), id)).markdown).toContain('DIRECT-RESTORE')
+    await expect(page.locator('.editor-content')).not.toHaveCSS('visibility', 'hidden')
+  } finally { await cleanup(app, directory) }
+})
+
+test('真实画面仅收起时收尖：公式/图片/文字被绘入，直接恢复保留编辑和阅读状态', async ({}, info) => {
   const { directory, app, page } = await fixture()
   const warnings = [], errors = []
   page.on('console', message => { if (message.text().includes('[page-motion]')) warnings.push(message.text()) })
@@ -85,14 +108,12 @@ test('真实画面收尖与反向展开：公式/图片/文字被绘入，编辑
     await expect(body(page)).toContainText('EDIT-KEPT')
     expect(await page.evaluate(() => window.scrollY)).toBe(180)
     expect((await page.evaluate(id => window.desktop.read(id), id)).markdown).toContain('EDIT-KEPT')
-    await expect.poll(() => page.evaluate(() => window.__motions.filter(entry => entry.duration).length)).toBe(2)
+    await expect.poll(() => page.evaluate(() => window.__motions.filter(entry => entry.duration).length)).toBe(1)
     const motions = await page.evaluate(() => window.__motions)
-    expect(motions.map(entry => entry.direction)).toEqual(['collapse', 'expand'])
+    expect(motions.map(entry => entry.direction)).toEqual(['collapse'])
     expect(motions.every(entry => entry.painted && !entry.drawerVisible)).toBe(true)
     expect(motions[0].duration).toBeGreaterThanOrEqual(430)
     expect(motions[0].duration).toBeLessThan(1000)
-    expect(motions[1].duration).toBeGreaterThanOrEqual(380)
-    expect(motions[1].duration).toBeLessThan(1000)
     expect(motions.every(entry => entry.width <= 2048 && entry.height <= 1536)).toBe(true)
     await expect(page.locator('.page-flight,.page-flight-backdrop')).toHaveCount(0)
     await expect(page.locator('.editor-content')).not.toHaveCSS('visibility', 'hidden')

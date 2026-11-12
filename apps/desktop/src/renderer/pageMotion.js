@@ -44,7 +44,7 @@ function drawSheet(ctx, image, rect, target, p, viewport, dpr) {
 
 // Returns a cancel function immediately. Every capture/decode/frame wait is bounded
 // or abortable; motion failure never rejects the document operation which called it.
-export function startPageMotion({ element, anchor, header, footer, capture, reverse = false, isCurrent = () => true }) {
+export function startPageMotion({ element, anchor, header, footer, capture, isCurrent = () => true }) {
   const controller = new AbortController(), media = matchMedia('(prefers-reduced-motion: reduce)')
   let canvas, backdrop, image, frame, timer, previousVisibility, visibilityChanged = false
   const cancel = () => controller.abort()
@@ -94,7 +94,7 @@ export function startPageMotion({ element, anchor, header, footer, capture, reve
       if (!live()) return false
       const dpr = Math.min(devicePixelRatio || 1, 2, 2048 / viewport.width, 1536 / viewport.height)
       canvas = document.createElement('canvas'); canvas.className = 'page-flight'; canvas.setAttribute('aria-hidden', 'true')
-      canvas.dataset.direction = reverse ? 'expand' : 'collapse'
+      canvas.dataset.direction = 'collapse'
       canvas.width = Math.ceil(viewport.width * dpr); canvas.height = Math.ceil(viewport.height * dpr)
       Object.assign(canvas.style, { position: 'fixed', inset: '0', width: `${viewport.width}px`, height: `${viewport.height}px`, zIndex: '41', pointerEvents: 'none' })
       const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable')
@@ -113,7 +113,7 @@ export function startPageMotion({ element, anchor, header, footer, capture, reve
           try {
             if (!live()) { resolve(); return }
             start ??= time
-            const elapsed = Math.min(1, (time - start) / (reverse ? 400 : 450)), p = reverse ? 1 - elapsed : elapsed
+            const elapsed = Math.min(1, (time - start) / 450), p = elapsed
             canvas.dataset.progress = p.toFixed(3)
             drawSheet(ctx, image, rect, target, p, viewport, dpr)
             if (elapsed < 1) frame = requestAnimationFrame(step)

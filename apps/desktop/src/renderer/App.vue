@@ -105,11 +105,11 @@ function captureDisplayed() {
   const snapshot = sharedEditor.value.captureSession()
   if (snapshot) editorStates.set(id, { generation: doc.generation, snapshot })
 }
-function showActive(expand = false) {
+function showActive() {
   cancelMotion()
-  void revealActive(expand).catch(error => { message.value = error.message })
+  void revealActive().catch(error => { message.value = error.message })
 }
-async function revealActive(expand = false) {
+async function revealActive() {
   const ticket = ++loadVersion, id = activeId.value, doc = findDocument(id)
   if (!doc) {
     sharedEditor.value?.clearSession(); displayedId.value = null; bodyLoading.value = false; sourceMode.value = false
@@ -149,14 +149,6 @@ async function revealActive(expand = false) {
     if (!isCurrent()) return
     sharedEditor.value.restoreSessionView()
     if (!await pane.restoreViewState(isCurrent) || !isCurrent()) return
-    if (expand) {
-      // Preserve the ability to change tabs during a slow read, then lock only
-      // after this exact restored page is ready to be captured and animated.
-      busy.value = true
-      try { await nextTick(); await animatePage(false, isCurrent) }
-      finally { busy.value = false }
-      if (!isCurrent()) return
-    }
     ready[id] = true
     await nextTick()
     if (!isCurrent()) return
@@ -344,7 +336,7 @@ async function run(operation, allowNameFailure = false) {
   catch (error) { message.value = error.message }
   finally { busy.value = false; operationPending.value = false }
 }
-async function activate(id, expand = false) {
+async function activate(id) {
   if (busy.value || operationPending.value) return
   const doc = findDocument(id)
   if (!doc) return
@@ -356,8 +348,8 @@ async function activate(id, expand = false) {
     await api.activate(id)
     doc.shelved = false; selectionVersion++
     activeId.value = id; sourceMode.value = sessions.get(id)?.sourceMode ?? false
-  } catch (error) { message.value = error.message; expand = false }
-  finally { busy.value = false; operationPending.value = false; showActive(expand) }
+  } catch (error) { message.value = error.message }
+  finally { busy.value = false; operationPending.value = false; showActive() }
 }
 async function toggleSource() {
   const id = activeId.value, doc = current.value, pane = sessions.get(id)
@@ -396,14 +388,14 @@ async function toggleShelf() {
   finally { operationPending.value = false }
 }
 function hideShelf() { shelfOpen.value = false; void nextTick(() => pagesButton.value?.focus({ preventScroll: true })) }
-async function animatePage(shrinking, isCurrent = () => true) {
+async function animateCollapse(isCurrent = () => true) {
   cancelMotion()
   const motion = startPageMotion({ element: editorContent.value, anchor: pagesButton.value,
-    header: appBar.value, footer: updateNotice.value?.$el, capture: api.capturePage, reverse: !shrinking, isCurrent })
+    header: appBar.value, footer: updateNotice.value?.$el, capture: api.capturePage, isCurrent })
   pageMotion = motion
   try {
     const completed = await motion.finished
-    if (shrinking && completed && pagesButton.value) {
+    if (completed && pagesButton.value) {
       landingAnimation?.cancel()
       landingAnimation = pagesButton.value.animate([
         { transform: 'scale(1)', background: '#dce9dd' },
@@ -418,7 +410,7 @@ async function shelveDocument(id) {
     const doc = findDocument(id), generation = doc?.generation, selection = selectionVersion
     await api.shelve(id)
     shelfOpen.value = false
-    if (id === activeId.value) await animatePage(true, () => activeId.value === id && isLive(doc) && doc.generation === generation && selectionVersion === selection)
+    if (id === activeId.value) await animateCollapse(() => activeId.value === id && isLive(doc) && doc.generation === generation && selectionVersion === selection)
     // A real second-instance open can change the store while capture/animation
     // yields. Reconcile after that wait, never replay the pre-animation layout.
     return api.listMetadata()
