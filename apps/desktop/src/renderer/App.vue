@@ -1,11 +1,11 @@
 <template>
   <main :aria-busy="!commandReady">
-    <header class="app-bar" :inert="busy || operationPending || !loaded" @pointerdown="rememberView">
+    <header ref="appBar" class="app-bar" :inert="busy || operationPending || !loaded" @pointerdown="rememberView">
       <button ref="pagesButton" class="pages-button" aria-label="页面列表" :aria-expanded="shelfOpen" @click="toggleShelf"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="13" height="16" rx="1"/><path d="M15 2H3v15M9 10h7M9 14h7"/></svg><span>{{ documents.length }}</span></button>
       <div class="tabs" role="tablist" aria-label="笔记标签页">
         <div v-for="doc in openDocuments" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }">
           <button role="tab" :aria-label="doc.title" :aria-selected="doc.id === activeId" :title="doc.path || doc.title" @click="activate(doc.id)">{{ doc.title }}<span v-if="doc.dirty" aria-label="未保存"> ·</span></button>
-          <button class="close-tab" :aria-label="`收起 ${doc.title}`" title="收起页面，内容会保留" @click="shelveDocument(doc.id)">−</button>
+          <button class="close-tab" :aria-label="`收起 ${doc.title}`" title="收起" @click="shelveDocument(doc.id)">−</button>
         </div>
       </div>
       <button class="new-tab" :disabled="!commandReady" aria-label="新建笔记" title="新建笔记 (Ctrl+N)" @click="command('new')">+</button>
@@ -26,11 +26,11 @@
       </div>
     </div>
     <section v-if="loaded && !current && !bodyLoading" class="empty-workspace">
-      <p>{{ documents.length ? '页面已收起，内容仍保留。' : '暂无页面。' }}</p>
+      <p>{{ documents.length ? '页面已收起' : '暂无页面' }}</p>
       <button v-if="documents.length" @click="toggleShelf">查看页面</button><button @click="command('new')">新建笔记</button>
     </section>
     <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" />
-    <div v-if="undoRemoval" class="removal-notice" role="status">已从列表移除「{{ undoRemoval }}」<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
+    <div v-if="undoRemoval" class="removal-notice" role="status">已移除<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
     <UpdateNotice :busy="!commandReady" />
   </main>
 </template>
@@ -41,11 +41,14 @@ import { buildPdfDocument } from '@frowang/editor/pdf'
 import DocumentPane from './DocumentPane.vue'
 import UpdateNotice from './UpdateNotice.vue'
 import PageShelf from './PageShelf.vue'
+import { startPageMotion } from './pageMotion.js'
 const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
 const openDocuments = computed(() => documents.value.filter(doc => !doc.shelved))
 const current = computed(() => openDocuments.value.find(doc => doc.id === activeId.value))
-const shelfOpen = ref(false), shelfPanel = ref(null), pagesButton = ref(null), editorContent = ref(null), undoRemoval = ref(null)
+const shelfOpen = ref(false), shelfPanel = ref(null), pagesButton = ref(null), appBar = ref(null), editorContent = ref(null), undoRemoval = ref(null)
+let pageMotion = null, landingAnimation = null
+function cancelMotion() { pageMotion?.cancel() }
 const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), closedIds = new Set()
 const sharedEditor = ref(null), displayedId = ref(null), bodyLoading = ref(false)
 const editorStates = new Map(), dirtyViews = new Set()
@@ -102,15 +105,11 @@ function captureDisplayed() {
   const snapshot = sharedEditor.value.captureSession()
   if (snapshot) editorStates.set(id, { generation: doc.generation, snapshot })
 }
-function showActive(origin = null) {
-  const id = activeId.value
-  void revealActive().then(async () => {
-    if (!origin || activeId.value !== id || !ready[id] || busy.value || operationPending.value) return
-    busy.value = true
-    try { await animatePage(origin, false) } finally { busy.value = false }
-  }).catch(error => { message.value = error.message })
+function showActive(expand = false) {
+  cancelMotion()
+  void revealActive(expand).catch(error => { message.value = error.message })
 }
-async function revealActive() {
+async function revealActive(expand = false) {
   const ticket = ++loadVersion, id = activeId.value, doc = findDocument(id)
   if (!doc) {
     sharedEditor.value?.clearSession(); displayedId.value = null; bodyLoading.value = false; sourceMode.value = false
@@ -150,10 +149,18 @@ async function revealActive() {
     if (!isCurrent()) return
     sharedEditor.value.restoreSessionView()
     if (!await pane.restoreViewState(isCurrent) || !isCurrent()) return
+    if (expand) {
+      // Preserve the ability to change tabs during a slow read, then lock only
+      // after this exact restored page is ready to be captured and animated.
+      busy.value = true
+      try { await nextTick(); await animatePage(false, isCurrent) }
+      finally { busy.value = false }
+      if (!isCurrent()) return
+    }
     ready[id] = true
     await nextTick()
     if (!isCurrent()) return
-    if (!sourceMode.value) sharedEditor.value.focusSessionView()
+    if (!sourceMode.value && !shelfOpen.value) sharedEditor.value.focusSessionView()
   } finally { if (ticket === loadVersion) bodyLoading.value = false }
 }
 function forgetDocument(id) {
@@ -165,6 +172,7 @@ function forgetDocument(id) {
   if (displayedId.value === id) { sharedEditor.value?.clearSession(); displayedId.value = null }
 }
 function adopt(snapshot, reloadId = null, preserveEdits = false, preferredActiveId = undefined, preserveLayout = false) {
+  cancelMotion()
   const previous = new Map(documents.value.map(doc => [doc.id, doc]))
   const nextIds = new Set(snapshot.documents.map(doc => doc.id))
   // documents:changed announces second-instance opens, never deletions. A
@@ -336,7 +344,7 @@ async function run(operation, allowNameFailure = false) {
   catch (error) { message.value = error.message }
   finally { busy.value = false; operationPending.value = false }
 }
-async function activate(id, origin = null) {
+async function activate(id, expand = false) {
   if (busy.value || operationPending.value) return
   const doc = findDocument(id)
   if (!doc) return
@@ -348,8 +356,8 @@ async function activate(id, origin = null) {
     await api.activate(id)
     doc.shelved = false; selectionVersion++
     activeId.value = id; sourceMode.value = sessions.get(id)?.sourceMode ?? false
-  } catch (error) { message.value = error.message; origin = null }
-  finally { busy.value = false; operationPending.value = false; showActive(origin) }
+  } catch (error) { message.value = error.message; expand = false }
+  finally { busy.value = false; operationPending.value = false; showActive(expand) }
 }
 async function toggleSource() {
   const id = activeId.value, doc = current.value, pane = sessions.get(id)
@@ -388,20 +396,28 @@ async function toggleShelf() {
   finally { operationPending.value = false }
 }
 function hideShelf() { shelfOpen.value = false; void nextTick(() => pagesButton.value?.focus({ preventScroll: true })) }
-async function animatePage(origin, shrinking) {
-  const element = editorContent.value
-  if (!element || matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  const rect = element.getBoundingClientRect(), target = origin || pagesButton.value?.getBoundingClientRect()
-  if (!target || !rect.width || !rect.height) return
-  const small = { transform: `translate(${target.left - rect.left}px, ${target.top - rect.top}px) scale(${shrinking ? .06 : Math.min(.35, target.width / rect.width)})`, opacity: 0 }
-  const full = { transform: 'none', opacity: 1 }
-  const animation = element.animate(shrinking ? [full, small] : [small, full], { duration: shrinking ? 240 : 200, easing: 'cubic-bezier(.2,.6,.3,1)' })
-  try { await animation.finished } finally { animation.cancel() }
+async function animatePage(shrinking, isCurrent = () => true) {
+  cancelMotion()
+  const motion = startPageMotion({ element: editorContent.value, anchor: pagesButton.value,
+    header: appBar.value, capture: api.capturePage, reverse: !shrinking, isCurrent })
+  pageMotion = motion
+  try {
+    const completed = await motion.finished
+    if (shrinking && completed && pagesButton.value) {
+      landingAnimation?.cancel()
+      landingAnimation = pagesButton.value.animate([
+        { transform: 'scale(1)', background: '#dce9dd' },
+        { transform: 'scale(1.14)', background: '#dce9dd', offset: .3 },
+        { transform: 'scale(1)', background: 'transparent' },
+      ], { duration: 300, easing: 'ease-out' })
+    }
+  } finally { if (pageMotion === motion) pageMotion = null }
 }
 async function shelveDocument(id) {
   await run(async () => {
+    const doc = findDocument(id), generation = doc?.generation, selection = selectionVersion
     const snapshot = await api.shelve(id)
-    if (id === activeId.value) await animatePage(null, true)
+    if (id === activeId.value) await animatePage(true, () => activeId.value === id && isLive(doc) && doc.generation === generation && selectionVersion === selection)
     return snapshot
   })
 }
@@ -470,7 +486,7 @@ onMounted(async () => {
     await api.ready()
   } catch (error) { fatal.value = true; message.value = `启动失败：${error.message}` }
 })
-onBeforeUnmount(() => { timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut); window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true) })
+onBeforeUnmount(() => { cancelMotion(); landingAnimation?.cancel(); timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut); window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true) })
 </script>
 <style>
 * { box-sizing: border-box; }
@@ -489,11 +505,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid #6c9b86; outline-
 .empty-workspace button { font-size:12px; }
 .removal-notice { position:fixed; bottom:38px; left:50%; transform:translateX(-50%); max-width:calc(100vw - 28px); z-index:30; padding:6px 12px; background:#fffefa; border:1px solid #dce3d9; border-radius:4px; box-shadow:0 2px 10px #2738290c; font-size:12px; overflow-wrap:anywhere; }
 .removal-notice button { margin-left:10px; color:#467657; }
-.tabs { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; gap: 2px; scrollbar-width: thin; }
-.tab-item { display: flex; flex: 0 0 auto; align-items: center; max-width: 210px; border-bottom: 1px solid transparent; }
-.tab-item.selected { border-bottom-color: #71917e; }
-.tab-item [role=tab] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.close-tab { padding: 4px 6px; font-size: 15px; color: #8b958c; }
+.tabs { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; gap: 5px; padding: 2px; scrollbar-width: thin; }
+.tab-item { display: flex; flex: 0 0 auto; align-items: center; max-width: 210px; border:1px solid transparent; border-radius:5px; }
+.tab-item:hover { background:#f0f3ed; }
+.tab-item.selected { background:#eaf0e9; }
+.tab-item [role=tab] { min-width: 0; padding:7px 2px 7px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.tab-item button:hover { background:transparent; }
+.close-tab { flex-shrink:0; width:29px; height:31px; padding:4px 7px; font-size:15px; color:#88988b; }
+.close-tab:hover { color:#2f6646; }
 .new-tab { flex: 0 0 32px; width: 32px; height: 32px; padding: 0; font-size: 23px; line-height: 1; }
 .document-shell { max-width: 900px; margin: 0 auto; padding: 30px 38px 100px; }
 .document-pane { padding-bottom: 0; }

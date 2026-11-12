@@ -66,7 +66,7 @@ test('收起/卡片恢复保留编辑状态，全部收起重启不丢页，空�
     await expect(source(page)).toHaveValue(text)
     expect(await source(page).evaluate(input => [input.selectionStart, input.selectionEnd, input.scrollTop])).toEqual([50, 65, 120])
     await shelve(page, 'A'); await shelve(page, 'B')
-    await expect(page.getByText('页面已收起，内容仍保留。')).toBeVisible()
+    await expect(page.getByText('页面已收起', { exact: true })).toBeVisible()
     expect((await menuState(page, 'new')).enabled).toBe(true)
     expect((await menuState(page, 'open')).enabled).toBe(true)
     expect((await menuState(page, 'save')).enabled).toBe(false)

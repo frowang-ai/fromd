@@ -18,7 +18,7 @@ Windows 0.1、0.2与0.3均已由用户确认收束。当前状态、约束和后
 
 当前分支已将收起、页面卡片列表和右上角删除按钮接入桌面运行路径，沿用现有编辑器样式。收起的页面保留在 SQLite，退出重启仍可找回；删除/移除为独立动作，本次会话可撤销最近一次。行为、迁移与测试入口见[页面收起说明](docs/page-shelf.md)，实际验证见 `VALIDATION.md`。此变更尚未替换已交付的0.3.0安装器。
 
-[独立交互预览](docs/page-shelf-preview.md)用于确认一体标签与整页收尖吸入的动效，右上角设置可切换标签样式和慢放。这一轮动效尚未替换桌面版本；HTML使用示例内容，刷新重置。
+用户确认的一体标签与整页收尖吸入动效已接入桌面运行路径（收起450ms、展开400ms），使用当前窗口真实画面，保留减少动态效果与异常跳过。原[独立交互预览](docs/page-shelf-preview.md)仍可切换标签样式和慢放，仅使用示例内容，刷新重置。
 
 ## 开发与构建
 
@@ -95,7 +95,7 @@ npm run dist:installer
 - `apps/desktop/src/renderer/UpdateNotice.vue`：左下角更新状态、进度、重试与稍后入口。
 - `apps/desktop/src/main/index.js`：窗口、对话框、受限 IPC、图片协议与 PDF；`applicationMenu.js`维护原生菜单和当前文档可用状态。
 - `apps/desktop/src/preload/index.js`：固定操作 API，不向正文暴露 fs 或任意 IPC。
-- `apps/desktop/src/renderer/`：简洁多标签应用；正文按需读取，编辑器实例由共享 session 管理。`PageShelf.vue`负责页面列表与有界缩略预览，收起/移除状态由主进程存储负责。
+- `apps/desktop/src/renderer/`：简洁多标签应用；正文按需读取，编辑器实例由共享 session 管理。`PageShelf.vue`负责页面列表与有界缩略预览；`pageMotion.js`负责临时画面、收尖绘制与取消清理；收起/移除状态由主进程存储负责。
 - `packages/editor/src/MarkdownEditor.vue`：长期 Crepe/schema、会话 state、公式／代码块嵌入状态和 nodeView 清理。
 
 - `tests/documents.test.mjs`、`tests/lazy-storage.test.mjs`：临时目录中的文件、迁移、故障和按需存储测试。

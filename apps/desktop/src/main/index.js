@@ -21,7 +21,7 @@ const startupFiles = openFileArguments(process.argv.slice(app.isPackaged ? 1 : 2
 const lock = app.requestSingleInstanceLock({ files: startupFiles })
 let window, store, quitting = false, closing = false, rendererGone = false, rendererReady = false
 let applicationMenu
-let initialized, initializationFailed, updates
+let initialized, initializationFailed, updates, motionCapture
 const startup = new Promise((resolve, reject) => { initialized = resolve; initializationFailed = reject })
 const prints = new Map()
 const serialize = operationQueue(startup)
@@ -83,6 +83,27 @@ async function exportPdf(id, html) {
   } finally { clearTimeout(timer); if (printWindow && !printWindow.isDestroyed()) printWindow.destroy(); prints.delete(idPrint) }
 }
 function wireIPC() {
+  // Fixed own-window capture only: no supplied window, path, region or desktop access.
+  // Keep compositor waits outside the document queue and allow at most one in flight.
+  ipcMain.handle('application:capture-page', async event => {
+    secureSender(event)
+    if (!rendererReady || rendererGone || closing || motionCapture || window.isMinimized())
+      return { ok: false, error: '页面画面暂不可用。' }
+    let timeout
+    try {
+      const pending = window.webContents.capturePage()
+      motionCapture = pending
+      void pending.finally(() => { if (motionCapture === pending) motionCapture = null }).catch(() => {})
+      let image = await Promise.race([pending, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Capture timeout')), 1000) })])
+      if (image.isEmpty()) throw new Error('Empty capture')
+      const { width, height } = image.getSize(), scale = Math.min(1, 2048 / width, 1536 / height)
+      if (scale < 1) image = image.resize({ width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)), quality: 'good' })
+      const png = image.toPNG()
+      if (png.length > 8 * 1024 * 1024) throw new Error('Capture too large')
+      return { ok: true, value: `data:image/png;base64,${png.toString('base64')}` }
+    } catch { return { ok: false, error: '页面画面暂不可用。' } }
+    finally { clearTimeout(timeout) }
+  })
   // State must not wait behind a modal dialog/document write in the operation queue.
   ipcMain.on('application:menu-state', (event, state) => {
     try { secureSender(event); applicationMenu?.update(state) }

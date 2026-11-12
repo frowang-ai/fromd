@@ -9,7 +9,7 @@
     </div>
     <div ref="list" class="shelf-list">
       <article v-for="doc in filtered" :key="doc.id" :data-page-id="doc.id" class="page-card" :class="{ current: doc.id === activeId }">
-        <button class="page-card-open" :aria-label="`打开 ${doc.title}`" @click="open(doc, $event)">
+        <button class="page-card-open" :aria-label="`打开 ${doc.title}`" @click="$emit('open', doc.id, true)">
           <div class="page-thumbnail" aria-hidden="true" inert>
             <div v-if="visible.has(doc.id)" class="page-thumbnail-content" v-html="preview(doc)"></div>
           </div>
@@ -19,14 +19,13 @@
       </article>
       <p v-if="!filtered.length" class="shelf-empty">{{ search ? '没有匹配的页面' : onlyShelved ? '没有已收起的页面' : '暂无页面' }}</p>
     </div>
-    <p class="shelf-note">点卡片打开 · 右上角 × 删除或移除</p>
   </aside>
 </template>
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderMarkdown } from '@frowang/editor/markdown'
 const props = defineProps({ documents: { type: Array, required: true }, activeId: String, busy: Boolean })
-const emit = defineEmits(['open', 'remove', 'close'])
+defineEmits(['open', 'remove', 'close'])
 const search = ref(''), onlyShelved = ref(false), list = ref(null), searchInput = ref(null)
 const visible = reactive(new Set()), cache = new Map()
 const filtered = computed(() => props.documents.filter(doc => (!onlyShelved.value || doc.shelved) && doc.title.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
@@ -43,10 +42,6 @@ function preview(doc) {
     cache.set(doc.id, { text, html: template.innerHTML || '<p>空白页面</p>' })
   }
   return cache.get(doc.id).html
-}
-function open(doc, event) {
-  const rect = event.currentTarget.querySelector('.page-thumbnail').getBoundingClientRect()
-  emit('open', doc.id, { left: rect.left, top: rect.top, width: rect.width, height: rect.height })
 }
 async function observe() {
   await nextTick()
@@ -90,6 +85,5 @@ onBeforeUnmount(() => observer?.disconnect())
 .page-card-caption small { margin-left:auto; flex-shrink:0; color:#949e8e; font-size:10px; }
 .page-card-delete { position:absolute; right:4px; top:4px; width:25px; height:25px; padding:0; line-height:1; font-size:17px; color:#8b958c; background:#fffefaeb; border-radius:3px; }
 .page-card-delete:hover { color:#a35248; background:#f8eae5; }
-.shelf-note { margin:0; padding:8px 1px 0; border-top:1px solid #edf0e8; color:#949e8e; font-size:10px; }
 .shelf-empty { margin:24px 0; text-align:center; color:#899486; font-size:12px; }
 </style>
