@@ -1,6 +1,6 @@
 # MVP 工作约定
 
-- 当前工程为 Windows frowd 0.4.0：统一名称与图标、SQLite持久化页面收起/卡片恢复、450ms/400ms收尖动效、原生菜单与NSIS安装。当前运行/配置/验收见README和VALIDATION，数据与交互增量见docs/page-shelf.md；docs/iteration-02-contract.md保留0.2历史约定。
+- 当前工程为 Windows frowd：统一名称与图标、SQLite持久化页面收起/卡片恢复、收起动效、链接打开与文件定位、原生菜单与NSIS安装。当前版本、运行、配置与验收见README和VALIDATION，页面行为见docs/page-shelf.md，链接规则见docs/document-links.md；docs/iteration-02-contract.md保留0.2历史约定。
 - 进入后先读README的「项目记忆」入口，再按需读当前模块记忆与阶段归档。用户已于2026-11-11确认0.3收束；后续根据新需求/试用反馈确定范围，不将已完成功能重复立项。
 - 原网站与浏览器体验目录仍保留；不覆盖其草稿或改写来源工作区。
 - 保持文件服务、Electron preload、renderer 与编辑内核的单向边界；编辑包不得依赖 Electron。
