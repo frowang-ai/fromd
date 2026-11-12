@@ -1,6 +1,6 @@
 # frowd — Windows 0.4.5
 
-0.4.5 增加标签右键菜单、页面列表“全部展开”和 Ctrl+Tab / Ctrl+Shift+Tab 前后切换。右键菜单操作始终针对点中的页面，草稿重命名复用原名称输入，不重命名磁盘文件；保存、移除确认和撤销规则保持。批量收起/展开一次事务持久化，保留顺序和当前阅读页，不逐页播放动画或加载全部正文。快捷键按已打开标签顺序循环，跳过已收起页，保留会话内正文、历史、选区和阅读位置。详细规则及验证入口见[页面管理](docs/page-shelf.md)。本轮先完成源码审核，再生成本地安装包；不公开发布或自动安装。
+0.4.5 增加标签右键菜单、页面列表“全部展开”和 Ctrl+Tab / Ctrl+Shift+Tab 前后切换。右键菜单操作始终针对点中的页面，草稿重命名复用原名称输入，不重命名磁盘文件；保存、移除确认和撤销规则保持。批量收起/展开一次事务持久化，保留顺序和当前阅读页，不逐页播放动画或加载全部正文。快捷键按已打开标签顺序循环，跳过已收起页，保留会话内正文、历史、选区和阅读位置。详细规则及验证入口见[页面管理](docs/page-shelf.md)。公司Windows已对运行代码`84f3efd`完成独立静态审核PASS、74单元、74开发桌面、NSIS构建及74成品桌面验证；实际版本0.4.5，182个包内构建文件与受测out一致，正常退出。产物与限制见`VALIDATION.md`；未执行安装器、公开发布或启用在线更新。
 
 本地 Markdown 编辑器。0.4.4 区分链接编辑与打开：普通点击编辑，Ctrl＋点击打开；网页在默认浏览器打开，本地文件在资源管理器中定位，文件夹直接进入；相对链接使用该篇Markdown所在目录，未保存草稿明确提示先保存。保留450ms收起提示，恢复页面直接显示正文；有内容草稿删除前可选择保存为 Markdown、直接删除或取消。包含 frowd 名称、Frowang 图标、页面卡片、原生菜单、SQLite自动保存与按需编辑会话。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
 
@@ -16,7 +16,7 @@
 
 Windows 0.1—0.4各阶段均保留历史。当前状态、约束和后续入口归[模块记忆](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/modules/markdown-editor.md)，0.4收束与公司开发/回传记录见上述docs PR；[0.1](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261110_markdown_editor_mvp/README.md)、[0.2](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v02/README.md)和[0.3](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v03/README.md)归档继续保留。记忆维护在独立docs仓库，与功能合入、安装包和更新发布分别记账；纯文档收尾不改变安装器。
 
-本机最新记忆副本为`website/_worktrees/markdown-editor-v04-memory/`；共享`website/docs`中的其他未提交改动保留。用户希望后续开发/测试/打包在公司Windows Fro-at-evomap进行，本机主要安装体验；远端实际就绪性与传输回执以专项记录为准，不能仅据主机在线宣布迁移成功。GitHub受阻时可用父Agent提供的已核验源码bundle和记忆副本接续，不复制用户笔记或凭据。
+Fro本机的最新记忆副本为`website/_worktrees/markdown-editor-v04-memory/`；共享`website/docs`中的其他未提交改动保留。公司开发机使用父任务指定的交接快照，本轮入口位于原基线checkout `frowd-desktop/output/project-memory/v04-20261112/READ_FIRST.md`，不能假定Fro本机路径在公司存在，也不把旧快照当成新功能任务。后续开发/测试/打包在公司Windows Fro-at-evomap进行，Fro本机主要安装体验；远端实际状态与传输回执以专项记录为准。GitHub受阻时可用父Agent提供的已核验源码bundle和记忆副本接续，不复制用户笔记或凭据。
 
 `VALIDATION.md`继续维护可执行验证和覆盖范围，`MVP_PLAN.md`维护分轮范围，不用历史归档替代当前代码检查。`release/Frowang-Markdown-0.1.0-source.zip`是0.1.0交付快照，0.2.0不覆盖它。
 

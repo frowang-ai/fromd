@@ -1,8 +1,8 @@
 # Windows 桌面验证记录
 
-## frowd 0.4.5 页面管理：源码审核阶段
+## frowd 0.4.5 页面管理：最终本地成品验证
 
-基于 `d6106e1`，在公司 Windows Fro-at-evomap 的独立 `feat/page-navigation` worktree 实现。版本为0.4.5，锁定依赖不变；新增标签右键目标操作、原子批量收起/展开及 Ctrl+Tab / Ctrl+Shift+Tab。规则见 `docs/page-shelf.md`。
+基于 `d6106e1`，在公司 Windows Fro-at-evomap 的独立 `feat/page-navigation` worktree 实现，运行代码固定为 `84f3efdbae297ea00781d88cdb01c8245c9f52c6`；后续仅README/VALIDATION文档收尾，不改变运行代码、依赖或受测out。版本为0.4.5，锁定依赖不变；新增标签右键目标操作、原子批量收起/展开及 Ctrl+Tab / Ctrl+Shift+Tab。规则见 `docs/page-shelf.md`。
 
 | 检查 | 实际结果 | 本轮证据 |
 | --- | --- | --- |
@@ -10,7 +10,12 @@
 | 最终构建 | **通过** | `output/page-navigation/build-final.log` |
 | 完整开发桌面 | **74/74**，含原63项及11项页面管理回归 | `output/page-navigation/desktop-final.log` |
 | 菜单和展开入口外观 | **截图已查看**，菜单按目标显示并在窗口内，展开按钮位于列表标题旁 | `output/page-navigation/screenshots/tab-context-menu.png`、`expand-all-entry.png` |
-| NSIS、成品回归、独立审核 | **待父Agent实际diff审核后执行打包与成品验证** | 本阶段不生成或运行安装器 |
+| 独立静态审核 | **PASS**，d6106e1..84f3efd；无blocker/high/medium/low具体发现 | 父线程回传独立Codex审核，gpt-6.1-sol/xhigh/auto-review；审核者未执行测试/运行应用，父线程另核对实际diff/受测树/截图 |
+| NSIS x64 | **通过**，`--publish never`，未执行安装器 | `output/page-navigation/nsis-final.log` |
+| 完整成品桌面 | **74/74**，PACKAGED_EXE指向本轮win-unpacked；只在公司运行 | `output/page-navigation/packaged-desktop-final.log` |
+| 成品身份/构建一致性/退出 | **0.4.5/frowd**，182个包内out文件逐字节相同；打包前后out哈希未变；隔离profile正常窗口关闭退出0 | `packaged-inspection.json`、`out-before-package.json`、`pe-and-review-inspection.json`（位于本轮output/page-navigation） |
+
+安装器为 `release/0.4.5/frowd-Setup-0.4.5-x64.exe`，**130438174字节**，SHA256 `61B1B15D843B9D04D95E5ED88339F5595E1400B018BCB411B38917D4D022C41E`；安装器PE ProductName=frowd、ProductVersion=0.4.5。实际运行的是同次构建的 `release/0.4.5/win-unpacked/Frowang Markdown.exe`，不是执行安装器。当前包仍未签名、无生产更新源，默认停用在线更新；未公开发布。
 
 新增回归包含：非当前草稿保存/文件另存、重命名与取消移除/撤销、非当前脏文件取消不写原件、立即编辑与undo、搜索下全部展开不读取其他正文且零截图捕获、当前页/顺序/重启、批量真实SQLite拒写后的整体回滚与重试、空桌面/单页/循环与跳过、源码选区/滚动/undo、表格普通Tab、公式未完成编辑、组合事件等待和忙碌重复键不回放、溢出标签可见及尚未送达的外部选择确认。完整组继续覆盖旧打开事件/阅读恢复竞态、真实IME菜单命令、单页450ms动画与恢复零捕获等既有约定。
 
