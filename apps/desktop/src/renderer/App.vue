@@ -31,7 +31,7 @@
     </section>
     <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" />
     <div v-if="undoRemoval" class="removal-notice" role="status">已移除<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
-    <UpdateNotice :busy="!commandReady" />
+    <UpdateNotice ref="updateNotice" :busy="!commandReady" />
   </main>
 </template>
 <script setup>
@@ -46,7 +46,7 @@ const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
 const openDocuments = computed(() => documents.value.filter(doc => !doc.shelved))
 const current = computed(() => openDocuments.value.find(doc => doc.id === activeId.value))
-const shelfOpen = ref(false), shelfPanel = ref(null), pagesButton = ref(null), appBar = ref(null), editorContent = ref(null), undoRemoval = ref(null)
+const shelfOpen = ref(false), shelfPanel = ref(null), pagesButton = ref(null), appBar = ref(null), updateNotice = ref(null), editorContent = ref(null), undoRemoval = ref(null)
 let pageMotion = null, landingAnimation = null
 function cancelMotion() { pageMotion?.cancel() }
 const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), closedIds = new Set()
@@ -399,7 +399,7 @@ function hideShelf() { shelfOpen.value = false; void nextTick(() => pagesButton.
 async function animatePage(shrinking, isCurrent = () => true) {
   cancelMotion()
   const motion = startPageMotion({ element: editorContent.value, anchor: pagesButton.value,
-    header: appBar.value, capture: api.capturePage, reverse: !shrinking, isCurrent })
+    header: appBar.value, footer: updateNotice.value?.$el, capture: api.capturePage, reverse: !shrinking, isCurrent })
   pageMotion = motion
   try {
     const completed = await motion.finished
@@ -416,9 +416,12 @@ async function animatePage(shrinking, isCurrent = () => true) {
 async function shelveDocument(id) {
   await run(async () => {
     const doc = findDocument(id), generation = doc?.generation, selection = selectionVersion
-    const snapshot = await api.shelve(id)
+    await api.shelve(id)
+    shelfOpen.value = false
     if (id === activeId.value) await animatePage(true, () => activeId.value === id && isLive(doc) && doc.generation === generation && selectionVersion === selection)
-    return snapshot
+    // A real second-instance open can change the store while capture/animation
+    // yields. Reconcile after that wait, never replay the pre-animation layout.
+    return api.listMetadata()
   })
 }
 async function closeDocument(id) {

@@ -45,6 +45,8 @@ async function putSource(page, text) {
   const editorSource = page.locator('.document-pane:visible').getByRole('textbox', { name: 'Markdown 源码', exact: true })
   await expect(editorSource).toBeVisible(); await editorSource.fill(text)
   await menuCommand(page, 'source')
+  await expect(editorSource).toBeHidden()
+  await editorReady(page)
 }
 async function chooseSave(app, path) { await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, path) }
 async function chooseMessage(app, response) { await app.evaluate(({ dialog }, response) => { dialog.showMessageBox = async () => ({ response }) }, response) }

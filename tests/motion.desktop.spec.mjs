@@ -35,7 +35,7 @@ async function observeMotion(page) {
     new MutationObserver(records => {
       for (const record of records) for (const node of record.addedNodes) {
         if (!(node instanceof HTMLCanvasElement) || !node.classList.contains('page-flight')) continue
-        const entry = { direction: node.dataset.direction, started: performance.now(), painted: false, width: node.width, height: node.height }
+        const entry = { direction: node.dataset.direction, started: performance.now(), painted: false, drawerVisible: !!document.querySelector('.page-shelf'), width: node.width, height: node.height }
         window.__motions.push(entry)
         const watch = () => {
           if (!node.isConnected) { entry.duration = performance.now() - entry.started; return }
@@ -71,7 +71,7 @@ test('真实画面收尖与反向展开：公式/图片/文字被绘入，编辑
   page.on('pageerror', error => errors.push(error.message))
   try {
     await expect(body(page).locator('.katex').first()).toBeVisible()
-    await expect.poll(() => body(page).locator('img').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true)
+    await expect.poll(() => body(page).getByRole('img', { name: '本地图片', exact: true }).evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true)
     const id = await page.evaluate(async () => (await window.desktop.listMetadata()).activeId)
     await body(page).click(); await page.keyboard.press('Control+End'); await page.keyboard.insertText(' EDIT-KEPT')
     await page.evaluate(() => window.scrollTo(0, 180))
@@ -79,6 +79,7 @@ test('真实画面收尖与反向展开：公式/图片/文字被绘入，编辑
     // The native capture is a fixed own-window API and stays in memory.
     const capture = await page.evaluate(() => window.desktop.capturePage())
     expect(capture.startsWith('data:image/png;base64,')).toBe(true)
+    await page.getByRole('button', { name: '页面列表', exact: true }).click()
     await shelve(page)
     await restore(page)
     await expect(body(page)).toContainText('EDIT-KEPT')
@@ -87,7 +88,7 @@ test('真实画面收尖与反向展开：公式/图片/文字被绘入，编辑
     await expect.poll(() => page.evaluate(() => window.__motions.filter(entry => entry.duration).length)).toBe(2)
     const motions = await page.evaluate(() => window.__motions)
     expect(motions.map(entry => entry.direction)).toEqual(['collapse', 'expand'])
-    expect(motions.every(entry => entry.painted)).toBe(true)
+    expect(motions.every(entry => entry.painted && !entry.drawerVisible)).toBe(true)
     expect(motions[0].duration).toBeGreaterThanOrEqual(430)
     expect(motions[0].duration).toBeLessThan(1000)
     expect(motions[1].duration).toBeGreaterThanOrEqual(380)
@@ -144,6 +145,26 @@ for (const failure of ['reject', 'pending', 'draw']) test(`动画${failure}不�
     if (failure === 'draw') await page.evaluate(() => window.__restoreMotionDraw())
     await restore(page)
     await expect(body(page)).toContainText('正文与公式')
+  } finally { await cleanup(app, directory) }
+})
+
+for (const reopen of [false, true]) test(`收起动画期间第二实例${reopen ? '重开当前文件' : '打开新文件'}，界面采用最新存储状态`, async () => {
+  const { directory, app, page } = await fixture()
+  try {
+    const file = join(directory, reopen ? '动效.md' : 'SECOND.md')
+    if (!reopen) await writeFile(file, '# 第二实例文件\n\n新打开的正文')
+    await page.getByRole('button', { name: '收起 动效.md', exact: true }).click()
+    await page.locator('.page-flight').waitFor({ state: 'attached' })
+    // Invoke the actual main second-instance listener; its real openFile/SQLite
+    // operation runs during motion. Unlike an old notification, this changes the store.
+    await app.evaluate(({ app }, { file, directory }) => app.emit('second-instance', {}, [], directory, { files: [file] }), { file, directory })
+    await expect(page.locator('.page-flight')).toHaveCount(0)
+    await editorReady(page)
+    const latest = await page.evaluate(() => window.desktop.listMetadata())
+    const opened = latest.documents.find(doc => doc.path === file)
+    expect(opened.shelved).toBe(false); expect(latest.activeId).toBe(opened.id)
+    await expect(page.getByRole('tab', { name: reopen ? '动效.md' : 'SECOND.md', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(body(page)).toContainText(reopen ? '正文与公式' : '新打开的正文')
   } finally { await cleanup(app, directory) }
 })
 

@@ -44,10 +44,18 @@ function drawSheet(ctx, image, rect, target, p, viewport, dpr) {
 
 // Returns a cancel function immediately. Every capture/decode/frame wait is bounded
 // or abortable; motion failure never rejects the document operation which called it.
-export function startPageMotion({ element, anchor, header, capture, reverse = false, isCurrent = () => true }) {
+export function startPageMotion({ element, anchor, header, footer, capture, reverse = false, isCurrent = () => true }) {
   const controller = new AbortController(), media = matchMedia('(prefers-reduced-motion: reduce)')
   let canvas, backdrop, image, frame, timer, previousVisibility, visibilityChanged = false
   const cancel = () => controller.abort()
+  const scrollPositions = new Map()
+  const cancelOnScroll = event => {
+    const node = event.target === document ? document.scrollingElement : event.target
+    const before = scrollPositions.get(node)
+    // Restoring viewState can enqueue a scroll event before motion starts. An
+    // event at the already-captured position is not a new viewport change.
+    if (!before || node.scrollTop !== before.top || node.scrollLeft !== before.left) cancel()
+  }
   const live = () => !controller.signal.aborted && isCurrent() && !media.matches && !document.hidden
   async function bounded(promise, milliseconds) {
     if (!live()) throw new DOMException('Motion cancelled', 'AbortError')
@@ -62,14 +70,18 @@ export function startPageMotion({ element, anchor, header, capture, reverse = fa
   }
   const finished = (async () => {
     if (!element || !anchor || !header || !live()) return false
+    for (const node of [document.scrollingElement, ...element.querySelectorAll('textarea,.cm-scroller')])
+      scrollPositions.set(node, { top: node.scrollTop, left: node.scrollLeft })
     window.addEventListener('resize', cancel)
-    window.addEventListener('scroll', cancel, true)
+    window.addEventListener('scroll', cancelOnScroll, true)
     document.addEventListener('visibilitychange', cancel)
     media.addEventListener('change', cancel)
     try {
       const viewport = { width: innerWidth, height: innerHeight }
       const top = Math.max(0, Math.min(viewport.height, header.getBoundingClientRect().bottom))
-      const rect = { left: 0, top, width: document.documentElement.clientWidth, height: viewport.height - top, bottom: viewport.height }
+      const footerTop = footer?.getBoundingClientRect().top
+      const bottom = footerTop > top ? Math.min(viewport.height, footerTop - 4) : viewport.height
+      const rect = { left: 0, top, width: document.documentElement.clientWidth, height: bottom - top, bottom }
       const destination = anchor.getBoundingClientRect(), target = { x: destination.left + destination.width / 2, y: destination.top + destination.height / 2 }
       if (rect.height < 1 || rect.width < 1) return false
       // Let the shelf close and restored editor paint before capturing its actual surface.
@@ -87,7 +99,7 @@ export function startPageMotion({ element, anchor, header, capture, reverse = fa
       Object.assign(canvas.style, { position: 'fixed', inset: '0', width: `${viewport.width}px`, height: `${viewport.height}px`, zIndex: '41', pointerEvents: 'none' })
       const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable')
       backdrop = document.createElement('div'); backdrop.setAttribute('aria-hidden', 'true'); backdrop.className = 'page-flight-backdrop'
-      Object.assign(backdrop.style, { position: 'fixed', left: '0', right: '0', top: `${top}px`, bottom: '0', background: '#f0f3ed', zIndex: '40', pointerEvents: 'none' })
+      Object.assign(backdrop.style, { position: 'fixed', left: '0', right: '0', top: `${top}px`, bottom: `${viewport.height - bottom}px`, background: '#f0f3ed', zIndex: '40', pointerEvents: 'none' })
       previousVisibility = element.style.visibility
       element.style.visibility = 'hidden'; visibilityChanged = true
       document.body.append(backdrop, canvas)
@@ -120,7 +132,7 @@ export function startPageMotion({ element, anchor, header, capture, reverse = fa
       if (image) image.src = ''
       if (visibilityChanged) element.style.visibility = previousVisibility
       window.removeEventListener('resize', cancel)
-      window.removeEventListener('scroll', cancel, true)
+      window.removeEventListener('scroll', cancelOnScroll, true)
       document.removeEventListener('visibilitychange', cancel)
       media.removeEventListener('change', cancel)
     }
