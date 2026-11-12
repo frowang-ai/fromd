@@ -22,6 +22,19 @@ SQLite schema 3 为文档增加 `shelved` 字段，旧页面默认保持打开�
 
 页面文件关联是唯一的，重新打开已收起的文件复用原页面。文件写回、外部变更检测、UTF-8/BOM/换行、PDF、更新退出握手继续沿用既有模块。
 
+## 本机可运行预览
+
+当前工作区已有独立解包应用：`release/page-shelf-preview/win-unpacked/Frowang Markdown.exe`。本机 [preview-shelf.cmd](../output/preview-shelf.cmd) 会指定 `output/shelf-preview-profile/` 示例数据目录启动它；原来的用户数据和安装入口不变。整个 `win-unpacked` 目录需一起保留。
+
+重新生成该目录：
+
+```powershell
+npm run build
+npx electron-builder --config electron-builder.config.cjs --win --x64 --dir --publish never --config.directories.output=release/page-shelf-preview
+```
+
+此预览没有新的正式安装器、签名或更新源发布；本机启动脚本与生成产物不提交到仓库。
+
 ## 验证入口
 
 - `npm test` → `tests/shelf-storage.test.mjs`：收起重启恢复、文件复用/原件保护、删除与撤销、迟到旧 ID、事务失败回滚、schema 2 迁移。

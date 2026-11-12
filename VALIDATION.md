@@ -1,5 +1,27 @@
 # Windows 桌面验证记录
 
+## 收尖吸入动效接入（当前任务分支）
+
+用户最终确认收起450ms、展开400ms，并授权接入真实编辑器。功能提交 `3dfd80a`，回修 `cd79229`；使用原生自身窗口捕获→临时曲面Canvas，不重建编辑器DOM；一体标签、右上角移除和精简文案沿用用户确认效果。原0.3.0安装器未替换、未合入main，新增可运行解包预览在本工作区 `release/page-shelf-preview/win-unpacked/Frowang Markdown.exe`。
+
+| 检查 | 实际结果 | 本机证据 |
+| --- | --- | --- |
+| `npm test` | **65/65**，无跳过；本轮后续修改仅renderer与测试，存储/main保持该受测实现 | `output/genie-unit.log` |
+| 最终 `npm run build` | **通过** | `output/genie-final-build.log` |
+| 最终完整 `npm run test:desktop` | **47/47** | `output/genie-final-desktop.log` |
+| 独立解包构建 | **通过**，electron-builder `--dir --publish never`，输出专属目录 | `output/genie-package.log` |
+| 解包应用的motion+shelf组 | **13/13**，通过 `PACKAGED_EXE` 启动真实包 | `output/genie-packaged-desktop.log` |
+| 独立审核与复核 | 首轮FAIL/medium，已采纳回修；`cd79229`定向复核 **PASS**，无新发现 | 原Paseo reviewer `0c5887bc-2e67-4d8e-b82a-7900b31a207f` |
+
+- `tests/motion.desktop.spec.mjs` 共8项：真实PNG捕获和Canvas有可见绘制内容；收起/展开实际时长；已加载公式/本地图片与编辑内容、滚动位置保留；减少动态效果不捕获；捕获拒绝/挂起、绘制异常后的画布与锁清理；真实second-instance listener开新文件/重开当前文件；resize和迟到通知。
+- 动画只移动header下方到固定更新状态上方的页面区域，收起前关闭列表，不把侧边卡片卷入纸页。窗口缩放、实际滚动、可见性/减少动态变化和文档失效会取消动画；捕获失败不影响文档操作。只传应用自身画面，PNG不落盘，像素与编码大小均有界，捕获不阻塞文档队列。
+- 审核medium：动画前取得snapshot，动画期间真实第二实例打开，旧回执覆盖较新的UI。两条main真实listener＋SQLite开文件回归先在旧构建均失败，再改为动画/取消后重新读取metadata。回修motion+desktop组16/16、最终全量与打包组均通过。不能用仅重发旧通知的原测试代替这两条真正修改存储的场景。
+- 自测还发现恢复阅读位置时排队的scroll事件会取消展开。回修为比较实际scrollTop/Left，当前位置相同不取消；原位置180px、编辑正文和完整双向画布均在最终用例保留断言。
+- 首轮motion+shelf10/11的失败来自 `img` 同时匹配真实图片与ProseMirror separator，改为按“本地图片”精确定位。首轮完整桌面43/45另有测试helper未等源码切回正文就调用保存，已补源码隐藏和editorReady等待；保留真实菜单调用与文件断言。旧失败日志在 `output/genie-focused.log` / `genie-desktop-final.log`，不混入最终通过结果。
+- 本机示例预览使用 `output/shelf-preview-profile/`，启动脚本优先用解包exe；原示例内容保留，正式用户profile未读写。截图在 `output/playwright/genie-real-*`；中间帧用仅限观察脚本的rAF暂停捕获，不能用暂停截图证明帧率，正式时间断言来自正常运行的桌面测试。
+
+未修改编辑内核源码，本轮不重复56项独立内核浏览器回归或NSIS安装升级；没有生成或发布新的正式安装器。当前交付为源码PR及独立可运行预览包。详细使用与数据边界见 [页面收起说明](docs/page-shelf.md)。
+
 ## 页面收起与右上角移除（当前任务分支）
 
 基于 `529bae0`，复用 PR #8 / `prototype/page-shelf`。接入提交 `7fbe088` 将原型中的“收起／恢复／删除”接入真实 Electron、固定 preload IPC 和 SQLite，随后回修键盘删除后的焦点。界面沿用现有背景、字体和标签；页面列表卡片右上角为直接删除/移除按钮。未替换已交付的0.3.0安装器，未合入 main。
