@@ -1,5 +1,23 @@
 # Windows 桌面验证记录
 
+## frowd 0.4.2 恢复页面直接显示
+
+提交 `6187208` 按用户反馈保留450ms收起吸入、取消展开动效。恢复路径移除截图/解码/画布创建及等待，正文读取、会话状态、选区、阅读位置与有效身份检查仍保留。版本同时包含下方0.4.1删除前保存选择。
+
+| 检查 | 实际结果 | 本机证据 |
+| --- | --- | --- |
+| 旧行为复现 | 新用例先失败：恢复调用1次capture，期望0 | `output/direct-open-before/`；普通展开时正文提前可见的诊断在`output/expand-timing/` |
+| `npm test` | **65/65**，无跳过 | `output/direct-open-unit.log` |
+| 构建与完整开发桌面 | **通过，55/55** | `output/direct-open-build.log`、`direct-open-desktop.log` |
+| NSIS安装器构建 | **通过** | `output/direct-open-installer.log` |
+| 成品motion+shelf+remove-save回归 | **21/21** | `output/direct-open-packaged.log` |
+| 成品核对 | 实际0.4.2/frowd、图标与源图一致、关键代码与受测out一致、正常退出 | `output/joint-0.4.2/inspection.json` |
+| 独立增量审核 | **PASS**，无 blocker/high/medium/low | 原Paseo reviewer `12ab1059-49cb-4d96-b2cf-2105676fea25`，范围`4402c2e..6187208` |
+
+新增真实Electron用例在完成收起后开始计数，确认恢复过程零截图请求、零动效Canvas，同时检查编辑后的正文、存储内容和180px滚动位置。原收起画布/450ms/异常清理/第二实例回归继续通过。只移除展开相关调用与反向模式，没有新缓存或额外渲染器。
+
+候选安装器 `release/0.4.2/frowd-Setup-0.4.2-x64.exe` 为 **130,429,852字节**。安装身份、schema、更新配置及依赖未变；本轮未重复0.4.0真实NSIS升级链或独立编辑内核套件，未覆盖用户安装或读写真实笔记。保留独立HTML历史双向示例并在其说明中明确其展开动画不代表当前产品。
+
 ## frowd 0.4.1 删除前保存选择
 
 基于已合入的0.4.0（`2ef08d8`），功能提交 `8b332aa`。有非空白正文的草稿点卡片×时询问“保存为 Markdown / 直接删除 / 取消”，保存进入系统文件选择窗口，成功后才移除。空白草稿、收起、退出和已有磁盘文件的原有语义保留。保存成功但SQLite移除失败时回显新的文件关联及明确错误；具体行为见 [页面收起说明](docs/page-shelf.md)。

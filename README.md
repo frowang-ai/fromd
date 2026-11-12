@@ -1,6 +1,6 @@
 # frowd — Windows 0.4.2
 
-本地 Markdown 编辑器。0.4.2保留收起的尖角吸入提示，恢复页面时直接显示正文，省去展开时的截图与逐帧绘制。0.4.1 增加草稿删除前的“保存为 Markdown / 直接删除 / 取消”，空白页面直接移除；保存取消或失败保留页面。0.4.0 统一包含 frowd 名称、Frowang 图标、页面收起／卡片恢复与450ms收起、400ms展开动效，保留原生菜单、SQLite自动保存与按需编辑会话。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
+本地 Markdown 编辑器。0.4.2 保留450ms收起提示，恢复页面直接显示正文；有内容草稿删除前可选择保存为 Markdown、直接删除或取消。包含 frowd 名称、Frowang 图标、页面卡片、原生菜单、SQLite自动保存与按需编辑会话。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
 
 0.3.1 将应用显示名、窗口标题、快捷方式与安装包名统一为小写 `frowd`，图标直接沿用 `web-lunwen/public/icon-512.png` 的 Frowang 标识。`package.name=frowang-markdown`、`appId=com.frowang.markdown` 和 `Frowang Markdown.exe` 内部文件名保持不变，继续使用原草稿目录和安装身份；exe 的显示名称与图标资源更新为 frowd。当前仍是无更新源、未签名的本地安装包，未开启在线更新。
 
