@@ -47,13 +47,31 @@ async function saveDocument(id, saveAs = false) {
   return store.save(id, path)
 }
 async function confirmClose(id) {
-  const doc = store.get(id)
-  if (doc.path && store.isDirty(doc)) {
-    const answer = await dialog.showMessageBox(window, { type: 'question', message: `保存「${doc.title}」的修改？`, buttons: ['保存', '不保存', '取消'], defaultId: 0, cancelId: 2, noLink: true })
-    if (answer.response === 2) return { cancelled: true }
-    if (answer.response === 0) { const saved = await saveDocument(id); if (!saved.saved) return saved }
+  const doc = store.get(id), draft = !doc.path
+  const needsChoice = draft ? Boolean((await store.body(id)).trim()) : store.isDirty(doc)
+  let savedToFile = false
+  if (needsChoice) {
+    const answer = await dialog.showMessageBox(window, {
+      type: 'question',
+      message: draft ? '要保留这篇笔记吗？' : `保存「${doc.title}」的修改？`,
+      ...(draft ? { detail: doc.title } : {}),
+      buttons: draft ? ['保存为 Markdown', '直接删除', '取消'] : ['保存', '不保存', '取消'],
+      defaultId: 0, cancelId: 2, noLink: true,
+    })
+    if (![0, 1].includes(answer.response)) return { cancelled: true }
+    if (answer.response === 0) {
+      const saved = await saveDocument(id)
+      if (!saved.saved) return saved
+      savedToFile = true
+    }
   }
-  return { closed: true, snapshot: await store.remove(id) }
+  try { return { closed: true, snapshot: await store.remove(id) } }
+  catch (error) {
+    if (!savedToFile) throw error
+    // The external write has succeeded. Keep the page and its new file binding
+    // visible if SQLite removal fails; retry must not treat it as an unsaved draft.
+    return { closed: false, warning: `文件已保存，但页面移除失败：${error.message}`, snapshot: store.snapshot() }
+  }
 }
 async function exportPdf(id, html) {
   if (typeof html !== 'string' || Buffer.byteLength(html) > 20 * 1024 * 1024) throw new Error('导出内容过大。')

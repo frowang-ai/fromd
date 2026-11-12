@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { bindMenu, removePage, finishRemovePage, editorReady, menuCommand, menuState } from './native-menu.mjs'
+import { bindMenu, discardDraftQuestions, removePage, finishRemovePage, editorReady, menuCommand, menuState } from './native-menu.mjs'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,6 +16,7 @@ const snapshot = page => page.evaluate(async () => {
 async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
+  await discardDraftQuestions(app)
   const page = await app.firstWindow()
   bindMenu(app, page)
   await editorReady(page)
@@ -130,7 +131,7 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     await expect(page).toHaveTitle('未命名笔记 — frowd')
     // Leave the final name focused: application close must flush without blur.
     await nameField(page).fill('明日继续')
-    expect(await app.evaluate(() => globalThis.__draftDialogs)).toEqual([])
+    expect(await app.evaluate(() => globalThis.__draftDialogs)).toEqual(['要保留这篇笔记吗？'])
     await closeWindow(app)
     launched = await launch(profile); app = launched.app; page = launched.page
     const recovered = await snapshot(page)
@@ -145,7 +146,7 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     await menuCommand(page, 'new')
     await expect(nameField(page)).toHaveValue('未命名笔记')
     expect((await snapshot(page)).documents[0].markdown).toBe('')
-    expect(await app.evaluate(() => globalThis.__draftDialogs)).toEqual([])
+    expect(await app.evaluate(() => globalThis.__draftDialogs)).toEqual(['要保留这篇笔记吗？', '要保留这篇笔记吗？'])
   } finally { await stop(app); await cleanup(directory) }
 })
 

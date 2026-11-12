@@ -426,12 +426,14 @@ async function shelveDocument(id) {
 }
 async function closeDocument(id) {
   if (!findDocument(id)) return
-  let removed = false
+  let removed = false, warning = ''
   await run(async () => {
     const result = await api.close(id)
+    warning = result.warning || ''
     if (result.closed) { removed = true; forgetDocument(id) }
     return result.snapshot
   }, true)
+  if (warning) message.value = warning
   if (removed && shelfOpen.value) { await nextTick(); shelfPanel.value?.focusSearch() }
 }
 async function undoRemove() {

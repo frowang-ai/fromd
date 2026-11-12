@@ -15,7 +15,7 @@
           </div>
           <span class="page-card-caption"><span>{{ doc.title }}</span><small>{{ doc.id === activeId ? '当前' : doc.shelved ? '已收起' : '已打开' }}</small></span>
         </button>
-        <button class="page-card-delete" :aria-label="`${doc.path ? '移除' : '删除'} ${doc.title}`" :title="doc.path ? '从列表移除，不删除磁盘文件' : '删除页面（本次会话可撤销最近一次删除）'" @click="$emit('remove', doc.id)">×</button>
+        <button class="page-card-delete" :aria-label="`${doc.path ? '移除' : '删除'} ${doc.title}`" :title="doc.path ? '移除页面' : '删除页面'" @click="$emit('remove', doc.id)">×</button>
       </article>
       <p v-if="!filtered.length" class="shelf-empty">{{ search ? '没有匹配的页面' : onlyShelved ? '没有已收起的页面' : '暂无页面' }}</p>
     </div>

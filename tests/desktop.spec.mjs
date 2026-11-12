@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { bindMenu, removePage, finishRemovePage, editorReady, menuCommand, clickNativeMenu } from './native-menu.mjs'
+import { bindMenu, discardDraftQuestions, removePage, finishRemovePage, editorReady, menuCommand, clickNativeMenu } from './native-menu.mjs'
 import { mkdtemp, readFile, writeFile, rm, mkdir } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { join, resolve } from 'node:path'
@@ -22,6 +22,7 @@ async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
   processes.set(app, app.process())
+  await discardDraftQuestions(app)
   return app
 }
 async function stop(app) {
@@ -168,8 +169,8 @@ test('Windows桌面：打开写回、另存、冲突、标签、恢复及PDF', a
     // Kill the renderer host without the normal close handshake: recovery was already acknowledged.
     await stop(app); app = await launch(profile); page = await ready(app)
     await expect(body(page)).toContainText('未保存草稿'); await expect(page.getByRole('tab')).toHaveCount(3)
-    // Temporary drafts close immediately, regardless of message-box answers.
-    await chooseMessage(app, 2)
+    // Explicitly discard the temporary draft through its new save/remove question.
+    await chooseMessage(app, 1)
     await removePage(page, '未命名笔记')
     await expect(page.getByRole('tab')).toHaveCount(2)
     // Bound dirty files still offer cancel/discard, without deleting disk files.

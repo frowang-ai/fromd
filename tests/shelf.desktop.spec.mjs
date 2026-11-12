@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { DocumentStore } from '../apps/desktop/src/main/documentStore.js'
-import { bindMenu, editorReady, menuCommand, menuState, removePage } from './native-menu.mjs'
+import { bindMenu, discardDraftQuestions, editorReady, menuCommand, menuState, removePage } from './native-menu.mjs'
 const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const source = page => page.locator('.document-pane:visible textarea')
 async function fixture() {
@@ -20,6 +20,7 @@ async function fixture() {
 async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
+  await discardDraftQuestions(app)
   const page = await app.firstWindow(); bindMenu(app, page); await editorReady(page)
   return { app, page }
 }

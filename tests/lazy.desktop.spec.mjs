@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { bindMenu, removePage, finishRemovePage, editorReady, menuCommand, menuState } from './native-menu.mjs'
+import { bindMenu, discardDraftQuestions, removePage, finishRemovePage, editorReady, menuCommand, menuState } from './native-menu.mjs'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -11,6 +11,7 @@ const source = page => page.getByRole('textbox', { name: 'Markdown 源码', exac
 async function launch(profile, files = []) {
   const env = { ...process.env, FROWANG_USER_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ ...(process.env.PACKAGED_EXE ? { executablePath: process.env.PACKAGED_EXE, args: files } : { args: [root, ...files] }), env, timeout: 30000 })
+  await discardDraftQuestions(app)
   const page = await app.firstWindow()
   bindMenu(app, page)
   await editorReady(page)

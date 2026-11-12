@@ -23,6 +23,16 @@ export async function clickNativeMenu(app, name) {
 // Only system dialog answers and explicit race gates are mocked by the specs.
 export async function menuCommand(page, name) { await clickNativeMenu(hosts.get(page), name) }
 
+// Existing removal regressions explicitly choose discard for the new draft question.
+// Dedicated remove-save tests exercise all answers and assert the dialog contents.
+export async function discardDraftQuestions(app) {
+  await app.evaluate(({ dialog }) => {
+    const original = dialog.showMessageBox.bind(dialog)
+    dialog.showMessageBox = (_window, options) => options.buttons?.[0] === '保存为 Markdown'
+      ? Promise.resolve({ response: 1 }) : original(_window, options)
+  })
+}
+
 // Exercise the real page-list button and the card's direct top-right removal control.
 export async function removePage(page, title, { wait = true } = {}) {
   if (await page.getByRole('button', { name: '页面列表', exact: true }).getAttribute('aria-expanded') !== 'true')
