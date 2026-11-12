@@ -46,6 +46,24 @@
 
 本轮数据/撤销边界见 [页面收起说明](docs/page-shelf.md)。下文保留0.3和更早版本的历史验证，不作为当前分支重跑证据。
 
+
+## 0.3.1 frowd 名称与图标（2026-11-11）
+
+从 `529bae0` 独立开发，仅替换用户可见名称与品牌图标。`package.name=frowang-markdown`、`appId=com.frowang.markdown`、`executableName=Frowang Markdown` 保持原值，窗口与快捷方式显示名为 `frowd`；主窗口图标和 Windows PE 图标均来自现有 Frowang PNG。默认无源构建开启资源编辑、保持代码签名关闭，配置生产更新源时显式开启签名并继续强制验证。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| `npm test` | **57/57**，无失败或跳过 |
+| `npm run dist:installer` | **通过**，包含 renderer/main 构建、PNG→Windows 图标转换及 NSIS 打包 |
+| `PACKAGED_EXE=<0.3.1/win-unpacked/Frowang Markdown.exe> npx playwright test -c playwright.config.mjs tests/drafts.desktop.spec.mjs` | **14/14**，实际打包程序的草稿命名、标题、切换、保存、退出恢复及既有竞态用例通过 |
+| 隔离 profile 成品启动与普通退出 | app.getVersion()=`0.3.1`、app.getName()=`frowang-markdown`、窗口标题=`未命名笔记 — frowd`；userData 使用指定的独立目录，正常退出 |
+| 图标与 Windows 资源 | 包内 PNG 与源图逐字节一致、512×512；exe 的 ProductName/FileDescription 为 `frowd`，安装器 ProductName 为 `frowd`；从 exe/安装器提取的图标与原网站标识视觉一致，原生窗口标题栏也已观察 |
+| 更新默认状态 | `frowangUpdates=null`，实际 UI/API 为 disabled，原因仍是未配置更新源 |
+
+产物：`release/0.3.1/frowd-Setup-0.3.1-x64.exe`，**130,426,256 字节**。过程证据保存在任务工作区 `output/branding-inspection.json`、`branding-windows-resources.json`、`branding-application-icon.png`、`branding-installer-icon.png` 与打包版 Playwright report；合并日志为 `output/branding-build-and-tests.log`。一次性检查脚本首次在应用已正常退出后再次调用 Playwright process()，导致检查脚本清理报错；改为预先保存进程引用后重新执行，exit 0，不涉及产品修复。
+
+本轮没有在真实用户安装目录上执行覆盖升级，没有重跑完整34项桌面、56项编辑内核或真实NSIS自动更新链。安装路径、注册身份、内部exe与草稿身份不变，快捷方式改名沿用锁定NSIS版本已有的 ShortcutName 迁移；未启用生产更新、未签名、未公开发布。以下0.3.0及更早记录保留为历史证据，不混计为本轮结果。
+
 ## Windows 0.3.0 联合验证记录
 
 ## 0.3.0 菜单与更新整合

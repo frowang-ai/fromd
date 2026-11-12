@@ -204,7 +204,7 @@ async function protocols() {
 // Separate import alias avoids conflating document-size and image-size checks.
 import { stat as statImage } from 'node:fs/promises'
 async function createWindow() {
-  window = new BrowserWindow({ width: 1160, height: 850, minWidth: 520, minHeight: 400, title: 'Frowang Markdown', show: false,
+  window = new BrowserWindow({ width: 1160, height: 850, minWidth: 520, minHeight: 400, title: 'frowd', icon: join(rendererRoot, 'icon.png'), show: false,
     webPreferences: { preload: join(here, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false } })
   window.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//i.test(url)) void shell.openExternal(url); return { action: 'deny' } })
   window.webContents.on('will-navigate', (event, url) => { event.preventDefault(); if (/^https?:\/\//i.test(url)) void shell.openExternal(url) })
@@ -259,7 +259,7 @@ else {
     })
     const metadata = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
     const config = validateUpdateConfig(metadata.frowangUpdates, { packaged: app.isPackaged, platform: process.platform, portable: !!process.env.PORTABLE_EXECUTABLE_FILE, env: process.env })
-    if (config.enabled && !existsSync(join(dirname(process.execPath), `Uninstall ${metadata.build?.productName || metadata.productName || 'Frowang Markdown'}.exe`))) {
+    if (config.enabled && !existsSync(join(dirname(process.execPath), `Uninstall ${metadata.build?.executableName || metadata.build?.productName || metadata.productName || 'Frowang Markdown'}.exe`))) {
       config.enabled = false; config.reason = '请从安装后的应用入口检查更新。'
     }
     const updater = config.enabled ? new electronUpdater.NsisUpdater({ provider: 'generic', url: config.url, channel: 'latest' }) : null
