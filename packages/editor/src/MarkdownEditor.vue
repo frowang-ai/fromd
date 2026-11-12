@@ -221,6 +221,9 @@ onBeforeUnmount(() => { disposed = true; disposeLinks?.(); clearTimeout(updateTi
 .writing-editor .milkdown > .ProseMirror h2 { font-size: 1.4em; font-weight: 600; margin: 1.8em 0 .6em; }
 .writing-editor .milkdown > .ProseMirror h3 { font-size: 1.15em; }
 .writing-editor .milkdown > .ProseMirror p { margin: .8em 0; }
+.writing-editor .writing-link-open { border: 0; border-left: 1px solid #e1e5e1; border-radius: 0; background: transparent; color: #3c7161; font: inherit; white-space: nowrap; padding: 3px 8px; cursor: pointer; }
+.writing-editor .writing-link-open:hover { background: #eef2ed; }
+.writing-editor .writing-link-open:focus-visible { outline: 2px solid #59927e; outline-offset: 1px; }
 .writing-editor .milkdown-table-block { overflow-x: auto; max-width: 100%; }
 .writing-editor img { max-width: 100%; }
 .writing-editor .writing-math { cursor: text; }

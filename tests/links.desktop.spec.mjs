@@ -49,11 +49,18 @@ async function cleanup(app, directory) {
 }
 const calls = app => app.evaluate(() => globalThis.__linkCalls)
 
-test('正文和表格链接单击一次打开网页，不修改Markdown', async () => {
+test('普通单击可编辑链接文字，Ctrl单击打开网页且不重复触发', async () => {
   const { directory, app, page } = await fixture()
   try {
     const before = await page.evaluate(async () => window.desktop.read((await window.desktop.listMetadata()).activeId))
     await link(page, '网页').click()
+    await page.evaluate(() => window.desktop.listMetadata())
+    expect(await calls(app)).toEqual([])
+    await page.keyboard.insertText('EDIT')
+    await expect(body(page).locator('a[href="https://example.com/frowd?q=1#part"]')).toContainText('EDIT')
+    await page.keyboard.press('Control+z')
+    await expect(link(page, '网页')).toBeVisible()
+    await link(page, '网页').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['web', 'https://example.com/frowd?q=1#part']])
     const after = await page.evaluate(id => window.desktop.read(id), before.id)
     expect(after.markdown).toBe(before.markdown)
@@ -64,13 +71,13 @@ test('file URL、绝对路径、相对文件只定位；目录才通过openPath�
   const { directory, file, folder, app, page } = await fixture()
   try {
     for (const [index, name] of ['文件URL', '绝对路径', '相对文件'].entries()) {
-      await link(page, name).click()
+      await link(page, name).click({ modifiers: ['Control'] })
       await expect.poll(() => calls(app)).toHaveLength(index + 1)
     }
     expect(await calls(app)).toEqual(Array.from({ length: 3 }, () => ['reveal', file]))
     // Sanitization is kept: local destinations never become a navigable file:// href.
     await expect(link(page, '文件URL')).toHaveAttribute('href', '')
-    await link(page, '文件夹').click()
+    await link(page, '文件夹').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([...Array.from({ length: 3 }, () => ['reveal', file]), ['folder', await realpath(folder)]])
   } finally { await cleanup(app, directory) }
 })
@@ -78,13 +85,13 @@ test('file URL、绝对路径、相对文件只定位；目录才通过openPath�
 test('未保存草稿相对路径提示先保存；绝对链接仍能定位，错误明确展示', async () => {
   const { directory, file, app, page } = await fixture({ draft: true })
   try {
-    await link(page, '相对文件').click()
+    await link(page, '相对文件').click({ modifiers: ['Control'] })
     await expect(page.getByRole('alert')).toContainText('请先保存为 Markdown 文件，或改用绝对路径')
     expect(await calls(app)).toEqual([])
     await page.getByRole('button', { name: '关闭提示', exact: true }).click()
-    await link(page, '文件URL').click()
+    await link(page, '文件URL').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', file]])
-    await link(page, '不支持').click()
+    await link(page, '不支持').click({ modifiers: ['Control'] })
     await expect(page.getByRole('alert')).toContainText('目前只支持网页和本地文件')
   } finally { await cleanup(app, directory) }
 })
@@ -92,36 +99,36 @@ test('未保存草稿相对路径提示先保存；绝对链接仍能定位，�
 test('不存在的文件不会打开程序，浏览器和目录打开失败有提示', async () => {
   const { directory, app, page } = await fixture()
   try {
-    await link(page, '不存在').click()
+    await link(page, '不存在').click({ modifiers: ['Control'] })
     await expect(page.getByRole('alert')).toContainText('链接目标不存在')
     expect(await calls(app)).toEqual([])
     await app.evaluate(({ shell }) => {
       shell.openExternal = async () => { throw new Error('controlled failure') }
       shell.openPath = async () => 'controlled failure'
     })
-    await link(page, '网页').click(); await expect(page.getByRole('alert')).toContainText('默认浏览器设置')
-    await link(page, '文件夹').click(); await expect(page.getByRole('alert')).toContainText('无法打开文件夹')
+    await link(page, '网页').click({ modifiers: ['Control'] }); await expect(page.getByRole('alert')).toContainText('默认浏览器设置')
+    await link(page, '文件夹').click({ modifiers: ['Control'] }); await expect(page.getByRole('alert')).toContainText('无法打开文件夹')
   } finally { await cleanup(app, directory) }
 })
 
 test('切换笔记与另存为后，相同相对链接使用所属笔记的最新目录', async () => {
   const { directory, file, secondFile, app, page } = await fixture({ two: true })
   try {
-    await link(page, '相对文件').click()
+    await link(page, '相对文件').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', secondFile]])
     await page.getByRole('tab', { name: '笔记A.md', exact: true }).click(); await editorReady(page)
-    await link(page, '相对文件').click()
+    await link(page, '相对文件').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', secondFile], ['reveal', file]])
     const destination = join(directory, '另一个位置', '另存.md')
     await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, destination)
     await menuCommand(page, 'saveAs'); await editorReady(page)
     await expect(page.getByRole('tab', { name: '另存.md', exact: true })).toHaveAttribute('aria-selected', 'true')
-    await link(page, '相对文件').click()
+    await link(page, '相对文件').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', secondFile], ['reveal', file], ['reveal', secondFile]])
   } finally { await cleanup(app, directory) }
 })
 
-test('浮层的网址和本地路径使用相同行为，复制和编辑仍可用', async () => {
+test('浮层地址单击编辑，打开按钮与Ctrl单击执行目标，复制仍可用', async () => {
   const { directory, file, app, page } = await fixture()
   try {
     await body(page).locator('h1').click()
@@ -129,6 +136,12 @@ test('浮层的网址和本地路径使用相同行为，复制和编辑仍可�
     const preview = page.locator('.milkdown-link-preview')
     await expect(preview.locator('.link-display')).toBeVisible()
     await preview.locator('.link-display').click()
+    const address = page.locator('.milkdown-link-edit input')
+    await expect(address).toBeVisible()
+    expect(await calls(app)).toEqual([])
+    await address.press('Escape')
+    await body(page).locator('h1').click(); await link(page, '文件URL').hover()
+    await preview.getByRole('button', { name: '打开位置', exact: true }).click()
     await expect.poll(() => calls(app)).toEqual([['reveal', file]])
     await page.evaluate(() => { window.__copiedLink = null; navigator.clipboard.writeText = async text => { window.__copiedLink = text } })
     await body(page).locator('h1').click()
@@ -141,8 +154,14 @@ test('浮层的网址和本地路径使用相同行为，复制和编辑仍可�
     await edit.fill('https://example.com/edited'); await edit.press('Enter')
     await expect(link(page, '文件URL')).toHaveAttribute('href', 'https://example.com/edited')
     expect(await calls(app)).toHaveLength(1)
-    await link(page, '文件URL').click()
+    await link(page, '文件URL').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', file], ['web', 'https://example.com/edited']])
+    await body(page).locator('h1').click(); await link(page, '文件URL').hover()
+    await preview.getByRole('button', { name: '打开网页', exact: true }).click()
+    await expect.poll(() => calls(app)).toHaveLength(3)
+    await body(page).locator('h1').click(); await link(page, '文件URL').hover()
+    await preview.locator('.link-display').click({ modifiers: ['Control'] })
+    await expect.poll(() => calls(app)).toEqual([['reveal', file], ...Array.from({ length: 3 }, () => ['web', 'https://example.com/edited'])])
   } finally { await cleanup(app, directory) }
 })
 
@@ -162,16 +181,16 @@ test('本地链接不改直接确认与改为文件URL或盘符地址均保留�
       await expect(input).not.toBeVisible()
     }
     await editLocal(undefined)
-    await link(page, '文件URL').click()
+    await link(page, '文件URL').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', file]])
     expect((await page.evaluate(id => window.desktop.read(id), before.id)).markdown).toBe(before.markdown)
     const url = pathToFileURL(replacement).href
     await editLocal(url, true)
-    await link(page, '文件URL').click()
+    await link(page, '文件URL').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', file], ['reveal', replacement]])
     await expect.poll(async () => (await page.evaluate(id => window.desktop.read(id), before.id)).markdown).toContain(url)
     await editLocal(replacement.replaceAll('\\', '/'))
-    await link(page, '文件URL').click()
+    await link(page, '文件URL').click({ modifiers: ['Control'] })
     await expect.poll(() => calls(app)).toEqual([['reveal', file], ['reveal', replacement], ['reveal', replacement]])
     await expect(link(page, '文件URL')).toHaveAttribute('href', '')
   } finally { await cleanup(app, directory) }
@@ -190,6 +209,10 @@ test('拖选链接文字和Shift选区不会打开目标，过期浮层不借用
     const rect = await link(page, '相对文件').boundingBox()
     await page.mouse.move(rect.x + 1, rect.y + rect.height / 2)
     await page.mouse.down(); await page.mouse.move(rect.x + rect.width - 1, rect.y + rect.height / 2, { steps: 8 }); await page.mouse.up()
+    await page.keyboard.down('Control')
+    await page.mouse.move(rect.x + 1, rect.y + rect.height / 2)
+    await page.mouse.down(); await page.mouse.move(rect.x + rect.width - 1, rect.y + rect.height / 2, { steps: 8 }); await page.mouse.up()
+    await page.keyboard.up('Control')
     expect(await calls(app)).toEqual([])
     const invalid = await page.evaluate(async () => { try { await window.desktop.openLink('missing-document', 'https://example.com'); return null } catch (error) { return error.message } })
     expect(invalid).toBeTruthy(); expect(await calls(app)).toEqual([])

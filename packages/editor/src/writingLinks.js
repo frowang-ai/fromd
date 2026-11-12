@@ -46,31 +46,62 @@ export function installWritingLinks(view, { root, ctx, getOwner, onOpen }) {
     const anchor = event.target instanceof Element ? event.target.closest('a') : null
     return anchor && view.dom.contains(anchor) ? anchor : null
   }
-  function hrefOf(anchor) {
+  function linkAt(anchor) {
     try {
-      const pos = view.state.doc.resolve(view.posAtDOM(anchor, 0))
-      return (pos.nodeAfter?.marks || pos.marks()).find(mark => mark.type.name === 'link')?.attrs.href
-    } catch { return undefined }
+      const from = view.posAtDOM(anchor, 0), to = view.posAtDOM(anchor, anchor.childNodes.length)
+      const pos = view.state.doc.resolve(from)
+      const mark = (pos.nodeAfter?.marks || pos.marks()).find(mark => mark.type.name === 'link')
+      return mark ? { from, to, mark, href: mark.attrs.href } : null
+    } catch { return null }
   }
   function hover(event) {
-    const anchor = bodyLink(event)
-    if (anchor) hovered = { owner: getOwner(), href: hrefOf(anchor) }
+    const anchor = bodyLink(event), info = anchor && linkAt(anchor)
+    if (!info) return
+    hovered = { owner: getOwner(), doc: view.state.doc, ...info }
+    const toolbar = root.querySelector('.milkdown-link-preview .link-preview')
+    if (!toolbar) return
+    let button = toolbar.querySelector('.writing-link-open')
+    if (info.href.trim().startsWith('#')) { button?.remove(); return }
+    if (!button) {
+      button = view.dom.ownerDocument.createElement('button')
+      button.type = 'button'; button.className = 'writing-link-open'
+      toolbar.append(button)
+    }
+    const label = /^https?:\/\//i.test(info.href.trim()) ? '打开网页' : '打开位置'
+    if (button.textContent !== label) button.textContent = label
   }
-  function down(event) { pointer = { x: event.clientX, y: event.clientY } }
+  function down(event) {
+    pointer = { x: event.clientX, y: event.clientY }
+    // Ctrl-click is navigation, not a caret/table-selection gesture. Suppress
+    // the editor's compatibility mousedown so it cannot swallow the later click.
+    if (event.ctrlKey && event.button === 0 && !event.shiftKey && !event.altKey && !view.composing && bodyLink(event)) event.preventDefault()
+  }
   function click(event) {
     const owner = getOwner(), anchor = bodyLink(event)
-    const preview = event.target instanceof Element ? event.target.closest('.milkdown-link-preview .link-display') : null
+    const target = event.target instanceof Element ? event.target : null
+    const openButton = target?.closest('.writing-link-open')
+    const preview = openButton
+      ? openButton.closest('.milkdown-link-preview')?.querySelector('.link-display')
+      : target?.closest('.milkdown-link-preview .link-display')
     if (!anchor && !preview) return
-    const href = anchor ? hrefOf(anchor) : hovered?.owner === owner && hovered?.href === preview.textContent ? hovered.href : undefined
-    // Leave same-document anchors to the editor/browser, never send to the OS.
-    if (typeof href === 'string' && href.trim().startsWith('#')) return
-    event.preventDefault()
-    event.stopPropagation()
-    if (!owner || typeof href !== 'string' || event.button !== 0 || event.shiftKey || event.altKey || view.composing) return
-    // Restoring a session or editing a link may leave a selected range. A plain
-    // click still opens; suppress only an actual drag or the Shift gesture above.
-    if (anchor && event.detail > 0 && pointer && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5) return
-    onOpen({ ...owner, href })
+    // Body links remain editable on an ordinary click, including normal caret
+    // placement and selection handling by ProseMirror.
+    if (anchor && !event.ctrlKey) { event.preventDefault(); return }
+    const info = anchor ? linkAt(anchor) : hovered?.owner === owner && hovered?.doc === view.state.doc && hovered?.href === preview.textContent ? hovered : null
+    if (!owner || !info || event.button !== 0 || event.shiftKey || event.altKey || view.composing ||
+      (anchor && event.detail > 0 && pointer && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5)) {
+      event.preventDefault(); return
+    }
+    // An address click edits; the explicit button or Ctrl-click opens.
+    if (preview && !openButton && !event.ctrlKey) {
+      event.preventDefault(); event.stopPropagation()
+      ctx.get(linkTooltipAPI.key).editLink(info.mark, info.from, info.to)
+      return
+    }
+    // Ctrl-click on same-document anchors keeps the native in-page jump.
+    if (info.href.trim().startsWith('#')) return
+    event.preventDefault(); event.stopPropagation()
+    onOpen({ ...owner, href: info.href })
   }
   root.addEventListener('keydown', confirmLocalEdit, true)
   // Milkdown's confirm icon invokes its handler on pointerdown, before click.
@@ -85,5 +116,6 @@ export function installWritingLinks(view, { root, ctx, getOwner, onOpen }) {
     root.removeEventListener('mousemove', hover, true)
     root.removeEventListener('pointerdown', down, true)
     root.removeEventListener('click', click, true)
+    root.querySelectorAll('.writing-link-open').forEach(button => button.remove())
   }
 }
