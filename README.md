@@ -10,17 +10,17 @@
 
 ## 项目记忆
 
-0.4.0联合结果以本仓库README、VALIDATION与docs/page-shelf.md为准；独立memory docs尚待本轮收尾。
+0.4.0—0.4.4已于2026-11-12由用户确认统一收束，独立记忆更新在[docs PR #10](https://github.com/frowang-ai/docs/pull/10)。该PR尚待合入维护分支；合入前以其文件和独立工作区为准，不再使用“本轮尚未整理记忆”的旧状态。应用交付结果仍由本仓库README、VALIDATION和docs中的功能约定维护。
 
-Windows 0.1、0.2与0.3均已由用户确认收束。当前状态、约束和后续入口归[模块记忆](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/modules/markdown-editor.md)；阶段过程分别见[0.1归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261110_markdown_editor_mvp/README.md)、[0.2归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v02/README.md)和[0.3归档](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v03/README.md)。记忆维护在独立docs仓库的 `refactor-docs-20260725` 分支进行，与应用功能发布分开管理。0.3功能交付提交为 `027069d`（验收 `a82252c`），其后的文档收尾不改变安装器。
+Windows 0.1—0.4各阶段均保留历史。当前状态、约束和后续入口归[模块记忆](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/modules/markdown-editor.md)，0.4收束与公司开发/回传记录见上述docs PR；[0.1](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261110_markdown_editor_mvp/README.md)、[0.2](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v02/README.md)和[0.3](https://github.com/frowang-ai/docs/blob/refactor-docs-20260725/archive/20261111_markdown_editor_v03/README.md)归档继续保留。记忆维护在独立docs仓库，与功能合入、安装包和更新发布分别记账；纯文档收尾不改变安装器。
 
-本机可读副本仍在[独立记忆工作区](../_worktrees/markdown-editor-memory/modules/markdown-editor.md)；共享 `website/docs` 中的其他未提交改动保留，未强行同步。规范归属为 `website/docs/modules/markdown-editor.md`，判断最新结论应以该维护分支或已同步的独立工作区为准。
+本机最新记忆副本为`website/_worktrees/markdown-editor-v04-memory/`；共享`website/docs`中的其他未提交改动保留。用户希望后续开发/测试/打包在公司Windows Fro-at-evomap进行，本机主要安装体验；远端实际就绪性与传输回执以专项记录为准，不能仅据主机在线宣布迁移成功。GitHub受阻时可用父Agent提供的已核验源码bundle和记忆副本接续，不复制用户笔记或凭据。
 
 `VALIDATION.md`继续维护可执行验证和覆盖范围，`MVP_PLAN.md`维护分轮范围，不用历史归档替代当前代码检查。`release/Frowang-Markdown-0.1.0-source.zip`是0.1.0交付快照，0.2.0不覆盖它。
 
 ## 页面收起与动效
 
-0.4.2 将收起、页面卡片列表和右上角删除按钮接入桌面运行路径，沿用现有编辑器样式。收起的页面保留在 SQLite，退出重启仍可找回；删除/移除为独立动作，本次会话可撤销最近一次。行为、迁移与测试入口见[页面收起说明](docs/page-shelf.md)，实际验证见 `VALIDATION.md`。统一安装器位于 `release/0.4.4/frowd-Setup-0.4.4-x64.exe`；旧安装器保留。
+0.4.0 将收起、页面卡片列表和右上角删除按钮接入桌面运行路径，沿用现有编辑器样式。收起的页面保留在 SQLite，退出重启仍可找回；删除/移除为独立动作，本次会话可撤销最近一次。行为、迁移与测试入口见[页面收起说明](docs/page-shelf.md)，实际验证见 `VALIDATION.md`。统一安装器位于 `release/0.4.4/frowd-Setup-0.4.4-x64.exe`；旧安装器保留。
 
 一体标签与整页收尖吸入动效已接入桌面运行路径：收起450ms，恢复直接显示。收起使用当前窗口真实画面，保留减少动态效果与异常跳过；恢复不再捕获或绘制动画。原[独立交互预览](docs/page-shelf-preview.md)仍可切换标签样式和慢放，仅使用示例内容，刷新重置。
 
