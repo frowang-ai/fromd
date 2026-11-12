@@ -1,5 +1,24 @@
 # Windows 桌面验证记录
 
+## frowd 0.4.4 区分编辑与Ctrl打开
+
+运行改动提交`b364b21`。用户确认采用普通点击编辑、Ctrl＋左键打开；当前正文/源码均可编辑，本轮没有新增只读模式。浮层地址单击进入编辑，并提供明确的“打开网页”/“打开位置”按钮。原文件定位、文件夹进入及相对路径规则保持，见`docs/document-links.md`。
+
+| 检查 | 实际结果 | 本机证据 |
+| --- | --- | --- |
+| 新手势在旧构建复现 | 0.4.3普通点击错误触发浏览器；新断言先失败 | 本轮Playwright输出 |
+| 单元 | **70/70**，无跳过 | `output/ctrl-links-unit.log` |
+| 构建与完整开发桌面 | **通过，63/63** | `output/ctrl-links-build.log`、`ctrl-links-desktop.log` |
+| 共享编辑器原行为 | **56/56** | `output/ctrl-links-editor.log` |
+| NSIS构建与成品相关回归 | **通过，29/29** | `output/ctrl-links-installer.log`、`ctrl-links-packaged.log` |
+| 原生Ctrl点击与浮层外观 | **通过**：资源管理器选中临时文件、进入目录；测试新窗口清理，截图已查看 | `output/playwright/ctrl-native-links/result.json`、`link-actions.png` |
+| 成品版本/资源/正常退出 | **0.4.4/frowd**，关键代码与受测out、图标与源图一致 | `output/joint-0.4.4/inspection.json` |
+| 独立增量审核 | **PASS**，无blocker/high/medium/low | 原Paseo reviewer，范围`be8bcca..b364b21` |
+
+8项链接场景覆盖普通点击后输入/undo、Ctrl单次打开、浮层地址编辑和两个显式按钮、本地地址确认、切换/另存归属、Shift与Ctrl拖动不打开。测试曾发现编辑撤销后的表格选择处理会消耗click；Ctrl pointerdown仅阻止兼容mousedown，不执行打开，click统一执行一次。普通点击仍保留编辑事件传播。
+
+安装器`release/0.4.4/frowd-Setup-0.4.4-x64.exe`为 **130,453,441字节**。main/preload/存储及依赖未改，继续包含0.4.3的本地链接编辑修复。整体测试包含此前收起、恢复、删除前保存行为。未运行用户安装器，未重复真实NSIS升级链或启动默认浏览器；只读调查Typora以本机资源与官方说明为依据，未把隔离启动失败当作实机交互通过。
+
 ## frowd 0.4.3 网页打开与本地文件定位
 
 功能提交`4bb27f7`，审核回修`c444d5c`，基于0.4.2的`1408971`。普通点击正文/表格链接或浮层地址：HTTP(S)交默认浏览器，普通本机文件只在资源管理器中显示并尽可能选中，目录才进入。相对链接取所属Markdown的最新位置；草稿缺位置、目标缺失或打开失败明确提示。规则与测试入口见`docs/document-links.md`。
