@@ -230,6 +230,27 @@ export class DocumentStore {
     })
     return this.snapshot()
   }
+  async changeShelved(select, activeId) {
+    await this.changeLayout(() => {
+      for (const doc of this.documents) {
+        const shelved = select(doc)
+        if (doc.shelved === shelved) continue
+        doc.shelved = shelved; this.mark(doc, { shelved })
+      }
+      this.activeId = activeId
+    })
+    return this.snapshot()
+  }
+  async expandAll() {
+    return this.changeShelved(() => false, this.activeId || this.documents[0]?.id || null)
+  }
+  async shelveOthers(id) {
+    this.get(id)
+    return this.changeShelved(doc => doc.id !== id, id)
+  }
+  async shelveAll() {
+    return this.changeShelved(() => true, null)
+  }
   async remove(id) {
     const doc = this.get(id), index = this.documents.indexOf(doc), markdown = await this.body(id)
     const removed = { doc: structuredClone(doc), markdown, index, wasActive: this.activeId === id }

@@ -26,10 +26,11 @@ export function createApplicationMenu({ Menu, sendCommand, canDispatch, closeWin
     ] },
     { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
     { label: '视图', submenu: [item('source', '源码模式', undefined, 'checkbox'), { type: 'separator' },
+      item('previousPage', '上一页', 'Ctrl+Shift+Tab'), item('nextPage', '下一页', 'Ctrl+Tab'), { type: 'separator' },
       { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'toggleDevTools' } ] },
   ])
   function refresh() {
-    for (const name of [...commands.map(([name]) => name), 'source']) menu.getMenuItemById(`document-${name}`).enabled = available(name)
+    for (const name of [...commands.map(([name]) => name), 'source', 'previousPage', 'nextPage']) menu.getMenuItemById(`document-${name}`).enabled = available(name)
     menu.getMenuItemById('document-source').checked = state.sourceMode
   }
   Menu.setApplicationMenu(menu)

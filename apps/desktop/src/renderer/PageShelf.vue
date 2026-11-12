@@ -1,7 +1,7 @@
 <template>
   <div class="shelf-dismiss" @click="$emit('close')" aria-hidden="true"></div>
   <aside class="page-shelf" aria-label="页面列表" :inert="busy" @keydown.esc.stop.prevent="$emit('close')">
-    <div class="shelf-heading"><h2>页面</h2><button aria-label="收起页面列表" @click="$emit('close')">‹</button></div>
+    <div class="shelf-heading"><h2>页面</h2><button class="expand-all" :disabled="busy || !documents.some(doc => doc.shelved)" @click="$emit('expand-all')">全部展开</button><button aria-label="收起页面列表" @click="$emit('close')">‹</button></div>
     <input ref="searchInput" v-model="search" class="shelf-search" aria-label="搜索页面" placeholder="搜索页面" />
     <div class="shelf-filters">
       <button :aria-pressed="!onlyShelved" @click="onlyShelved = false">全部 {{ documents.length }}</button>
@@ -25,7 +25,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderMarkdown } from '@frowang/editor/markdown'
 const props = defineProps({ documents: { type: Array, required: true }, activeId: String, busy: Boolean })
-defineEmits(['open', 'remove', 'close'])
+defineEmits(['open', 'remove', 'close', 'expand-all'])
 const search = ref(''), onlyShelved = ref(false), list = ref(null), searchInput = ref(null)
 const visible = reactive(new Set()), cache = new Map()
 const filtered = computed(() => props.documents.filter(doc => (!onlyShelved.value || doc.shelved) && doc.title.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
@@ -63,6 +63,7 @@ onBeforeUnmount(() => observer?.disconnect())
 .shelf-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
 .shelf-heading h2 { margin:0; font-size:14px; font-weight:500; }
 .shelf-heading button { padding:0 7px; font-size:22px; line-height:1.2; }
+.shelf-heading .expand-all { margin-left:auto; margin-right:9px; padding:4px 3px; font-size:11px; line-height:1.4; }
 .shelf-search { width:100%; padding:5px 8px; border:1px solid #e3e7df; border-radius:3px; background:transparent; color:#53645d; font-size:12px; }
 .shelf-filters { display:flex; gap:12px; margin:8px 0 12px; }
 .shelf-filters button { padding:3px 0; font-size:11px; color:#899486; border-radius:0; border-bottom:1px solid transparent; }

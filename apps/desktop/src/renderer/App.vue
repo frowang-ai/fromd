@@ -1,9 +1,9 @@
 <template>
   <main :aria-busy="!commandReady">
-    <header ref="appBar" class="app-bar" :inert="busy || operationPending || !loaded" @pointerdown="rememberView">
+    <header ref="appBar" class="app-bar" :inert="busy || operationPending || !loaded" @pointerdown="event => event.button !== 2 && rememberView()">
       <button ref="pagesButton" class="pages-button" aria-label="页面列表" :aria-expanded="shelfOpen" @click="toggleShelf"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="13" height="16" rx="1"/><path d="M15 2H3v15M9 10h7M9 14h7"/></svg><span>{{ documents.length }}</span></button>
-      <div class="tabs" role="tablist" aria-label="笔记标签页">
-        <div v-for="doc in openDocuments" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }">
+      <div ref="tabs" class="tabs" role="tablist" aria-label="笔记标签页">
+        <div v-for="doc in openDocuments" :key="doc.id" class="tab-item" :class="{ selected: doc.id === activeId }" @pointerdown.right.prevent @contextmenu.prevent.stop="openTabMenu(doc, $event)" @keydown="tabMenuKey(doc, $event)">
           <button role="tab" :aria-label="doc.title" :aria-selected="doc.id === activeId" :title="doc.path || doc.title" @click="activate(doc.id)">{{ doc.title }}<span v-if="doc.dirty" aria-label="未保存"> ·</span></button>
           <button class="close-tab" :aria-label="`收起 ${doc.title}`" title="收起" @click="shelveDocument(doc.id)">−</button>
         </div>
@@ -29,7 +29,8 @@
       <p>{{ documents.length ? '页面已收起' : '暂无页面' }}</p>
       <button v-if="documents.length" @click="toggleShelf">查看页面</button><button @click="command('new')">新建笔记</button>
     </section>
-    <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" />
+    <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" @expand-all="expandAll" />
+    <TabMenu v-if="tabMenu && menuDocument" :key="tabMenu.ticket" :document="menuDocument" :x="tabMenu.x" :y="tabMenu.y" @close="closeTabMenu" @action="tabMenuAction" />
     <div v-if="undoRemoval" class="removal-notice" role="status">已移除<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
     <UpdateNotice ref="updateNotice" :busy="!commandReady" />
   </main>
@@ -41,11 +42,15 @@ import { buildPdfDocument } from '@frowang/editor/pdf'
 import DocumentPane from './DocumentPane.vue'
 import UpdateNotice from './UpdateNotice.vue'
 import PageShelf from './PageShelf.vue'
+import TabMenu from './TabMenu.vue'
 import { startPageMotion } from './pageMotion.js'
 const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
 const openDocuments = computed(() => documents.value.filter(doc => !doc.shelved))
 const current = computed(() => openDocuments.value.find(doc => doc.id === activeId.value))
+const tabs = ref(null), tabMenu = ref(null)
+const menuDocument = computed(() => documents.value.find(doc => doc.id === tabMenu.value?.id && doc.generation === tabMenu.value?.generation && !doc.shelved))
+let menuTrigger = null, menuTicket = 0
 const shelfOpen = ref(false), shelfPanel = ref(null), pagesButton = ref(null), appBar = ref(null), updateNotice = ref(null), editorContent = ref(null), undoRemoval = ref(null)
 let pageMotion = null, landingAnimation = null
 function cancelMotion() { pageMotion?.cancel() }
@@ -158,7 +163,8 @@ async function revealActive() {
     ready[id] = true
     await nextTick()
     if (!isCurrent()) return
-    if (!sourceMode.value && !shelfOpen.value) sharedEditor.value.focusSessionView()
+    scrollActiveTab()
+    if (!shelfOpen.value && !busy.value) pane.focusEditor()
   } finally { if (ticket === loadVersion) bodyLoading.value = false }
 }
 function forgetDocument(id) {
@@ -323,7 +329,7 @@ async function flush(allowNameFailure = false) {
     if (result.warning) message.value = result.warning
   }))
 }
-async function run(operation, allowNameFailure = false) {
+async function run(operation, allowNameFailure = false, preserveActiveView = false) {
   if (busy.value || operationPending.value || !loaded.value) return
   const id = activeId.value, doc = current.value, generation = doc?.generation, selection = selectionVersion
   // Exclude a second command without disabling/defocusing the composing input.
@@ -337,25 +343,91 @@ async function run(operation, allowNameFailure = false) {
     busy.value = true; selectionVersion++
     await flush(allowNameFailure)
     const snapshot = await operation()
-    if (snapshot?.documents) { adopt(snapshot); await revealActive() }
+    if (snapshot?.documents) {
+      adopt(snapshot)
+      if (!preserveActiveView || displayedId.value !== activeId.value || !ready[activeId.value]) await revealActive()
+    }
   }
   catch (error) { message.value = error.message }
   finally { busy.value = false; operationPending.value = false }
 }
-async function activate(id) {
-  if (busy.value || operationPending.value) return
+async function activate(id, fromKeyboard = false) {
+  if (busy.value || operationPending.value || !loaded.value) return
   const doc = findDocument(id)
   if (!doc) return
-  selectionVersion++; shelfOpen.value = false
-  if (activeId.value === id) { await api.activate(id); return }
+  closeTabMenu()
+  const sourceId = activeId.value, selection = ++selectionVersion, generation = doc.generation
+  shelfOpen.value = false
+  if (sourceId === id && !doc.shelved) {
+    // Reaffirm this selection even if a second-instance open has reached the
+    // store but its metadata event has not reached the renderer yet.
+    try { await api.activate(id) } catch (error) { message.value = error.message }
+    scrollActiveTab(); return
+  }
   operationPending.value = true
+  let switched = false
   try {
-    await waitComposition(); captureDisplayed(); busy.value = true; await flush()
+    await waitComposition()
+    if (selectionVersion !== selection || activeId.value !== sourceId || !isLive(doc) || doc.generation !== generation) return
+    if (fromKeyboard) rememberView(); else captureDisplayed()
+    busy.value = true; await flush()
+    if (selectionVersion !== selection || activeId.value !== sourceId || !isLive(doc) || doc.generation !== generation) return
     await api.activate(id)
     doc.shelved = false; selectionVersion++
     activeId.value = id; sourceMode.value = sessions.get(id)?.sourceMode ?? false
+    switched = true
   } catch (error) { message.value = error.message }
-  finally { busy.value = false; operationPending.value = false; showActive() }
+  finally {
+    busy.value = false; operationPending.value = false
+  }
+  // Loading/restoration is cancellable by a newer mouse selection. Keyboard
+  // repeats remain gated by commandReady until the selected surface is ready.
+  if (switched && activeId.value === id) {
+    try { await revealActive() } catch (error) { message.value = error.message }
+  }
+}
+function scrollActiveTab() { tabs.value?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }
+async function navigateTab(direction) {
+  // Consume repeats during an in-flight transition, never replay stale input
+  // after a later mouse selection, modal operation or composition commit.
+  if (!commandReady.value || openDocuments.value.length < 2) return
+  const index = openDocuments.value.findIndex(doc => doc.id === activeId.value)
+  if (index < 0) return
+  await activate(openDocuments.value[(index + direction + openDocuments.value.length) % openDocuments.value.length].id, true)
+}
+function openTabMenu(doc, event, keyboard = false) {
+  if (!commandReady.value || doc.shelved) return
+  menuTrigger = event.currentTarget.querySelector('[role=tab]')
+  const bounds = event.currentTarget.getBoundingClientRect()
+  sharedEditor.value?.rememberView()
+  shelfOpen.value = false
+  tabMenu.value = { id: doc.id, generation: doc.generation, x: keyboard ? bounds.left : event.clientX, y: keyboard ? bounds.bottom : event.clientY, ticket: ++menuTicket }
+}
+function tabMenuKey(doc, event) {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+  event.preventDefault(); event.stopPropagation(); openTabMenu(doc, event, true)
+}
+function closeTabMenu(restoreFocus = false) {
+  tabMenu.value = null
+  if (restoreFocus) void nextTick(() => menuTrigger?.isConnected && menuTrigger.focus({ preventScroll: true }))
+}
+async function tabMenuAction(name) {
+  const doc = menuDocument.value
+  closeTabMenu()
+  if (!doc || !isLive(doc) || !commandReady.value) return
+  if (name === 'rename' && !doc.path) {
+    await activate(doc.id); await nextTick()
+    if (activeId.value === doc.id && isLive(doc) && commandReady.value) sessions.get(doc.id)?.focusName()
+  }
+  if (name === 'saveAs') await save(true, doc.id)
+  if (name === 'shelve') await shelveDocument(doc.id)
+  if (name === 'shelveOthers') await run(async () => { await api.shelveOthers(doc.id); return api.listMetadata() }, false, true)
+  if (name === 'shelveAll') await run(async () => { await api.shelveAll(); return api.listMetadata() }, false, true)
+  if (name === 'remove') await closeDocument(doc.id)
+  if (name !== 'rename' && commandReady.value && !shelfOpen.value) sessions.get(activeId.value)?.focusEditor()
+}
+async function expandAll() {
+  await run(async () => { await api.expandAll(); return api.listMetadata() }, false, true)
 }
 async function toggleSource() {
   const id = activeId.value, doc = current.value, pane = sessions.get(id)
@@ -377,8 +449,7 @@ async function toggleSource() {
     if (switched && activeId.value === id && isLive(doc)) pane.focusEditor()
   }
 }
-async function save(saveAs) {
-  const id = activeId.value
+async function save(saveAs, id = activeId.value) {
   await run(async () => {
     const result = await api.save(id, saveAs)
     if (result.warning) message.value = result.warning
@@ -465,6 +536,8 @@ async function command(request) {
   const name = typeof request === 'string' ? request : request?.name
   if (!commandReady.value) return
   if (typeof request !== 'string' && (request.documentId !== activeId.value || request.revision !== menuRevision)) return
+  closeTabMenu()
+  if (name === 'previousPage' || name === 'nextPage') { await navigateTab(name === 'nextPage' ? 1 : -1); return }
   if (name === 'new') { shelfOpen.value = false; await run(() => api.newDocument()) }
   if (name === 'open') { shelfOpen.value = false; await run(() => api.open()) }
   if (!current.value) return
@@ -474,6 +547,11 @@ async function command(request) {
   if (name === 'source') await toggleSource()
 }
 function shortcut(event) {
+  if (event.ctrlKey && !event.altKey && event.key === 'Tab') {
+    event.preventDefault(); event.stopImmediatePropagation(); closeTabMenu()
+    void navigateTab(event.shiftKey ? -1 : 1)
+    return
+  }
   if (event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey) return
   const key = event.key.toLowerCase()
   const action = key === 's' ? (event.shiftKey ? 'saveAs' : 'save') : !event.shiftKey && ({ n: 'new', o: 'open' })[key]
@@ -481,7 +559,7 @@ function shortcut(event) {
 }
 onMounted(async () => {
   try {
-    window.addEventListener('keydown', shortcut)
+    window.addEventListener('keydown', shortcut, true)
     window.addEventListener('compositionstart', startComposition, true)
     window.addEventListener('compositionend', endComposition, true)
     disposers = [api.onClose(closeApplication), api.onCommand(command), api.onDocuments(documentsChanged)]
@@ -489,7 +567,7 @@ onMounted(async () => {
     await api.ready()
   } catch (error) { fatal.value = true; message.value = `启动失败：${error.message}` }
 })
-onBeforeUnmount(() => { cancelMotion(); landingAnimation?.cancel(); timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut); window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true) })
+onBeforeUnmount(() => { cancelMotion(); landingAnimation?.cancel(); timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut, true); window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true) })
 </script>
 <style>
 * { box-sizing: border-box; }

@@ -102,6 +102,51 @@ for (const operation of ['shelve', 'remove']) test(`${operation}提交失败保�
   } finally { db.close() }
 })
 
+test('批量布局只提交一次元数据、不读正文；全部展开保留顺序和当前页，重启保持', async t => {
+  const { store, make } = await fixture(t), first = store.activeId
+  const second = (await store.newDocument('B正文', 'B')).activeId
+  const third = (await store.newDocument('C正文', 'C')).activeId
+  await store.shelveOthers(second)
+  const request = store.database.request.bind(store.database), calls = []
+  store.database.request = (action, payload) => { calls.push({ action, payload }); return request(action, payload) }
+  const expanded = await store.expandAll()
+  assert.deepEqual(expanded.documents.map(doc => doc.id), [first, second, third])
+  assert.equal(expanded.activeId, second)
+  assert.ok(expanded.documents.every(doc => !doc.shelved && !Object.hasOwn(doc, 'markdown')))
+  assert.deepEqual(calls.map(call => call.action), ['apply'])
+  assert.ok(calls[0].payload.changes.every(change => Object.keys(change.fields).join() === 'shelved'))
+  const next = make(), saved = await next.restore()
+  assert.equal(saved.activeId, second); assert.ok(saved.documents.every(doc => !doc.shelved))
+  await store.shelveAll(); assert.equal(store.activeId, null)
+  const reopened = await store.expandAll(); assert.equal(reopened.activeId, first)
+  await store.remove(first); await store.remove(second); await store.remove(third)
+  assert.equal((await store.expandAll()).activeId, null)
+  assert.equal(store.documents.length, 0)
+})
+
+for (const operation of ['expandAll', 'shelveOthers', 'shelveAll']) test(`${operation}批量失败整笔回滚，重试flush和重启不产生半开半关`, async t => {
+  const { store, make } = await fixture(t), first = store.activeId
+  const second = (await store.newDocument('B', 'B')).activeId
+  await store.newDocument('C', 'C'); await store.activate(first)
+  if (operation === 'expandAll') await store.shelveAll()
+  const before = store.snapshot(), db = new DatabaseSync(store.databasePath)
+  try {
+    db.exec("CREATE TRIGGER reject_batch BEFORE UPDATE ON settings BEGIN SELECT RAISE(ABORT,'batch rejected'); END")
+    await assert.rejects(store[operation](second), /备份失败/)
+    assert.deepEqual(store.snapshot().documents, before.documents)
+    assert.equal(store.activeId, before.activeId)
+    db.exec('DROP TRIGGER reject_batch')
+    await store.persist()
+    const next = make(), saved = await next.restore()
+    assert.deepEqual(saved.documents, before.documents); assert.equal(saved.activeId, before.activeId)
+    await store[operation](second)
+    if (operation === 'shelveOthers') {
+      assert.equal(store.activeId, second)
+      assert.deepEqual(store.documents.filter(doc => !doc.shelved).map(doc => doc.id), [second])
+    }
+  } finally { db.close() }
+})
+
 test('撤销失败不消耗恢复内容，重试成功后只恢复一篇', async t => {
   const { store } = await fixture(t), id = store.activeId
   await store.update(id, '保留撤销', 1); await store.remove(id)

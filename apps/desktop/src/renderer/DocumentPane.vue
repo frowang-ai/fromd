@@ -1,5 +1,5 @@
 <template>
-  <section v-show="active" class="document-shell document-pane">
+  <section v-show="active" ref="element" class="document-shell document-pane">
     <div class="document-meta">
       <input v-if="!document.path" :disabled="!editable" v-model="nameValue" class="draft-name" aria-label="草稿名称" :aria-invalid="!!document.nameError" placeholder="未命名笔记" @input="nameInput" @compositionstart="composing = true" @compositionend="endComposition" @blur="finishNameOnBlur" @keydown.enter="finishName" />
       <span v-else :title="document.path">{{ document.path }}</span>
@@ -12,6 +12,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 const props = defineProps({ document: { type: Object, required: true }, active: Boolean, editable: Boolean, status: String, engine: Object, richActive: Boolean })
 const emit = defineEmits(['change', 'rename', 'finish-name'])
+const element = ref(null)
 const composing = ref(false), nameValue = ref(props.document.draftName ?? props.document.title)
 watch(() => props.document.draftName ?? props.document.title, value => { if (!composing.value) nameValue.value = value })
 function nameInput(event) { if (!event.isComposing && !composing.value) emit('rename', event.target.value) }
@@ -73,5 +74,6 @@ async function toggleSource() {
   return sourceMode.value
 }
 function focusEditor() { if (sourceMode.value) sourceInput.value?.focus(); else props.engine?.focusSessionView() }
-defineExpose({ getMarkdown, toggleSource, focusEditor, sourceMode, resolveImage, syncMarkdown, captureViewState, restoreViewState })
+function focusName() { const input = element.value?.querySelector('.draft-name'); input?.focus(); input?.select() }
+defineExpose({ getMarkdown, toggleSource, focusEditor, focusName, sourceMode, resolveImage, syncMarkdown, captureViewState, restoreViewState })
 </script>
