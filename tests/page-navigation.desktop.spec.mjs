@@ -308,3 +308,73 @@ test('已选标签点击可确认尚未送达的外部选择；非当前脏文�
     expect(await readFile(f.path, 'utf8')).toBe('# C\n\n文件磁盘原文')
   } finally { await cleanup(f.directory, app) }
 })
+
+test('移除提示可关闭且保存切换新建不复活；同名新移除重现且撤销有效', async () => {
+  const f = await fixture(); let app, db
+  try {
+    const store = new DocumentStore(f.profile); await store.restore()
+    await store.rename(f.second, '未命名笔记'); await store.rename(f.third, '未命名笔记'); await store.dispose()
+    const launched = await launch(f.profile); app = launched.app; const { page } = launched
+    await app.evaluate(({ dialog }) => {
+      globalThis.__noticeChoice = 1
+      dialog.showMessageBox = async () => ({ response: globalThis.__noticeChoice })
+    })
+    async function removeSameName() {
+      await tab(page, '未命名笔记').first().click({ button: 'right' })
+      await page.getByRole('menuitem', { name: '移除页面', exact: true }).click(); await editorReady(page)
+    }
+    await removeSameName()
+    const notice = page.locator('.removal-notice'), dismiss = page.getByRole('button', { name: '关闭移除提示', exact: true })
+    await expect(notice).toBeVisible(); await expect(dismiss).toBeVisible()
+    const shots = join(root, 'output', 'removal-notice-046'); await mkdir(shots, { recursive: true })
+    await page.screenshot({ path: join(shots, 'removal-notice-close.png'), fullPage: true })
+    const beforeDismiss = await snapshot(page)
+    await app.evaluate(({ ipcMain }) => {
+      globalThis.__dismissMutations = []
+      for (const name of ['close', 'undo-remove', 'save', 'update', 'rename', 'view-state']) {
+        const channel = `documents:${name}`, handler = ipcMain._invokeHandlers.get(channel)
+        ipcMain.removeHandler(channel)
+        ipcMain.handle(channel, (...args) => { globalThis.__dismissMutations.push(name); return handler(...args) })
+      }
+    })
+    await dismiss.focus(); await page.keyboard.press('Enter')
+    await expect(notice).toHaveCount(0)
+    expect(await snapshot(page)).toEqual(beforeDismiss)
+    expect(await app.evaluate(() => globalThis.__dismissMutations)).toEqual([])
+    expect((await snapshot(page)).undoRemoval).toBe('未命名笔记')
+
+    const saved = join(f.directory, '当前A.md')
+    await app.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }) }, saved)
+    await menuCommand(page, 'save'); await expect(tab(page, '当前A.md')).toBeVisible(); await editorReady(page)
+    await expect(notice).toHaveCount(0)
+    expect(await readFile(saved, 'utf8')).toBe('# A\n\n第一篇正文')
+    await select(page, '未命名笔记'); await expect(notice).toHaveCount(0)
+    await select(page, '当前A.md'); await expect(notice).toHaveCount(0)
+    await menuCommand(page, 'new'); await editorReady(page)
+    await expect.poll(async () => (await snapshot(page)).documents.length).toBe(3)
+    await expect(notice).toHaveCount(0)
+    await select(page, '当前A.md')
+
+    await app.evaluate(() => { globalThis.__noticeChoice = 2 })
+    await removeSameName(); await expect(notice).toHaveCount(0)
+    expect((await snapshot(page)).documents.some(doc => doc.id === f.third)).toBe(true)
+    db = new DatabaseSync(join(f.profile, 'drafts.sqlite'))
+    db.exec("CREATE TRIGGER reject_notice_remove BEFORE DELETE ON documents BEGIN SELECT RAISE(ABORT,'controlled removal failure'); END")
+    await app.evaluate(() => { globalThis.__noticeChoice = 1 })
+    await removeSameName(); await expect(page.getByRole('alert')).toContainText('备份失败')
+    await expect(notice).toHaveCount(0)
+    expect((await snapshot(page)).undoRemoval).toBe('未命名笔记')
+    db.exec('DROP TRIGGER reject_notice_remove'); db.close(); db = null
+
+    await removeSameName(); await expect(notice).toBeVisible()
+    expect((await snapshot(page)).documents.some(doc => doc.id === f.third)).toBe(false)
+    await notice.getByRole('button', { name: '撤销', exact: true }).focus(); await page.keyboard.press('Enter'); await editorReady(page)
+    await expect(notice).toHaveCount(0)
+    const restored = (await snapshot(page)).documents.find(doc => doc.title === '未命名笔记' && doc.preview.includes('第三篇正文'))
+    expect(restored.id).not.toBe(f.third)
+    expect((await page.evaluate(id => window.desktop.read(id), restored.id)).markdown).toContain('第三篇正文')
+    await removeSameName(); await expect(dismiss).toBeVisible()
+    await dismiss.click(); await expect(notice).toHaveCount(0)
+    expect((await snapshot(page)).undoRemoval).toBe('未命名笔记')
+  } finally { db?.close(); await cleanup(f.directory, app) }
+})

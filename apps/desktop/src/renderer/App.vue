@@ -31,7 +31,7 @@
     </section>
     <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" @expand-all="expandAll" />
     <TabMenu v-if="tabMenu && menuDocument" :key="tabMenu.ticket" :document="menuDocument" :x="tabMenu.x" :y="tabMenu.y" @close="closeTabMenu" @action="tabMenuAction" />
-    <div v-if="undoRemoval" class="removal-notice" role="status">已移除<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
+    <div v-if="undoRemoval && !removalNoticeDismissed" class="removal-notice" role="status">已移除<button :disabled="busy || operationPending" @click="undoRemove">撤销</button><button class="dismiss-removal" aria-label="关闭移除提示" title="关闭提示" @click="removalNoticeDismissed = true">×</button></div>
     <UpdateNotice ref="updateNotice" :busy="!commandReady" />
   </main>
 </template>
@@ -52,6 +52,7 @@ const tabs = ref(null), tabMenu = ref(null)
 const menuDocument = computed(() => documents.value.find(doc => doc.id === tabMenu.value?.id && doc.generation === tabMenu.value?.generation && !doc.shelved))
 let menuTrigger = null, menuTicket = 0
 const shelfOpen = ref(false), shelfPanel = ref(null), pagesButton = ref(null), appBar = ref(null), updateNotice = ref(null), editorContent = ref(null), undoRemoval = ref(null)
+const removalNoticeDismissed = ref(false)
 let pageMotion = null, landingAnimation = null
 function cancelMotion() { pageMotion?.cancel() }
 const sessions = new Map(), timers = new Map(), nameTimers = new Map(), nameWrites = new Map(), writes = new Set(), closedIds = new Set()
@@ -499,7 +500,7 @@ async function closeDocument(id) {
   await run(async () => {
     const result = await api.close(id)
     warning = result.warning || ''
-    if (result.closed) { removed = true; forgetDocument(id) }
+    if (result.closed) { removed = true; removalNoticeDismissed.value = false; forgetDocument(id) }
     return result.snapshot
   }, true)
   if (warning) message.value = warning
@@ -586,6 +587,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #6c9b86; outline-
 .empty-workspace button { font-size:12px; }
 .removal-notice { position:fixed; bottom:38px; left:50%; transform:translateX(-50%); max-width:calc(100vw - 28px); z-index:30; padding:6px 12px; background:#fffefa; border:1px solid #dce3d9; border-radius:4px; box-shadow:0 2px 10px #2738290c; font-size:12px; overflow-wrap:anywhere; }
 .removal-notice button { margin-left:10px; color:#467657; }
+.removal-notice .dismiss-removal { width:24px; height:24px; margin-left:6px; padding:0; color:#899486; font-size:16px; line-height:1; vertical-align:middle; }
 .tabs { display: flex; flex: 0 1 auto; min-width: 0; overflow-x: auto; gap: 5px; padding: 2px; scrollbar-width: thin; }
 .tab-item { display: flex; flex: 0 0 auto; align-items: center; max-width: 210px; border:1px solid transparent; border-radius:5px; }
 .tab-item:hover { background:#f0f3ed; }
