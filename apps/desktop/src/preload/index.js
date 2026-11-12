@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('desktop', {
   list: () => invoke('documents:list'),
   listMetadata: () => invoke('documents:list-metadata'),
   read: id => invoke('documents:read', id),
+  openLink: (id, href) => invoke('documents:open-link', id, href),
   rename: (id, title) => invoke('documents:rename', id, title),
   setViewState: (id, state) => invoke('documents:view-state', id, state),
   newDocument: () => invoke('documents:new'),

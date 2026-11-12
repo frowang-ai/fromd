@@ -1,6 +1,6 @@
-# frowd — Windows 0.4.2
+# frowd — Windows 0.4.3
 
-本地 Markdown 编辑器。0.4.2 保留450ms收起提示，恢复页面直接显示正文；有内容草稿删除前可选择保存为 Markdown、直接删除或取消。包含 frowd 名称、Frowang 图标、页面卡片、原生菜单、SQLite自动保存与按需编辑会话。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
+本地 Markdown 编辑器。0.4.3 支持单击链接：网页在默认浏览器打开，本地文件在资源管理器中定位，文件夹直接进入；相对链接使用该篇Markdown所在目录，未保存草稿明确提示先保存。保留450ms收起提示，恢复页面直接显示正文；有内容草稿删除前可选择保存为 Markdown、直接删除或取消。包含 frowd 名称、Frowang 图标、页面卡片、原生菜单、SQLite自动保存与按需编辑会话。独立工程，不依赖 Frowang 网站、账号或 localhost 预览服务。
 
 0.3.1 将应用显示名、窗口标题、快捷方式与安装包名统一为小写 `frowd`，图标直接沿用 `web-lunwen/public/icon-512.png` 的 Frowang 标识。`package.name=frowang-markdown`、`appId=com.frowang.markdown` 和 `Frowang Markdown.exe` 内部文件名保持不变，继续使用原草稿目录和安装身份；exe 的显示名称与图标资源更新为 frowd。当前仍是无更新源、未签名的本地安装包，未开启在线更新。
 
@@ -20,9 +20,13 @@ Windows 0.1、0.2与0.3均已由用户确认收束。当前状态、约束和后
 
 ## 页面收起与动效
 
-0.4.2 将收起、页面卡片列表和右上角删除按钮接入桌面运行路径，沿用现有编辑器样式。收起的页面保留在 SQLite，退出重启仍可找回；删除/移除为独立动作，本次会话可撤销最近一次。行为、迁移与测试入口见[页面收起说明](docs/page-shelf.md)，实际验证见 `VALIDATION.md`。统一安装器位于 `release/0.4.2/frowd-Setup-0.4.2-x64.exe`；旧安装器保留。
+0.4.2 将收起、页面卡片列表和右上角删除按钮接入桌面运行路径，沿用现有编辑器样式。收起的页面保留在 SQLite，退出重启仍可找回；删除/移除为独立动作，本次会话可撤销最近一次。行为、迁移与测试入口见[页面收起说明](docs/page-shelf.md)，实际验证见 `VALIDATION.md`。统一安装器位于 `release/0.4.3/frowd-Setup-0.4.3-x64.exe`；旧安装器保留。
 
 一体标签与整页收尖吸入动效已接入桌面运行路径：收起450ms，恢复直接显示。收起使用当前窗口真实画面，保留减少动态效果与异常跳过；恢复不再捕获或绘制动画。原[独立交互预览](docs/page-shelf-preview.md)仍可切换标签样式和慢放，仅使用示例内容，刷新重置。
+
+## 链接点击
+
+正文、表格和浮层的地址可直接点击。文件链接只定位到资源管理器，不启动Word或PDF阅读器；复制与编辑地址仍在原浮层。路径规则、未保存草稿及测试入口见[链接点击说明](docs/document-links.md)。
 
 ## 开发与构建
 
@@ -42,11 +46,11 @@ npm run dist:win         # portable
 npm run dist:installer   # 按当前用户安装的 NSIS 安装包
 ```
 
-`package:dir` 默认生成 `release/0.4.2/win-unpacked/Frowang Markdown.exe`，需要保留同目录所有文件。`dist:installer` 生成 `release/0.4.2/frowd-Setup-0.4.2-x64.exe`。`dist:win` 可生成 `frowd-0.4.2-x64.exe` portable，本轮交付以安装包为准。历史 `release/0.2.0-verified/` 保持原样。构建默认不发布、未进行代码签名。便携版表示无需安装，草稿仍保存在用户数据目录，不跟随 exe。
+`package:dir` 默认生成 `release/0.4.3/win-unpacked/Frowang Markdown.exe`，需要保留同目录所有文件。`dist:installer` 生成 `release/0.4.3/frowd-Setup-0.4.3-x64.exe`。`dist:win` 可生成 `frowd-0.4.3-x64.exe` portable，本轮交付以安装包为准。历史 `release/0.2.0-verified/` 保持原样。构建默认不发布、未进行代码签名。便携版表示无需安装，草稿仍保存在用户数据目录，不跟随 exe。
 
 ## Windows 安装与更新
 
-`npm run dist:installer` 使用 electron-builder 26.18.0 生成 `release/0.4.2/frowd-Setup-0.4.2-x64.exe`，按当前用户安装，保留固定的 `com.frowang.markdown` 身份、安装入口及桌面／开始菜单快捷方式。后续直接运行已安装的 exe，无需每次执行 portable 外壳。安装／升级不删除应用数据或外部 `.md`，卸载默认也保留用户数据。portable 构建入口继续保留。
+`npm run dist:installer` 使用 electron-builder 26.18.0 生成 `release/0.4.3/frowd-Setup-0.4.3-x64.exe`，按当前用户安装，保留固定的 `com.frowang.markdown` 身份、安装入口及桌面／开始菜单快捷方式。后续直接运行已安装的 exe，无需每次执行 portable 外壳。安装／升级不删除应用数据或外部 `.md`，卸载默认也保留用户数据。portable 构建入口继续保留。
 
 更新由固定的 electron-updater 6.8.9 `NsisUpdater` 处理。安装版启动就绪 30 秒后检查一次，此后至多每 6 小时检查；手动检查至少间隔 10 秒。只用 stable（`latest.yml`），显式拒绝预发布及降级；只接受包含非空 `files` 的现代清单，拒绝需要管理员权限或 web installer 的候选。检查失败会取消旧候选的下载资格，下载前再次核对库中实际候选与已接受的版本、文件信息一致。发现版本后由用户点击下载，下载完成可“稍后”或“重启更新”；普通退出不会自动安装。重启先复用正文／名称／阅读位置 flush，再等待 SQLite 提交；随后仅在安装器的真实 `ChildProcess` 确认启动、更新库也请求退出后放行应用退出。保存或安装器启动失败均保持窗口及草稿，可在同一窗口重试，不要求先 Ctrl+S 保存为外部文件。按用户安装的更新不转交 shell 或提权 fallback；安装器已经启动后的安装失败不承诺自动回滚。应用内不接收任意 URL、token 或 IPC 名称。
 
@@ -60,7 +64,7 @@ $env:FROWANG_UPDATE_PUBLISHER = '<代码签名证书的发布者名称>'
 npm run dist:installer
 ```
 
-带正式源时构建强制代码签名，使用锁定 builder 支持的 `win.signtoolOptions.publisherName` 和签名验证；未配置凭据的构建不能冒充可发布签名版本。版本元数据、安装器、blockmap 和差量请求均在此 updater 实例的实际请求／重定向边界校验 HTTPS 与无 URL 凭据，测试请求仅限指定 loopback origin，不改变应用其他网络或 TLS。`app-update.yml` 和固定 URL 随包生成。将版本对应的安装器、`.blockmap` 与 `latest.yml` 放入同一 HTTPS 目录，最后替换 `latest.yml`；这是单独的发布动作，本项目命令均 `--publish never`，不会上传或创建 Release。当前版号为 0.4.2；隔离 NSIS 的 0.2.900／0.2.901 仅为构建覆盖测试版本。更新源故障或签名不匹配不能保证更新可用；失败可手动重试。安装器启动后遭系统中断不具备事务回滚保证。
+带正式源时构建强制代码签名，使用锁定 builder 支持的 `win.signtoolOptions.publisherName` 和签名验证；未配置凭据的构建不能冒充可发布签名版本。版本元数据、安装器、blockmap 和差量请求均在此 updater 实例的实际请求／重定向边界校验 HTTPS 与无 URL 凭据，测试请求仅限指定 loopback origin，不改变应用其他网络或 TLS。`app-update.yml` 和固定 URL 随包生成。将版本对应的安装器、`.blockmap` 与 `latest.yml` 放入同一 HTTPS 目录，最后替换 `latest.yml`；这是单独的发布动作，本项目命令均 `--publish never`，不会上传或创建 Release。当前版号为 0.4.3；隔离 NSIS 的 0.2.900／0.2.901 仅为构建覆盖测试版本。更新源故障或签名不匹配不能保证更新可用；失败可手动重试。安装器启动后遭系统中断不具备事务回滚保证。
 
 隔离真实升级回归使用两个实际 NSIS 安装包与 loopback 源，命令见 `VALIDATION.md`。HTTP 仅限显式 `FROWANG_UPDATE_TEST_BUILD=1` 的测试构建，构建时还必须指定绝对路径 `FROWANG_UPDATE_TEST_PROFILE`。测试包携带这个固定路径，在同一测试 appId／productName 下初装、升级、自动重开均使用它，并将 updater 缓存放在旁边。原因是 NSIS 经桌面 shell 自动重开时不继承父进程环境变量。仅测试安装包使用同步 CJS 启动入口，在导入完全相同的产品主入口前设置隔离目录和随机 loopback CDP 端口，测试直接连接 NSIS 自动重开的 UI；测试包不创建快捷方式，不可作为用户交付包。正式包不包含测试启动文件或路径字段，产品 main 不含测试证据写入，renderer／更新元数据无法更改该路径。
 

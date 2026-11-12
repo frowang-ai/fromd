@@ -11,6 +11,7 @@ import electronUpdater from 'electron-updater'
 import { existsSync } from 'node:fs'
 import { openFileArguments, operationQueue } from './lifecycle.js'
 import { createApplicationMenu } from './applicationMenu.js'
+import { openDocumentLink } from './documentLinks.js'
 
 const require = createRequire(import.meta.url), here = dirname(fileURLToPath(import.meta.url))
 const rendererRoot = resolve(here, '../renderer')
@@ -137,6 +138,7 @@ function wireIPC() {
   handle('documents:list', () => store.snapshot())
   handle('documents:list-metadata', () => store.listMetadata())
   handle('documents:read', id => store.read(id))
+  handle('documents:open-link', (id, href) => openDocumentLink(href, store.get(id).path, shell))
   handle('documents:rename', (id, title) => store.rename(id, title))
   handle('documents:view-state', (id, state) => store.setViewState(id, state))
   handle('documents:new', () => store.newDocument())

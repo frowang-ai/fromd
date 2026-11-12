@@ -26,19 +26,20 @@ import { installWritingListKeys, writingListLabels } from './writingListKeys.js'
 import { installWritingListViews } from './writingListView.js'
 import { describeWritingDocument, installWritingClipboard } from './writingClipboard.js'
 import { logWritingEvent } from './writingDiagnostics.js'
+import { installWritingLinks } from './writingLinks.js'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
 import 'katex/dist/katex.min.css'
 import './writingLists.css'
 import './writingTextStyles.css'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null } })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change'])
+const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, linkNavigation: Boolean })
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
 let activeSession = null, sessionResolver = null, allPlugins, switching = false, updateTimer, rememberedViews = null, restoredViews = []
-let resolveReady
+let resolveReady, disposeLinks
 const initialized = new Promise(resolve => { resolveReady = resolve })
 const view = () => editor?.editor.action(ctx => ctx.get(core.editorViewCtx))
 function serializePreservingOriginal(doc, baseline = initialDoc, normalized = initialSerialized, raw = original) {
@@ -183,6 +184,7 @@ onMounted(async () => {
         emit('session-change', { ...owner, markdown: serializePreservingOriginal(doc, baseline, normalized, raw) })
       }, 150)
     } })
+    if (props.linkNavigation) disposeLinks = installWritingLinks(v, { root: root.value, getOwner: () => activeSession, onOpen: value => emit('open-link', value) })
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view())
     installWritingListViews(view())
@@ -203,7 +205,7 @@ onMounted(async () => {
   }
   finally { loading.value = false }
 })
-onBeforeUnmount(() => { disposed = true; clearTimeout(updateTimer); resolveReady(false); if (created) editor?.destroy().catch(() => {}) })
+onBeforeUnmount(() => { disposed = true; disposeLinks?.(); clearTimeout(updateTimer); resolveReady(false); if (created) editor?.destroy().catch(() => {}) })
 </script>
 <style>
 .writing-editor .milkdown {

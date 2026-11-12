@@ -22,7 +22,7 @@
       </template>
       <p v-if="bodyLoading" class="loading" role="status">正在读取笔记…</p>
       <div v-show="activeId && displayedId === activeId && !bodyLoading && !sourceMode" :inert="!ready[activeId]" class="document-shell shared-editor">
-        <MarkdownEditor ref="sharedEditor" @session-change="sessionChanged" />
+        <MarkdownEditor ref="sharedEditor" link-navigation @open-link="openLink" @session-change="sessionChanged" />
       </div>
     </div>
     <section v-if="loaded && !current && !bodyLoading" class="empty-workspace">
@@ -87,6 +87,12 @@ async function waitComposition() {
   } while (composing)
 }
 function rememberView() { captureDisplayed(); sharedEditor.value?.rememberView() }
+async function openLink({ id, generation, href }) {
+  const doc = findDocument(id)
+  if (!doc || doc.generation !== generation || displayedId.value !== id || activeId.value !== id || !commandReady.value || shelfOpen.value || sourceMode.value) return
+  try { await api.openLink(id, href) }
+  catch (error) { message.value = error.message }
+}
 function sessionChanged({ id, generation, markdown }) {
   const doc = findDocument(id)
   if (!doc || doc.generation !== generation || displayedId.value !== id || sessions.get(id)?.sourceMode) return
