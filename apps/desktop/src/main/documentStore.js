@@ -69,6 +69,7 @@ export class DocumentStore {
     this.directory = directory; this.sessionPath = join(directory, 'session.json'); this.databasePath = join(directory, 'drafts.sqlite')
     this.documents = []; this.activeId = null; this.warning = ''; this.recoveryWritable = true
     this.pending = new Map(); this.deleted = new Set(); this.persistedIds = new Set(); this.position = 0
+    this.lastRemoved = null
   }
   get(id) {
     const doc = this.documents.find(doc => doc.id === id)
@@ -85,9 +86,9 @@ export class DocumentStore {
   canExitWithoutRecovery() { return !this.deleted.size && !this.documents.some(doc => this.needsRecovery(doc)) }
   metadata(doc) {
     return { id: doc.id, title: doc.title, path: doc.path, revision: doc.revision,
-      dirty: this.isDirty(doc), conflict: doc.conflict, viewState: structuredClone(doc.viewState) }
+      dirty: this.isDirty(doc), conflict: doc.conflict, viewState: structuredClone(doc.viewState), shelved: Boolean(doc.shelved), preview: doc.preview || '' }
   }
-  listMetadata() { return { documents: this.documents.map(doc => this.metadata(doc)), activeId: this.activeId, warning: this.warning } }
+  listMetadata() { return { documents: this.documents.map(doc => this.metadata(doc)), activeId: this.activeId, warning: this.warning, undoRemoval: this.lastRemoved?.doc.title || null } }
   async body(id) {
     this.get(id)
     const pending = this.pending.get(id)?.fields
@@ -109,7 +110,7 @@ export class DocumentStore {
       if (!this.isDirty(doc) && baseline !== doc.baseline) {
         const { markdown, ...formatMetadata } = format
         const fields = { ...formatMetadata, baseline, savedHash: digest(markdown), contentHash: digest(markdown), conflict: false, revision: doc.revision + 1 }
-        Object.assign(doc, fields); this.mark(doc, { ...fields, markdown })
+        Object.assign(doc, fields, { preview: markdown.slice(0, 1200) }); this.mark(doc, { ...fields, markdown })
       } else if (doc.conflict !== (baseline !== doc.baseline)) {
         doc.conflict = baseline !== doc.baseline; this.mark(doc, { conflict: doc.conflict })
       }
@@ -127,7 +128,7 @@ export class DocumentStore {
       this.documents = saved.documents
       this.persistedIds = new Set(this.documents.map(doc => doc.id))
       this.position = Math.max(-1, ...this.documents.map(doc => doc.position)) + 1
-      this.activeId = this.documents.some(doc => doc.id === saved.activeId) ? saved.activeId : this.documents[0]?.id
+      this.activeId = this.documents.some(doc => doc.id === saved.activeId && !doc.shelved) ? saved.activeId : this.documents.find(doc => !doc.shelved)?.id || null
       // Check disk only when this document is read or saved.
     } catch {
       this.warning = '恢复文件无法读取，原文件已保留。本次会话不能自动备份，请用保存或另存为保留内容。'
@@ -160,16 +161,16 @@ export class DocumentStore {
   async tryPersist() { try { return await this.persist() } catch { return false } }
   async dispose() { await this.database?.dispose() }
   async newDocument(markdown = '', title = UNTITLED) {
-    const doc = { id: randomUUID(), title, savedHash: digest(''), contentHash: digest(markdown), path: null, baseline: null, bom: false, eol: '\n', revision: 0, conflict: false, viewState: null, position: this.position++ }
+    const doc = { id: randomUUID(), title, savedHash: digest(''), contentHash: digest(markdown), path: null, baseline: null, bom: false, eol: '\n', revision: 0, conflict: false, viewState: null, position: this.position++, shelved: false, preview: markdown.slice(0, 1200) }
     this.documents.push(doc); this.activeId = doc.id; this.mark(doc, { markdown }, true)
     await this.tryPersist(); return this.snapshot()
   }
   async openFile(path) {
     const canonical = await canonicalPath(path)
     const existing = this.documents.find(doc => doc.path && pathKey(doc.path) === pathKey(canonical))
-    if (existing) { this.activeId = existing.id; await this.tryPersist(); return this.snapshot() }
+    if (existing) { await this.activate(existing.id); return this.snapshot() }
     const bytes = await fileBytes(canonical), { markdown, ...format } = decode(bytes)
-    const doc = { id: randomUUID(), title: basename(canonical), ...format, savedHash: digest(markdown), contentHash: digest(markdown), path: canonical, baseline: digest(bytes), revision: 0, conflict: false, viewState: null, position: this.position++ }
+    const doc = { id: randomUUID(), title: basename(canonical), ...format, savedHash: digest(markdown), contentHash: digest(markdown), path: canonical, baseline: digest(bytes), revision: 0, conflict: false, viewState: null, position: this.position++, shelved: false, preview: markdown.slice(0, 1200) }
     this.documents.push(doc); this.activeId = doc.id; this.mark(doc, { markdown }, true)
     await this.tryPersist(); return this.snapshot()
   }
@@ -180,7 +181,7 @@ export class DocumentStore {
     const contentHash = digest(markdown)
     if (revision === doc.revision && contentHash !== doc.contentHash) throw new Error('笔记版本冲突，请先另存当前内容。')
     if (contentHash !== doc.contentHash || revision !== doc.revision) {
-      doc.revision = revision; doc.contentHash = contentHash
+      doc.revision = revision; doc.contentHash = contentHash; doc.preview = markdown.slice(0, 1200)
       this.mark(doc, { markdown, revision, contentHash })
     }
     const backedUp = await this.tryPersist()
@@ -199,7 +200,62 @@ export class DocumentStore {
     const saved = await this.tryPersist()
     return { saved, warning: saved ? '' : this.warning }
   }
-  async activate(id) { this.get(id); this.activeId = id; await this.tryPersist(); return true }
+  // Shelf/removal changes only become visible after a confirmed commit. Failed
+  // mutations restore both metadata and pending writes, so a later flush cannot delete a visible page.
+  async changeLayout(change) {
+    const previous = { documents: this.documents.map(doc => ({ ...doc })), activeId: this.activeId,
+      pending: new Map(this.pending), deleted: new Set(this.deleted) }
+    try {
+      change()
+      if (!await this.persist()) throw new Error(this.warning || '页面状态无法保存，请恢复备份后重试。')
+    } catch (error) {
+      Object.assign(this, previous)
+      throw error
+    }
+  }
+  async activate(id) {
+    const doc = this.get(id)
+    if (doc.shelved) await this.changeLayout(() => { doc.shelved = false; this.mark(doc, { shelved: false }); this.activeId = id })
+    else { this.activeId = id; await this.tryPersist() }
+    return true
+  }
+  async shelve(id) {
+    const doc = this.get(id)
+    await this.changeLayout(() => {
+      doc.shelved = true; this.mark(doc, { shelved: true })
+      if (this.activeId === id) {
+        const index = this.documents.indexOf(doc), visible = this.documents.filter(other => !other.shelved)
+        this.activeId = visible.find(other => this.documents.indexOf(other) > index)?.id || visible.at(-1)?.id || null
+      }
+    })
+    return this.snapshot()
+  }
+  async remove(id) {
+    const doc = this.get(id), index = this.documents.indexOf(doc), markdown = await this.body(id)
+    const removed = { doc: structuredClone(doc), markdown, index, wasActive: this.activeId === id }
+    await this.changeLayout(() => {
+      this.documents.splice(index, 1); this.pending.delete(id)
+      if (this.persistedIds.has(id)) this.deleted.add(id)
+      if (this.activeId === id) this.activeId = this.documents.slice(index).find(other => !other.shelved)?.id || this.documents.findLast(other => !other.shelved)?.id || null
+    })
+    this.lastRemoved = removed
+    return this.snapshot()
+  }
+  async undoRemove() {
+    const removed = this.lastRemoved
+    if (!removed) return this.snapshot()
+    const reopened = removed.doc.path && this.documents.some(doc => doc.path && pathKey(doc.path) === pathKey(removed.doc.path))
+    // A fresh ID prevents pre-deletion replies/updates from targeting the restored page.
+    const doc = { ...structuredClone(removed.doc), id: randomUUID() }
+    if (reopened) Object.assign(doc, { path: null, title: `${doc.title}（恢复的草稿）`, baseline: null, savedHash: digest(''), conflict: false })
+    await this.changeLayout(() => {
+      this.documents.splice(Math.min(removed.index, this.documents.length), 0, doc)
+      this.mark(doc, { markdown: removed.markdown }, true)
+      if (removed.wasActive || (!this.activeId && !doc.shelved)) this.activeId = doc.id
+    })
+    this.lastRemoved = null
+    return { ...this.snapshot(), ...(reopened ? { info: '文件已经重新打开，旧内容已恢复为独立草稿。' } : {}) }
+  }
   async save(id, targetPath) {
     const doc = this.get(id), path = await canonicalPath(targetPath || doc.path)
     if (this.documents.some(other => other.id !== id && other.path && pathKey(other.path) === pathKey(path))) throw new Error('该文件已经在另一标签中打开，请切到那一篇保存。')
@@ -225,7 +281,7 @@ export class DocumentStore {
     if (!doc.path) throw new Error('未命名笔记没有磁盘文件。')
     const bytes = await fileBytes(doc.path), { markdown, ...format } = decode(bytes)
     const fields = { ...format, savedHash: digest(markdown), contentHash: digest(markdown), baseline: digest(bytes), conflict: false, revision: doc.revision + 1 }
-    Object.assign(doc, fields); this.mark(doc, { ...fields, markdown })
+    Object.assign(doc, fields, { preview: markdown.slice(0, 1200) }); this.mark(doc, { ...fields, markdown })
     await this.tryPersist(); return this.snapshot()
   }
   async close(id) {

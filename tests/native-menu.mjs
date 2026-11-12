@@ -22,3 +22,17 @@ export async function clickNativeMenu(app, name) {
 // Runs the actual registered MenuItem callback -> main -> preload -> renderer.
 // Only system dialog answers and explicit race gates are mocked by the specs.
 export async function menuCommand(page, name) { await clickNativeMenu(hosts.get(page), name) }
+
+// Exercise the real page-list button and the card's direct top-right removal control.
+export async function removePage(page, title, { wait = true } = {}) {
+  if (await page.getByRole('button', { name: '页面列表', exact: true }).getAttribute('aria-expanded') !== 'true')
+    await page.getByRole('button', { name: '页面列表', exact: true }).click()
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  await page.getByRole('button', { name: new RegExp(`^(删除|移除) ${escaped}$`) }).last().click()
+  if (wait) await finishRemovePage(page)
+}
+export async function finishRemovePage(page) {
+  await editorReady(page)
+  if (await page.getByRole('button', { name: '收起页面列表', exact: true }).count())
+    await page.getByRole('button', { name: '收起页面列表', exact: true }).click()
+}

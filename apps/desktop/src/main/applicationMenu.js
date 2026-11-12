@@ -7,6 +7,7 @@ export function createApplicationMenu({ Menu, sendCommand, canDispatch, closeWin
     ['save', '保存', 'CmdOrCtrl+S'], ['saveAs', '另存为', 'CmdOrCtrl+Shift+S'],
     ['pdf', '导出 PDF'],
   ]
+  const available = name => Boolean(state.ready && !state.busy && (state.documentId || ['new', 'open'].includes(name)) && canDispatch())
   const item = (name, label, accelerator, type = 'normal') => ({
     id: `document-${name}`, label, type, enabled: false,
     ...(accelerator ? { accelerator, registerAccelerator: false } : {}),
@@ -14,7 +15,7 @@ export function createApplicationMenu({ Menu, sendCommand, canDispatch, closeWin
       // Electron toggles checkboxes before click. Restore the acknowledged state;
       // only a completed renderer mode change changes the visible checkmark.
       refresh()
-      if (state.ready && !state.busy && state.documentId && canDispatch()) {
+      if (available(name)) {
         sendCommand({ name, documentId: state.documentId, revision: state.revision })
       }
     },
@@ -28,8 +29,7 @@ export function createApplicationMenu({ Menu, sendCommand, canDispatch, closeWin
       { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'toggleDevTools' } ] },
   ])
   function refresh() {
-    const enabled = Boolean(state.ready && !state.busy && state.documentId && canDispatch())
-    for (const name of [...commands.map(([name]) => name), 'source']) menu.getMenuItemById(`document-${name}`).enabled = enabled
+    for (const name of [...commands.map(([name]) => name), 'source']) menu.getMenuItemById(`document-${name}`).enabled = available(name)
     menu.getMenuItemById('document-source').checked = state.sourceMode
   }
   Menu.setApplicationMenu(menu)

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 
 const { directory, maxSessionBytes } = workerData
-const columns = ['title', 'path', 'markdown', 'contentHash', 'savedHash', 'baseline', 'bom', 'eol', 'revision', 'conflict', 'viewState', 'position']
+const columns = ['title', 'path', 'markdown', 'contentHash', 'savedHash', 'baseline', 'bom', 'eol', 'revision', 'conflict', 'viewState', 'position', 'shelved']
 const digest = text => createHash('sha256').update(text).digest('hex')
 let db
 function transaction(action) {
@@ -15,7 +15,7 @@ function transaction(action) {
 }
 function encode(key, value) {
   if (key === 'viewState') return JSON.stringify(value ?? null)
-  if (key === 'bom' || key === 'conflict') return value ? 1 : 0
+  if (key === 'bom' || key === 'conflict' || key === 'shelved') return value ? 1 : 0
   return value
 }
 function insert(doc) {
@@ -25,7 +25,7 @@ function insert(doc) {
 function checkCapacity() {
   // size is updated only on the changed row; the aggregate never scans body text.
   const total = db.prepare('SELECT COALESCE(SUM(size), 0) AS total FROM documents').get().total
-  if (total > maxSessionBytes) throw new Error('会话备份超过容量上限，请先保存并关闭部分笔记。')
+  if (total > maxSessionBytes) throw new Error('会话备份超过容量上限，请先保存并从页面列表移除部分笔记（仅收起不会释放容量）。')
 }
 function legacySession() {
   const path = join(directory, 'session.json')
@@ -53,7 +53,7 @@ function initialize() {
       id TEXT PRIMARY KEY, title TEXT NOT NULL, path TEXT, markdown TEXT NOT NULL,
       savedHash TEXT NOT NULL, contentHash TEXT NOT NULL DEFAULT '', baseline TEXT, bom INTEGER NOT NULL, eol TEXT NOT NULL,
       revision INTEGER NOT NULL, conflict INTEGER NOT NULL, viewState TEXT NOT NULL,
-      position INTEGER NOT NULL, size INTEGER NOT NULL DEFAULT 0
+      position INTEGER NOT NULL, size INTEGER NOT NULL DEFAULT 0, shelved INTEGER NOT NULL DEFAULT 0
     );
     CREATE TRIGGER IF NOT EXISTS document_insert_size AFTER INSERT ON documents BEGIN
       UPDATE documents SET size=length(CAST(NEW.markdown AS BLOB))+length(CAST(NEW.title AS BLOB))+length(CAST(COALESCE(NEW.path,'') AS BLOB))+length(CAST(NEW.viewState AS BLOB))+256 WHERE id=NEW.id;
@@ -62,7 +62,7 @@ function initialize() {
       UPDATE documents SET size=length(CAST(NEW.markdown AS BLOB))+length(CAST(NEW.title AS BLOB))+length(CAST(COALESCE(NEW.path,'') AS BLOB))+length(CAST(NEW.viewState AS BLOB))+256 WHERE id=NEW.id;
     END;`)
   const version = db.prepare("SELECT value FROM settings WHERE key='version'").get()?.value
-  if (version && !['1', '2'].includes(version)) throw new Error('Unsupported recovery version')
+  if (version && !['1', '2', '3'].includes(version)) throw new Error('Unsupported recovery version')
   // Old databases already record JSON migration. Never import that JSON again.
   // Backfill one bounded row at a time, atomically with the schema/version change.
   if (version === '1') transaction(() => {
@@ -82,9 +82,15 @@ function initialize() {
       db.prepare("INSERT INTO settings (key,value) VALUES ('version','2'),('activeId',?)").run(typeof saved.activeId === 'string' ? saved.activeId : null)
     })
   }
+  if (version !== '3') transaction(() => {
+    if (!db.prepare('PRAGMA table_info(documents)').all().some(column => column.name === 'shelved'))
+      db.exec('ALTER TABLE documents ADD COLUMN shelved INTEGER NOT NULL DEFAULT 0')
+    db.prepare("UPDATE settings SET value='3' WHERE key='version'").run()
+  })
   checkCapacity()
   return {
-    documents: db.prepare(`SELECT id, ${columns.filter(key => key !== 'markdown').join(',')} FROM documents ORDER BY position`).all().map(doc => ({ ...doc, bom: Boolean(doc.bom), conflict: Boolean(doc.conflict), viewState: JSON.parse(doc.viewState) })),
+    // Bounded previews are metadata; no full body crosses the startup boundary.
+    documents: db.prepare(`SELECT id, ${columns.filter(key => key !== 'markdown').join(',')}, substr(markdown,1,1200) AS preview FROM documents ORDER BY position`).all().map(doc => ({ ...doc, bom: Boolean(doc.bom), conflict: Boolean(doc.conflict), shelved: Boolean(doc.shelved), viewState: JSON.parse(doc.viewState) })),
     activeId: db.prepare("SELECT value FROM settings WHERE key='activeId'").get()?.value,
   }
 }

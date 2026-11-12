@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { bindMenu, editorReady, menuCommand, menuState } from './native-menu.mjs'
+import { bindMenu, removePage, finishRemovePage, editorReady, menuCommand, menuState } from './native-menu.mjs'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -59,7 +59,7 @@ test('按需桌面：metadata列表、单活跃DOM、迟到读取切换及关闭
     await page.getByRole('tab', { name: 'B', exact: true }).click()
     await expect.poll(() => app.evaluate(() => globalThis.__lazyHeld)).toBe(true)
     await switchTab(page, '^C$'); await expect(body(page)).toContainText('C正文')
-    await page.getByRole('button', { name: '关闭 B', exact: true }).click()
+    await removePage(page, 'B')
     await expect(page.getByRole('tab')).toHaveCount(2)
     await app.evaluate(() => globalThis.__lazyRelease())
     await page.evaluate(() => window.desktop.list())

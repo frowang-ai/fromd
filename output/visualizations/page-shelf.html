@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>页面收起 · 交互预览</title>
+<style id="demo-style">
+:root { color-scheme:light; --paper:#fffefa; --ink:#333b38; --muted:#8b958c; --line:#e5eae1; --accent:#658b72; }
+* { box-sizing:border-box; }
+body { margin:0; color:var(--ink); background:var(--paper); font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+button,input,select { font:inherit; }
+button { cursor:pointer; border:0; background:none; color:#53645d; }
+button:focus-visible,input:focus-visible,select:focus-visible,[contenteditable]:focus-visible { outline:2px solid #719a80; outline-offset:3px; }
+button:disabled { opacity:.45; cursor:default; }
+[hidden] { display:none !important; }
+svg.icon { display:block; width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.45; stroke-linecap:round; stroke-linejoin:round; }
+#motion-demo { height:100dvh; min-height:400px; display:flex; flex-direction:column; overflow:hidden; }
+.app-bar { flex-shrink:0; height:59px; display:flex; align-items:center; gap:12px; padding:8px 22px; border-bottom:1px solid var(--line); background:var(--paper); position:relative; z-index:20; }
+.pages-button { display:flex; align-items:center; justify-content:center; gap:6px; height:35px; min-width:46px; padding:6px 7px; border-radius:5px; position:relative; flex-shrink:0; }
+.pages-button > span { font-size:11px; }
+.pages-button:hover,.pages-button[aria-expanded=true] { background:#edf2ed; }
+.pages-button::after { content:""; position:absolute; inset:-3px; border:1px solid #97b7a1; border-radius:9px; opacity:0; pointer-events:none; }
+.pages-button.received { animation:dock-land .55s ease-out; }
+.pages-button.received::after { animation:dock-ring .6s ease-out; }
+@keyframes dock-land { 0% { transform:scale(1); background:#dce9dd; } 28% { transform:scale(1.15); background:#dce9dd; } 100% { transform:scale(1); } }
+@keyframes dock-ring { 0% { opacity:.8; transform:scale(.9); } 100% { opacity:0; transform:scale(1.48); } }
+.tabs { display:flex; gap:5px; overflow-x:auto; scrollbar-width:thin; min-width:0; align-items:center; padding:3px; }
+.tab { display:flex; align-items:center; max-width:230px; flex-shrink:0; border-radius:5px; background:transparent; border:1px solid transparent; position:relative; transition:background .12s; }
+.tab:hover { background:#f0f3ed; }
+.tab.active { background:#eaf0e9; }
+.tab [role=tab] { font-size:12px; padding:7px 2px 7px 11px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; max-width:184px; border-radius:5px; }
+.tab .minimize { height:31px; width:29px; padding:8px; flex-shrink:0; border-radius:4px; color:#88988b; }
+.tab .minimize svg { width:13px; height:13px; }
+.tab .minimize:hover { color:#2f6646; }
+#motion-demo.line-tabs .tab { border-radius:3px 3px 0 0; }
+#motion-demo.line-tabs .tab.active { background:transparent; border-bottom-color:#71917e; }
+#motion-demo.line-tabs .tab:hover { background:#f0f3ed; }
+.new-tab { width:32px; height:32px; flex-shrink:0; padding:6px; border-radius:5px; }
+.new-tab:hover,.settings-button:hover { background:#edf2ed; }
+.settings-button { margin-left:auto; flex-shrink:0; padding:7px; border-radius:5px; color:#94a08f; }
+.settings { position:absolute; right:18px; top:53px; width:210px; padding:13px; border:1px solid #dfe6db; border-radius:6px; background:var(--paper); box-shadow:0 4px 16px #263b2712; font-size:12px; }
+.settings-row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:5px 0 13px; }
+.settings select { font-size:12px; color:#53645d; background:#f5f7f1; border:1px solid #e2e7dd; border-radius:4px; padding:4px; }
+.settings label { display:flex; align-items:center; gap:7px; cursor:pointer; }
+.settings input { accent-color:#6a8b70; }
+.settings .reset { padding:3px 0; font-size:12px; color:#7c8f76; }
+.scroller { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; background:var(--paper); }
+.document { max-width:900px; margin:0 auto; padding:35px 38px 110px; min-height:100%; }
+.document-meta { display:flex; align-items:center; margin-bottom:30px; color:#849085; font-size:11px; }
+.document-meta input { color:#53645d; background:none; border:0; padding:2px 4px; margin:-2px -4px; border-radius:3px; min-width:0; flex:1; font-size:11px; }
+.document-meta input:hover,.document-meta input:focus { background:#edf2ed; }
+.document-meta span { margin-left:20px; }
+.prose { color:#334139; font-size:16px; line-height:1.9; min-height:430px; outline:none; overflow-wrap:anywhere; }
+.prose h1 { margin:0 0 34px; font-size:32px; font-weight:650; color:#2e3833; line-height:1.45; letter-spacing:-.5px; }
+.prose h2 { font-size:23px; font-weight:600; line-height:1.5; margin:33px 0 16px; }
+.prose p { margin:0 0 22px; }
+.prose ol,.prose ul { padding-left:24px; margin:16px 0 24px; }
+.prose li { margin-bottom:6px; }
+.prose blockquote { border-left:4px solid #dceadf; border-radius:3px; padding:0 0 0 34px; margin:26px 0; color:#455a4d; }
+.prose strong { font-weight:600; }
+.prose .equation { text-align:center; font:23px/1.7 Cambria,Georgia,serif; color:#60775b; margin:28px 0; }
+.empty { min-height:100%; display:grid; place-content:center; text-align:center; padding:24px; color:#8a9585; }
+.empty svg { margin:0 auto 18px; width:34px; height:34px; color:#9aac93; }
+.empty h1 { font-size:17px; font-weight:400; margin:0 0 17px; }
+.empty button { color:#597a55; font-size:13px; padding:8px 15px; border:1px solid #dae3d4; border-radius:5px; }
+.backdrop { position:absolute; inset:59px 0 0; z-index:21; }
+.shelf { position:absolute; left:12px; top:70px; bottom:18px; width:284px; padding:12px; display:flex; flex-direction:column; background:var(--paper); border:1px solid #dce3d9; border-radius:5px; box-shadow:0 4px 18px #27382916; z-index:22; }
+.shelf-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:11px; }
+.shelf-heading h2 { margin:0; font-size:14px; font-weight:500; }
+.shelf-heading button { padding:2px 5px; border-radius:4px; }
+.search { width:100%; border:1px solid #e3e7df; border-radius:3px; background:transparent; color:#53645d; font-size:12px; padding:6px 8px; }
+.filters { display:flex; gap:14px; margin:10px 0 12px; }
+.filters button { padding:2px 0; font-size:12px; color:#8b9785; border-bottom:1px solid transparent; }
+.filters button[aria-pressed=true] { color:#536f59; border-color:#71917e; }
+.cards { overflow:auto; min-height:0; scrollbar-width:thin; padding:1px 3px; }
+.card { position:relative; margin-bottom:15px; }
+.card-open { display:block; padding:0; width:100%; text-align:left; border-radius:4px; }
+.card-sheet { height:150px; border:1px solid #e3e7df; border-radius:3px; overflow:hidden; background:var(--paper); position:relative; }
+.card.active .card-sheet,.card-open:hover .card-sheet { border-color:#91a58b; }
+.thumbnail { width:650px; padding:28px 38px; transform:scale(.38); transform-origin:top left; pointer-events:none; user-select:none; }
+.thumbnail .prose { font-size:15px; min-height:0; }
+.thumbnail .prose h1 { font-size:28px; margin-bottom:22px; }
+.thumbnail .prose h2 { font-size:22px; margin:20px 0 12px; }
+.card-sheet::after { content:""; position:absolute; left:0; right:0; bottom:0; height:18px; background:linear-gradient(transparent,#fffefa); }
+.card-label { display:flex; align-items:center; gap:8px; padding:6px 1px 0; color:#53645d; font-size:12px; }
+.card-label > span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.card-label small { margin-left:auto; flex-shrink:0; color:#949e8e; font-size:11px; }
+.card-delete { position:absolute; top:5px; right:5px; width:26px; height:26px; display:grid; place-items:center; color:#8b958c; background:#fffefaeb; border-radius:3px; }
+.card-delete svg { width:14px; height:14px; }
+.card-delete:hover { color:#a35248; background:#f8eae5; }
+.no-results { padding:25px 0; text-align:center; color:#929c8b; font-size:12px; }
+.toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:16px; padding:8px 13px; border:1px solid #dce3d9; border-radius:4px; background:var(--paper); z-index:30; font-size:12px; box-shadow:0 3px 12px #263b2710; }
+.toast button { padding:3px 0; font-size:12px; color:#597c51; }
+.toast .dismiss { color:#97a18f; }
+.flight-canvas { position:fixed; inset:0; z-index:40; pointer-events:none; }
+#motion-demo.flying .scroller { background:#f0f3ed; }
+#motion-demo.flying .document { visibility:hidden; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media (max-width:700px) { .app-bar { padding:8px 12px; gap:5px; } .document { padding:28px 24px 70px; } .tab { max-width:195px; } .tab [role=tab] { max-width:150px; } .prose h1 { font-size:27px; } .prose h2 { font-size:21px; } }
+@media (max-width:440px) { .app-bar { padding:8px; gap:3px; } .pages-button { min-width:38px; gap:3px; } .new-tab { width:27px; padding:4px; } .settings-button { padding:5px; } .shelf { left:8px; right:8px; width:auto; max-width:284px; top:66px; bottom:8px; } .document { padding:26px 21px 65px; } .prose { font-size:15px; } .document-meta { margin-bottom:25px; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<div id="motion-demo">
+  <header class="app-bar">
+    <button id="pages-button" class="pages-button" aria-label="页面列表" aria-expanded="false" aria-controls="shelf" title="页面列表"><span data-icon="pages"></span><span id="page-count">3</span></button>
+    <div id="tabs" class="tabs" role="tablist" aria-label="打开的页面"></div>
+    <button id="new-page" class="new-tab" aria-label="新建页面" title="新建页面"><span data-icon="plus"></span></button>
+    <button id="settings-button" class="settings-button" aria-label="预览设置" aria-expanded="false" aria-controls="settings" title="预览设置"><span data-icon="settings"></span></button>
+    <div id="settings" class="settings" hidden>
+      <div class="settings-row"><label for="tab-style">标签</label><select id="tab-style"><option value="unified">一体</option><option value="line">细线</option></select></div>
+      <div class="settings-row"><label><input id="slow" type="checkbox">慢放</label><button class="reset" id="reset">重置</button></div>
+    </div>
+  </header>
+  <main id="scroller" class="scroller">
+    <article class="document" id="document">
+      <div class="document-meta"><input id="page-title" aria-label="页面名称" maxlength="100" spellcheck="false"><span>预览</span></div>
+      <div id="editor" class="prose" role="textbox" aria-label="页面正文" aria-multiline="true" contenteditable="plaintext-only" spellcheck="false"></div>
+    </article>
+    <section id="empty" class="empty" hidden><div><span data-icon="pages"></span><h1 id="empty-title">页面已收起</h1><button id="empty-action">查看页面</button></div></section>
+  </main>
+  <div class="backdrop" id="backdrop" hidden></div>
+  <aside id="shelf" class="shelf" aria-label="页面列表" hidden>
+    <div class="shelf-heading"><h2>页面</h2><button id="shelf-close" aria-label="收起页面列表"><span data-icon="chevron"></span></button></div>
+    <input id="search" class="search" aria-label="搜索页面" placeholder="搜索页面" autocomplete="off">
+    <div class="filters"><button data-filter="all" aria-pressed="true">全部 <span id="all-count">3</span></button><button data-filter="shelved" aria-pressed="false">已收起 <span id="shelved-count">1</span></button></div>
+    <div class="cards" id="cards"></div>
+  </aside>
+  <div class="toast" id="toast" hidden><span id="toast-text">已删除</span><button id="undo">撤销</button><button id="dismiss" class="dismiss" aria-label="关闭提示">×</button></div>
+  <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+</div>
+<script>
+(() => {
+  'use strict';
+  const root = document.getElementById('motion-demo');
+  const $ = id => document.getElementById(id);
+  const icons = {
+    pages:'<rect x="6" y="5" width="13" height="16" rx="1"/><path d="M15 2H3v15M9 10h7M9 14h7"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>', minus:'<path d="M5 12h14"/>',
+    close:'<path d="m6 6 12 12M18 6 6 18"/>', chevron:'<path d="m14 6-6 6 6 6"/>',
+    settings:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="#fffefa"/><circle cx="15" cy="17" r="2" fill="#fffefa"/>'
+  };
+  const icon = name => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[name]}</svg>`;
+  root.querySelectorAll('[data-icon]').forEach(node => { node.innerHTML = icon(node.dataset.icon); });
+  const samples = [
+    { id:'pnas', title:'PNAS 修改备忘', html:'<h1>PNAS 修改备忘</h1><h2>需要调整的地方</h2><ol><li>把附录中的联合检验结果放在对应表格旁边。</li><li>区分单个系数与整体检验回答的问题。</li><li>统一表注中的标准误、控制变量和样本范围。</li></ol><blockquote>先让读者明白我们在比较什么，再给出结果。</blockquote><h2>下一步</h2><p>核对附录后，再回来修改这一段解释。</p><p>讨论里尚未确定的部分，留到核完结果再继续。</p>' },
+    { id:'benchmark', title:'社科科研 Benchmark', html:'<h1>社科科研 Benchmark</h1><p>如果让 Agent 参与一项完整研究，我们应该评价什么？</p><h2>不只看最后的答案</h2><ul><li><strong>问题形成</strong>：能否提出可研究的问题？</li><li><strong>证据使用</strong>：结论是否被材料支持？</li><li><strong>方法判断</strong>：知道哪些结果不能这样解释。</li></ul><blockquote>也许最有意思的，是它在信息不完整时如何做决定。</blockquote><h2>一个最小的实验</h2><p>从同一份材料开始，比较不同模型的研究路径。先观察差异，再决定如何评分。</p>' },
+    { id:'reading', title:'这周想读的东西', html:'<h1>阅读清单</h1><ul><li>一篇科学发现的文章</li><li>一篇方法论文</li><li>一份跨学科材料</li></ul><h2>读完以后</h2><p>各留下一句话：它改变了我的什么想法？</p><blockquote>有时候，连接是在放下材料以后才出现的。</blockquote>' }
+  ];
+  let pages, opened, active, busy=false, shelfOpen=false, filter='all', deleted=null, serial=0;
+  let motionGeneration=0;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const escape = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const getPage = id => pages.find(page => page.id === id);
+  const label = page => page.title.trim() || '未命名页面';
+  const lerp = (a,b,t) => a+(b-a)*t;
+  function smooth(a,b,value) { const x=Math.max(0,Math.min(1,(value-a)/(b-a))); return x*x*(3-2*x); }
+  function capture() {
+    const page=getPage(active); if (!page) return;
+    page.title=$('page-title').value; page.html=$('editor').innerHTML; page.scroll=$('scroller').scrollTop;
+  }
+  function tabs() {
+    $('tabs').innerHTML=opened.map(id => {
+      const page=getPage(id);
+      return `<div class="tab ${id===active?'active':''}" data-tab="${id}"><button role="tab" data-open="${id}" aria-selected="${id===active}" tabindex="${id===active?0:-1}" title="${escape(label(page))}">${escape(label(page))}</button><button class="minimize" data-minimize="${id}" aria-label="收起 ${escape(label(page))}" title="收起">${icon('minus')}</button></div>`;
+    }).join('');
+  }
+  function cards() {
+    const query=$('search').value.trim().toLocaleLowerCase();
+    const shown=pages.filter(page => (filter==='all'||!opened.includes(page.id))&&label(page).toLocaleLowerCase().includes(query));
+    $('cards').innerHTML=shown.map(page => `<div class="card ${page.id===active?'active':''}" data-card="${page.id}"><button class="card-open" data-open="${page.id}" aria-label="打开 ${escape(label(page))}"><div class="card-sheet"><div class="thumbnail" aria-hidden="true" inert><div class="prose">${page.html}</div></div></div><span class="card-label"><span>${escape(label(page))}</span><small>${page.id===active?'当前':opened.includes(page.id)?'已打开':'已收起'}</small></span></button><button class="card-delete" data-delete="${page.id}" aria-label="删除 ${escape(label(page))}" title="删除">${icon('close')}</button></div>`).join('') || '<p class="no-results">'+(query?'没有匹配的页面':'暂无页面')+'</p>';
+    $('all-count').textContent=pages.length; $('shelved-count').textContent=pages.length-opened.length; $('page-count').textContent=pages.length;
+    root.querySelectorAll('[data-filter]').forEach(button => button.setAttribute('aria-pressed',button.dataset.filter===filter));
+  }
+  function documentView() {
+    const page=getPage(active);
+    $('document').hidden=!page; $('empty').hidden=!!page;
+    if (page) { $('page-title').value=page.title; $('editor').innerHTML=page.html; $('scroller').scrollTop=page.scroll||0; }
+    else { $('empty-title').textContent=pages.length?'页面已收起':'暂无页面'; $('empty-action').textContent=pages.length?'查看页面':'新建页面'; }
+  }
+  function render() { tabs(); cards(); documentView(); }
+  function lock(value) { busy=value; root.inert=value; root.setAttribute('aria-busy',String(value)); }
+  function announce(text) { $('announcement').textContent=text; }
+  function closeSettings() { $('settings').hidden=true; $('settings-button').setAttribute('aria-expanded','false'); }
+  function showShelf(show,focus=true) {
+    shelfOpen=show; closeSettings();
+    $('shelf').hidden=!show; $('backdrop').hidden=!show; $('scroller').inert=show;
+    $('pages-button').setAttribute('aria-expanded',String(show));
+    if (show) { capture(); cards(); if (focus) $('search').focus({preventScroll:true}); }
+    else if (focus) $('pages-button').focus({preventScroll:true});
+  }
+  function land() {
+    const button=$('pages-button'); button.classList.remove('received');
+    // Restart the single landing response even when several pages are shelved in succession.
+    void button.offsetWidth; button.classList.add('received');
+    button.addEventListener('animationend',() => button.classList.remove('received'),{once:true});
+  }
+  // Render the current viewport into one self-contained SVG image. Everything in
+  // this preview is inline; there are no remote fonts, assets, screenshot libraries or requests.
+  async function texture(rect) {
+    const ratio=Math.min(devicePixelRatio||1,2), clone=$('document').cloneNode(true);
+    const name=clone.querySelector('input'), replacement=document.createElement('span');
+    replacement.textContent=$('page-title').value; replacement.style.cssText='flex:1;color:#53645d;margin:0'; name.replaceWith(replacement);
+    clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+    clone.querySelectorAll('[contenteditable]').forEach(node => node.removeAttribute('contenteditable'));
+    // Preserve the actual viewport typography at high DPR; SVG media-query dimensions can differ.
+    const originals=$('document').querySelectorAll('.prose,h1,h2,p,li,blockquote');
+    clone.querySelectorAll('.prose,h1,h2,p,li,blockquote').forEach((node,index) => {
+      const style=getComputedStyle(originals[index]);
+      for(const property of ['fontSize','lineHeight','fontFamily','fontWeight','letterSpacing','marginTop','marginBottom','paddingLeft'])node.style[property]=style[property];
+    });
+    const documentStyle=getComputedStyle($('document'));
+    clone.style.cssText=`width:${$('document').getBoundingClientRect().width}px;min-height:0;margin:0 auto;padding:${documentStyle.padding};transform:translateY(-${$('scroller').scrollTop}px);visibility:visible`;
+    const wrapper=document.createElement('div');
+    wrapper.setAttribute('xmlns','http://www.w3.org/1999/xhtml');
+    wrapper.style.cssText=`width:${rect.width}px;height:${rect.height}px;overflow:hidden;background:#fffefa;color:#333b38;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif`;
+    const style=document.createElement('style'); style.textContent=$('demo-style').textContent; wrapper.append(style,clone);
+    const xml=new XMLSerializer().serializeToString(wrapper);
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(rect.width*ratio)}" height="${Math.ceil(rect.height*ratio)}" viewBox="0 0 ${rect.width} ${rect.height}"><foreignObject width="${rect.width}" height="${rect.height}">${xml}</foreignObject></svg>`;
+    const url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+    try {
+      const image=new Image(); image.src=url; await image.decode();
+      const bitmap=document.createElement('canvas');bitmap.width=image.naturalWidth;bitmap.height=image.naturalHeight;
+      const context=bitmap.getContext('2d');if(!context)throw new Error('Canvas unavailable');
+      context.drawImage(image,0,0);
+      return {image:bitmap,ratio};
+    } finally { URL.revokeObjectURL(url); }
+  }
+  // A two-stage warp: the top edge narrows into the destination first, then the
+  // rest of the sheet follows through that point. Each thin row is translated,
+  // sheared and scaled, so text follows the curved sheet rather than being clipped.
+  function shape(rect,target,p) {
+    const pinch=smooth(0,.53,p), pull=smooth(.31,1,p);
+    const top=lerp(rect.top,target.y,pinch), bottom=lerp(rect.bottom,target.y,pull);
+    const topCenter=lerp(rect.left+rect.width/2,target.x,pinch);
+    const bottomCenter=lerp(rect.left+rect.width/2,target.x,pull);
+    const topWidth=lerp(rect.width,.7,pinch), bottomWidth=lerp(rect.width,.7,pull);
+    return q => {
+      const curve=q*q*(3-2*q), spread=Math.pow(q,1.28);
+      const center=lerp(topCenter,bottomCenter,curve), width=lerp(topWidth,bottomWidth,spread);
+      return {left:center-width/2,right:center+width/2,y:lerp(top,bottom,q)};
+    };
+  }
+  function drawSheet(ctx,image,ratio,rect,target,p,dpr) {
+    const at=shape(rect,target,p), rows=Math.min(640,Math.ceil(rect.height/1.4));
+    ctx.imageSmoothingQuality='high';
+    ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,innerWidth,innerHeight);
+    const outline=new Path2D();
+    for(let i=0;i<=48;i++){const point=at(i/48);if(i===0)outline.moveTo(point.left,point.y);else outline.lineTo(point.left,point.y);}
+    for(let i=48;i>=0;i--){const point=at(i/48);outline.lineTo(point.right,point.y);}outline.closePath();
+    ctx.save(); ctx.shadowColor='rgba(43,63,44,.14)';ctx.shadowBlur=18*(1-p);ctx.shadowOffsetY=5;ctx.fillStyle='#fffefa';ctx.fill(outline);ctx.restore();
+    ctx.save();ctx.clip(outline);
+    const sourceRow=rect.height/rows;
+    for(let i=0;i<rows;i++){
+      const a=at(i/rows),b=at((i+1)/rows), width=a.right-a.left;
+      if(width<.1||b.y-a.y<.02)continue;
+      ctx.setTransform(dpr*width/rect.width,0,dpr*(b.left-a.left)/sourceRow,dpr*(b.y-a.y)/sourceRow,dpr*a.left,dpr*a.y);
+      const sy=i*sourceRow, height=Math.min(sourceRow+.6,rect.height-sy);
+      ctx.drawImage(image,0,sy*ratio,rect.width*ratio,height*ratio,0,0,rect.width,height);
+    }
+    ctx.restore();ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.strokeStyle=`rgba(139,159,137,${.43*(1-p)})`;ctx.lineWidth=.8;ctx.stroke(outline);
+  }
+  async function genie(reverse=false) {
+    if(reduced.matches)return;
+    const generation=motionGeneration, rect=$('scroller').getBoundingClientRect();
+    const destination=$('pages-button').getBoundingClientRect(), target={x:destination.left+destination.width/2,y:destination.top+destination.height/2};
+    const {image,ratio}=await texture(rect);
+    if(generation!==motionGeneration)return;
+    const canvas=document.createElement('canvas');canvas.className='flight-canvas';canvas.setAttribute('aria-hidden','true');
+    const dpr=Math.min(devicePixelRatio||1,2);
+    canvas.width=Math.ceil(innerWidth*dpr);canvas.height=Math.ceil(innerHeight*dpr);canvas.style.width=`${innerWidth}px`;canvas.style.height=`${innerHeight}px`;
+    const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas unavailable');
+    document.body.append(canvas);root.classList.add('flying');
+    const duration=$('slow').checked?2400:(reverse?400:450);
+    try {
+      await new Promise((resolve,reject) => {
+        let start;
+        const frame=time => {
+          try {
+            if(generation!==motionGeneration){resolve();return;}
+            start??=time;
+            const elapsed=Math.min(1,(time-start)/duration),p=reverse?1-elapsed:elapsed;
+            canvas.dataset.progress=p.toFixed(3);
+            drawSheet(ctx,image,ratio,rect,target,p,dpr);
+            if(elapsed<1)requestAnimationFrame(frame);else resolve();
+          } catch(error) { reject(error); }
+        };
+        requestAnimationFrame(frame);
+      });
+    } finally {canvas.remove();root.classList.remove('flying');}
+  }
+  async function tabFlight(id) {
+    if(reduced.matches)return;
+    const tab=root.querySelector(`[data-tab="${id}"]`), end=$('pages-button').getBoundingClientRect();
+    if(!tab)return;
+    const start=tab.getBoundingClientRect();
+    const animation=tab.animate([{transform:'none',opacity:1},{transform:`translate(${end.left-start.left}px,${end.top-start.top}px) scale(.1)`,opacity:0}],{duration:300,easing:'ease-in'});
+    try{await animation.finished;}finally{animation.cancel();}
+  }
+  async function minimize(id) {
+    if(busy||!opened.includes(id))return;
+    capture();closeSettings();lock(true);
+    try {
+      let animationFailed=false;
+      try { if(active===id)await genie();else await tabFlight(id); }
+      catch(error){console.error('Page animation:',error);animationFailed=true;}
+      const index=opened.indexOf(id);opened.splice(index,1);
+      if(active===id)active=opened[Math.min(index,opened.length-1)]||null;
+      render();land();announce(`${animationFailed?'动画未能播放，页面已收起：':'已收起'}${label(getPage(id))}`);
+    } finally{lock(false);}
+    (root.querySelector('.tab.active [role=tab]')||$('pages-button')).focus({preventScroll:true});
+  }
+  async function openPage(id,fromCard=false) {
+    if(busy||!getPage(id))return;
+    capture();closeSettings();
+    if(fromCard)showShelf(false,false);
+    if(!opened.includes(id))opened.push(id);
+    active=id;render();
+    if(fromCard){
+      lock(true);
+      try{await genie(true);}catch(error){console.error('Page animation:',error);announce('动画未能加载，页面已经打开。');}finally{lock(false);}
+    }
+    const tab=root.querySelector('.tab.active [role=tab]');tab.scrollIntoView({block:'nearest',inline:'nearest'});tab.focus({preventScroll:true});
+  }
+  function newPage() {
+    if(busy)return;
+    capture();showShelf(false,false);closeSettings();
+    const id=`new-${++serial}`;pages.push({id,title:'未命名页面',html:'<h1>新的想法</h1><p> </p>',scroll:0});opened.push(id);active=id;render();
+    $('page-title').focus();$('page-title').select();
+  }
+  function removePage(id) {
+    if(busy)return;capture();const index=pages.findIndex(page=>page.id===id);if(index<0)return;
+    deleted={page:pages[index],index,openIndex:opened.indexOf(id),wasActive:active===id};
+    pages.splice(index,1);opened=opened.filter(value=>value!==id);
+    if(active===id)active=opened[Math.min(deleted.openIndex,opened.length-1)]||null;
+    render();$('toast').hidden=false;announce(`已删除${label(deleted.page)}`);$('search').focus({preventScroll:true});
+  }
+  function undo() {
+    if(busy||!deleted)return;capture();
+    const {page,index,openIndex,wasActive}=deleted;
+    pages.splice(Math.min(index,pages.length),0,page);
+    if(openIndex>=0)opened.splice(Math.min(openIndex,opened.length),0,page.id);
+    if(wasActive||!active&&openIndex>=0)active=page.id;
+    deleted=null;render();$('toast').hidden=true;announce('页面已恢复');
+    if(shelfOpen)$('search').focus({preventScroll:true});else $('pages-button').focus({preventScroll:true});
+  }
+  function reset() {
+    if(busy)return;
+    pages=samples.map(page=>({...page,scroll:0}));opened=['pnas','benchmark'];active='pnas';deleted=null;filter='all';$('search').value='';$('toast').hidden=true;
+    showShelf(false,false);render();
+  }
+  $('pages-button').addEventListener('click',()=>{if(!busy)showShelf(!shelfOpen);});
+  $('shelf-close').addEventListener('click',()=>showShelf(false));$('backdrop').addEventListener('click',()=>showShelf(false));
+  $('new-page').addEventListener('click',newPage);$('empty-action').addEventListener('click',()=>pages.length?showShelf(true):newPage());
+  $('settings-button').addEventListener('click',()=>{const show=$('settings').hidden;if(show&&shelfOpen)showShelf(false,false);$('settings').hidden=!show;$('settings-button').setAttribute('aria-expanded',String(show));});
+  $('tab-style').addEventListener('change',()=>root.classList.toggle('line-tabs',$('tab-style').value==='line'));
+  $('reset').addEventListener('click',reset);$('search').addEventListener('input',cards);$('undo').addEventListener('click',undo);
+  $('dismiss').addEventListener('click',()=>{$('toast').hidden=true;deleted=null;});
+  root.addEventListener('click',event=>{
+    if(busy)return;const button=event.target.closest('button');if(!button)return;
+    if(button.dataset.minimize)void minimize(button.dataset.minimize);
+    else if(button.dataset.open)void openPage(button.dataset.open,!!button.closest('.card'));
+    else if(button.dataset.delete)removePage(button.dataset.delete);
+    else if(button.dataset.filter){filter=button.dataset.filter;cards();}
+  });
+  $('page-title').addEventListener('input',()=>{capture();tabs();});
+  $('page-title').addEventListener('blur',()=>{const page=getPage(active);if(page&&!page.title.trim()){page.title='未命名页面';$('page-title').value=page.title;}});
+  $('editor').addEventListener('input',capture);
+  document.addEventListener('keydown',event=>{
+    if(busy)return;
+    if(event.key==='Escape'){
+      if(!$('settings').hidden){closeSettings();$('settings-button').focus();}
+      else if(shelfOpen)showShelf(false);
+    }
+    if(event.target.matches('[role=tab]')&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){
+      event.preventDefault();const index=opened.indexOf(event.target.dataset.open);
+      const next=event.key==='Home'?0:event.key==='End'?opened.length-1:(index+(event.key==='ArrowRight'?1:-1)+opened.length)%opened.length;
+      void openPage(opened[next]);
+    }
+  });
+  window.addEventListener('resize',()=>{motionGeneration++;});
+  reduced.addEventListener('change',()=>{motionGeneration++;});
+  reset();
+})();
+</script>
+</body>
+</html>

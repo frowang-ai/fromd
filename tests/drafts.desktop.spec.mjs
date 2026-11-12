@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { bindMenu, editorReady, menuCommand, menuState } from './native-menu.mjs'
+import { bindMenu, removePage, finishRemovePage, editorReady, menuCommand, menuState } from './native-menu.mjs'
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -119,7 +119,7 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     await page.getByRole('tab', { name: 'Agent 回复一', exact: true }).click()
     await expect(nameField(page)).toHaveValue('Agent 回复一')
     await expect(source(page)).toHaveValue('# 第一篇\n\n保留的 Agent 回复')
-    await page.getByRole('button', { name: '关闭 用完即弃', exact: true }).click()
+    await removePage(page, '用完即弃')
     await expect(page.getByRole('tab')).toHaveCount(2)
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await page.getByRole('tab', { name: /第三篇/ }).click()
@@ -139,9 +139,10 @@ test('临时草稿：即时命名、空名回退、多篇切换、删除部分�
     expect(recovered.activeId).toBe(recovered.documents[1].id)
     await expect(nameField(page)).toHaveValue('明日继续')
     await noDialogs(app)
-    await page.getByRole('button', { name: '关闭 Agent 回复一', exact: true }).click()
-    await page.getByRole('button', { name: '关闭 明日继续', exact: true }).click()
-    await expect(page.getByRole('tab')).toHaveCount(1)
+    await removePage(page, 'Agent 回复一')
+    await removePage(page, '明日继续')
+    await expect(page.getByRole('tab')).toHaveCount(0)
+    await menuCommand(page, 'new')
     await expect(nameField(page)).toHaveValue('未命名笔记')
     expect((await snapshot(page)).documents[0].markdown).toBe('')
     expect(await app.evaluate(() => globalThis.__draftDialogs)).toEqual([])
@@ -180,7 +181,7 @@ for (const fail of [false, true]) {
   })
 }
 
-test('删除草稿停止未发出的命名，迟到更新不能复活已关闭草稿', async () => {
+test('删除草稿先收齐命名，迟到更新不能复活已移除页面', async () => {
   const { directory, profile } = await sandbox()
   let app
   try {
@@ -189,11 +190,12 @@ test('删除草稿停止未发出的命名，迟到更新不能复活已关闭�
     await holdFirstRename(app)
     await nameField(page).fill('已发出名称'); await held(app)
     await nameField(page).fill('不应再提交的名称')
-    await page.getByRole('button', { name: '关闭 不应再提交的名称', exact: true }).click()
+    await removePage(page, '不应再提交的名称', { wait: false })
     await expect(page.locator('.app-bar')).toHaveAttribute('inert', '')
     await release(app)
-    await expect(nameField(page)).toHaveValue('未命名笔记')
-    expect(await app.evaluate(() => globalThis.__renameProbe.calls)).toEqual(['已发出名称'])
+    await finishRemovePage(page)
+    await expect(page.getByRole('tab')).toHaveCount(0)
+    expect(await app.evaluate(() => globalThis.__renameProbe.calls)).toEqual(['已发出名称', '不应再提交的名称'])
     const results = await page.evaluate(async id => {
       const attempt = async action => { try { const result = await action(); return !!(result.stale || result.closed) } catch { return true } }
       return [await attempt(() => window.desktop.update(id, '迟到正文', 100)), await attempt(() => window.desktop.rename(id, '迟到名称'))]
@@ -259,12 +261,12 @@ test('已绑定文件显示路径，关闭保留保存／放弃／取消，另�
       }
     })
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
-    await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
+    await removePage(page, '外部文件.md')
     await expect.poll(() => app.evaluate(() => globalThis.__boundFileCloseAnswers)).toEqual([2])
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await expect(source(page)).toHaveValue('第一次未保存')
     expect(await readFile(file, 'utf8')).toBe('磁盘原文')
-    await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
+    await removePage(page, '外部文件.md')
     await expect.poll(() => app.evaluate(() => globalThis.__boundFileCloseAnswers)).toEqual([2, 0])
     await expect(page.getByRole('tab', { name: /外部文件.md/ })).toHaveCount(0)
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
@@ -275,7 +277,7 @@ test('已绑定文件显示路径，关闭保留保存／放弃／取消，另�
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await putSource(page, '这次放弃修改')
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
-    await page.getByRole('button', { name: '关闭 外部文件.md', exact: true }).click()
+    await removePage(page, '外部文件.md')
     await expect.poll(() => app.evaluate(() => globalThis.__boundFileCloseAnswers)).toEqual([2, 0, 1])
     await expect(page.locator('.app-bar')).not.toHaveAttribute('inert', '')
     await expect(nameField(page)).toBeVisible()
@@ -330,7 +332,7 @@ test('第二实例旧快照迟到不删除新建标签，也不复活已关闭�
     await expect(page.getByRole('tab')).toHaveCount(3)
     await expect(nameField(page)).toHaveValue('较晚新建的草稿')
     await expect(source(page)).toHaveValue('不能被旧快照抹掉的新正文')
-    await page.getByRole('button', { name: '关闭 稍后关闭', exact: true }).click()
+    await removePage(page, '稍后关闭')
     await expect(page.getByRole('tab')).toHaveCount(2)
     await app.evaluate(() => globalThis.__deliverDocuments())
     await expect(page.getByRole('tab')).toHaveCount(2)
@@ -375,7 +377,7 @@ async function holdFirstUpdate(app) {
   })
 }
 
-test('审核回归：旧打开事件不能解绑已保存文件，立即关闭仍提交正文并确认', async () => {
+test('审核回归：旧打开事件不能解绑已保存文件，移除等待正文写入并确认', async () => {
   const { directory, profile } = await sandbox()
   const destination = join(directory, '已保存.md'), other = join(directory, '其他.md')
   await writeFile(other, '另一篇')
@@ -397,18 +399,15 @@ test('审核回归：旧打开事件不能解绑已保存文件，立即关闭�
     await app.evaluate(() => globalThis.__deliverOpen())
     await page.getByRole('tab', { name: '已保存.md', exact: true }).click()
     await expect(page.locator('header')).not.toHaveAttribute('inert', '')
-    await page.evaluate(() => {
-      window.__lastCloseTiming = {}
-      document.addEventListener('input', event => { if (event.target.getAttribute('aria-label') === 'Markdown 源码') window.__lastCloseTiming.input = performance.now() }, true)
-      document.addEventListener('click', event => { if (event.target.getAttribute('aria-label') === '关闭 已保存.md') window.__lastCloseTiming.close = performance.now() }, true)
-    })
-    await source(page).fill('最后不足200ms的文件修改')
-    await page.getByRole('button', { name: '关闭 已保存.md', exact: true }).click()
-    await expect(page.locator('header')).not.toHaveAttribute('inert', '')
-    const timing = await page.evaluate(() => window.__lastCloseTiming)
-    expect(timing.close - timing.input).toBeLessThan(200)
+    await holdFirstUpdate(app)
+    await source(page).fill('尚未收到备份回执的文件修改')
+    await expect.poll(() => app.evaluate(() => globalThis.__updateHeld)).toBe(true)
+    await removePage(page, '已保存.md', { wait: false })
+    await expect(page.locator('header')).toHaveAttribute('inert', '')
+    await app.evaluate(() => globalThis.__releaseUpdate())
+    await finishRemovePage(page)
     expect(await app.evaluate(() => globalThis.__fileCloseDialogs)).toHaveLength(1)
-    expect((await snapshot(page)).documents.find(doc => doc.id === id)?.markdown).toBe('最后不足200ms的文件修改')
+    expect((await snapshot(page)).documents.find(doc => doc.id === id)?.markdown).toBe('尚未收到备份回执的文件修改')
     expect(await readFile(destination, 'utf8')).toBe('最初写入磁盘的正文')
     await expect(nameField(page)).toHaveCount(0)
     await expect(page.locator('.document-meta').getByText(destination, { exact: true })).toBeVisible()
