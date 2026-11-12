@@ -1,5 +1,29 @@
 # Windows 桌面验证记录
 
+## frowd 0.4.0 联合交付
+
+本轮按用户授权将名称/图标 PR #9 与页面收起/动效 PR #8 整合。PR #9先合入 `0fb28c5`；任务分支普通merge为 `ba6b220`，唯一冲突为本文件的历史记录，双方均保留。联合版本候选 `88f9915` 升为0.4.0，依赖版本未变，`package.name=frowang-markdown`、`appId=com.frowang.markdown`、内部 `Frowang Markdown.exe` 保持兼容，显示名与图标为frowd；收起450ms/展开400ms。
+
+| 检查 | 实际结果 | 证据（任务工作区） |
+| --- | --- | --- |
+| `npm test` | **65/65**，无跳过 | `output/joint-0.4.0/unit.log` |
+| 联合构建 | **通过** | `output/joint-0.4.0/build.log` |
+| 完整开发桌面 | **47/47** | `output/joint-0.4.0/desktop.log` |
+| 正式身份NSIS安装器构建 | **通过** | `output/joint-0.4.0/installer.log` |
+| 最终打包程序完整桌面 | **47/47** | `output/joint-0.4.0/packaged-desktop.log` |
+| 两个隔离NSIS测试包与真实升级链 | **1/1**；安装后自动重开和草稿恢复通过 | `output/joint-0.4.0/nsis-update.log`，`output/update-fixtures/case-4UoJOE/result.json` |
+| 成品身份/图标/运行检查 | 版本0.4.0，标题`未命名笔记 — frowd`；原内部名；PNG512×512与源图一致；正常退出 | `output/joint-0.4.0/inspection.json` |
+| Windows产品资源 | exe和安装器ProductName=frowd，版本0.4.0，提取图标已视觉确认 | `output/joint-0.4.0/windows-resources.json`及同目录`application-icon.png`、`installer-icon.png` |
+| 独立整合审核 | **PASS**，无 blocker/high/medium/low | 原Paseo reviewer `0c5887bc-2e67-4d8e-b82a-7900b31a207f` 对`2f1c3a5..88f9915`只读复核 |
+
+统一安装器：`release/0.4.0/frowd-Setup-0.4.0-x64.exe`，**130,434,143字节**。应用包内main、storage worker、preload、renderer HTML及其入口JS/CSS与受测out逐字节一致。安装器按当前用户安装，保留原应用身份与草稿目录；没有在真实用户安装上执行覆盖安装，也没有读写真实笔记。安装/升级的实际测试使用独立身份及合成profile，不冒称对用户现有机器安装的直接验收。
+
+隔离升级仍采用既有测试版本0.2.900→0.2.901，不是产品版本；测试包专有配置不进入交付包。实际验证了菜单IME取消重启、拒写保护、异步安装失败保留窗口、同窗口重试、自动重开与同入口恢复。正式包不含生产HTTPS更新源、未签名、未公开发布；不会自动发现此本地安装器。编辑内核没有改动，本轮未重复56项独立内核浏览器回归。
+
+一次验证runner在Windows PowerShell5中把原生SQLite warning视作异常，桌面用例尚未执行即中止；unit/build已成功，之后用PowerShell7从desktop继续，未隐藏产品测试失败。检查脚本另外修正了Windows ASAR路径分隔符与构建元数据被打包器裁剪的假设，再按真实窗口标题/版本、PE产品资源、包内icon与代码一致性验收；不涉及产品修复。
+
+下方保留各分支实现阶段的验证与失败记录，其中“尚未合入／没有统一安装器”为当时状态，不覆盖本节联合交付结果。
+
 ## 收尖吸入动效接入（当前任务分支）
 
 用户最终确认收起450ms、展开400ms，并授权接入真实编辑器。功能提交 `3dfd80a`，回修 `cd79229`；使用原生自身窗口捕获→临时曲面Canvas，不重建编辑器DOM；一体标签、右上角移除和精简文案沿用用户确认效果。原0.3.0安装器未替换、未合入main，新增可运行解包预览在本工作区 `release/page-shelf-preview/win-unpacked/Frowang Markdown.exe`。
