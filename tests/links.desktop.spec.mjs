@@ -146,6 +146,37 @@ test('浮层的网址和本地路径使用相同行为，复制和编辑仍可�
   } finally { await cleanup(app, directory) }
 })
 
+test('本地链接不改直接确认与改为文件URL或盘符地址均保留原始目的地', async () => {
+  const { directory, file, app, page } = await fixture()
+  try {
+    const replacement = join(directory, '备选计划.pdf'); await writeFile(replacement, 'synthetic PDF')
+    const before = await page.evaluate(async () => window.desktop.read((await window.desktop.listMetadata()).activeId))
+    async function editLocal(value, button = false) {
+      await body(page).locator('h1').click(); await link(page, '文件URL').hover()
+      await page.locator('.milkdown-link-preview .link-edit-button').click()
+      const input = page.locator('.milkdown-link-edit input')
+      await expect(input).toBeVisible()
+      if (value !== undefined) await input.fill(value)
+      if (button) await page.locator('.milkdown-link-edit .confirm').click()
+      else await input.press('Enter')
+      await expect(input).not.toBeVisible()
+    }
+    await editLocal(undefined)
+    await link(page, '文件URL').click()
+    await expect.poll(() => calls(app)).toEqual([['reveal', file]])
+    expect((await page.evaluate(id => window.desktop.read(id), before.id)).markdown).toBe(before.markdown)
+    const url = pathToFileURL(replacement).href
+    await editLocal(url, true)
+    await link(page, '文件URL').click()
+    await expect.poll(() => calls(app)).toEqual([['reveal', file], ['reveal', replacement]])
+    await expect.poll(async () => (await page.evaluate(id => window.desktop.read(id), before.id)).markdown).toContain(url)
+    await editLocal(replacement.replaceAll('\\', '/'))
+    await link(page, '文件URL').click()
+    await expect.poll(() => calls(app)).toEqual([['reveal', file], ['reveal', replacement], ['reveal', replacement]])
+    await expect(link(page, '文件URL')).toHaveAttribute('href', '')
+  } finally { await cleanup(app, directory) }
+})
+
 test('拖选链接文字和Shift选区不会打开目标，过期浮层不借用新笔记目录', async () => {
   const { directory, app, page } = await fixture({ two: true })
   try {

@@ -184,7 +184,7 @@ onMounted(async () => {
         emit('session-change', { ...owner, markdown: serializePreservingOriginal(doc, baseline, normalized, raw) })
       }, 150)
     } })
-    if (props.linkNavigation) disposeLinks = installWritingLinks(v, { root: root.value, getOwner: () => activeSession, onOpen: value => emit('open-link', value) })
+    if (props.linkNavigation) disposeLinks = installWritingLinks(v, { root: root.value, ctx: editor.editor.ctx, getOwner: () => activeSession, onOpen: value => emit('open-link', value) })
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view())
     installWritingListViews(view())
