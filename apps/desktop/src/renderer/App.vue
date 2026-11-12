@@ -51,7 +51,7 @@ const normalizeName = title => title.trim() || '未命名笔记'
 const nameError = title => new TextEncoder().encode(title).length > 1024 ? '笔记名称过长，最多支持 1024 UTF-8 字节；请缩短名称，或另存正文。' : ''
 const findDocument = id => documents.value.find(doc => doc.id === id)
 const isLive = doc => findDocument(doc.id) === doc
-watchEffect(() => { document.title = `${current.value?.title || '未命名笔记'} — Frowang Markdown` })
+watchEffect(() => { document.title = `${current.value?.title || '未命名笔记'} — frowd` })
 function saveStatus(doc) {
   const states = [doc.backup, ...(!doc.path ? [doc.nameBackup] : [])]
   if (states.includes('failed')) return '自动保存失败 · 请另存到文件'

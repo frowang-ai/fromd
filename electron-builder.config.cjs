@@ -20,18 +20,18 @@ module.exports = {
   ...(feed ? {
     publish: [{ provider: 'generic', url: feed.href, channel: 'latest' }],
     extraMetadata: { frowangUpdates: { url: feed.href, testOnly, ...(publisherName && !testOnly ? { publisherName } : {}) } },
-    ...(!testOnly ? { forceCodeSigning: true, win: { ...base.win, signtoolOptions: { publisherName }, signAndEditExecutable: true, verifyUpdateCodeSignature: true } } : {}),
+    ...(!testOnly ? { forceCodeSigning: true, win: { ...base.win, signtoolOptions: { publisherName }, signAndEditExecutable: true, signExecutable: true, verifyUpdateCodeSignature: true } } : {}),
   } : { publish: null, extraMetadata: { frowangUpdates: null } }),
   nsis: {
     oneClick: true, perMachine: false, allowElevation: false,
     createDesktopShortcut: true, createStartMenuShortcut: true,
     deleteAppDataOnUninstall: false,
-    artifactName: 'Frowang-Markdown-Setup-${version}-${arch}.exe',
+    artifactName: 'frowd-Setup-${version}-${arch}.exe',
   },
   // Test installers cannot share production identity, shortcuts, or uninstall
   // records. Test versions are overrides, never edits of the source version.
   ...(testOnly ? {
-    appId: 'com.frowang.markdown.update-test', productName: 'Frowang Markdown Update Test',
+    appId: 'com.frowang.markdown.update-test', productName: 'Frowang Markdown Update Test', executableName: 'Frowang Markdown Update Test',
     files: [...base.files, { from: 'tests/fixtures', to: '.', filter: ['update-test-bootstrap.cjs'] }],
     extraMetadata: { name: 'frowang-markdown-update-test', main: 'update-test-bootstrap.cjs', productName: 'Frowang Markdown Update Test', version: process.env.FROWANG_UPDATE_TEST_VERSION || '0.2.900', frowangUpdates: { url: feed.href, testOnly: true, testProfile } },
     nsis: { oneClick: true, perMachine: false, allowElevation: false, createDesktopShortcut: false, createStartMenuShortcut: false, deleteAppDataOnUninstall: false, runAfterFinish: false, artifactName: 'Frowang-Update-Test-Setup-${version}.exe' },
