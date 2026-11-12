@@ -1,5 +1,22 @@
 # Windows 桌面验证记录
 
+## frowd 0.4.6 移除提示关闭：局部验证
+
+基线`b1bab0a`，运行代码固定为`a94540a531e30e016fa74f748967fc56c7e66bb0`；最终收尾只修改README、VALIDATION及页面契约，不改变运行代码、依赖或受测构建。×只隐藏提示，不消费后台撤销；没有自动倒计时。保存/切换/新建、取消或失败的移除不复活已关闭提示，新成功移除才重现，包括同名／多个“未命名笔记”。
+
+| 检查 | 本轮实际结果 | 证据（output/removal-notice-046/） |
+| --- | --- | --- |
+| 旧版复现与新增行为 | 0.4.5因缺少关闭按钮预期失败；修复后1/1通过 | `before-fix.log`、`focused.log` |
+| 构建与开发相关组 | 通过；page-navigation/shelf/remove-save **24/24** | `build.log`、`desktop-groups.log` |
+| 增量只读静态审核 | **PASS**，b1bab0a..a94540a；无blocker/high/medium/low具体发现 | 父线程取得原Reviewer最终结论，并核对实际diff/bundle；审核不代替运行测试 |
+| NSIS与成品相关组 | `--publish never`构建通过；PACKAGED_EXE **24/24** | `nsis.log`、`packaged-groups.log` |
+| 版本/包内构建/退出 | 实际0.4.6；182个out文件逐字节一致，打包前后hash未变；隔离profile正常窗口关闭退出0 | `packaged-inspection.json`、`out-before-package.json`、`pe-and-review-inspection.json` |
+| 关闭入口外观 | 开发和成品截图已查看，原生button支持点击/键盘 | `development-removal-notice-close.png`、`removal-notice-close.png` |
+
+安装器`release/0.4.6/frowd-Setup-0.4.6-x64.exe`为 **130443498字节**，SHA256 `D365142AAAFF3024042FEABF5AA44E74C1711BBFA302562A43A551B64FC6B9CC`；PE ProductName=frowd、ProductVersion=0.4.6。测试运行的是同次构建win-unpacked，不是执行安装器。
+
+新增单个行为场景覆盖关闭不产生后台变更/不消费撤销、保存/切换/新建不复活、取消及真实SQLite拒写不复活、同名成功移除重现并能撤销恢复正文，以及Enter与鼠标关闭。仅使用合成笔记和`FROWANG_USER_DATA`。本轮未重复单元、全部74/75桌面或56浏览器套件，未执行实际安装/升级；0.4.5的完整74/74记录继续保留在下节，不代表本轮重跑。当前仍未签名、没有生产更新源，未公开发布或启用在线更新。
+
 ## frowd 0.4.5 页面管理：最终本地成品验证
 
 基于 `d6106e1`，在公司 Windows Fro-at-evomap 的独立 `feat/page-navigation` worktree 实现，运行代码固定为 `84f3efdbae297ea00781d88cdb01c8245c9f52c6`；后续仅README/VALIDATION文档收尾，不改变运行代码、依赖或受测out。版本为0.4.5，锁定依赖不变；新增标签右键目标操作、原子批量收起/展开及 Ctrl+Tab / Ctrl+Shift+Tab。规则见 `docs/page-shelf.md`。
