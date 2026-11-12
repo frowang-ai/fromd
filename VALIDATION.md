@@ -1,5 +1,24 @@
 # Windows 桌面验证记录
 
+## frowd 0.4.1 删除前保存选择
+
+基于已合入的0.4.0（`2ef08d8`），功能提交 `8b332aa`。有非空白正文的草稿点卡片×时询问“保存为 Markdown / 直接删除 / 取消”，保存进入系统文件选择窗口，成功后才移除。空白草稿、收起、退出和已有磁盘文件的原有语义保留。保存成功但SQLite移除失败时回显新的文件关联及明确错误；具体行为见 [页面收起说明](docs/page-shelf.md)。
+
+| 检查 | 实际结果 | 本机证据 |
+| --- | --- | --- |
+| 旧行为复现 | 新取消用例先失败：未弹出确认框 | `output/remove-save-before/` |
+| `npm test` | **65/65**，无跳过 | `output/remove-save-unit.log` |
+| 构建与新增桌面场景 | **通过，7/7** | `output/remove-save-build.log`、`remove-save-focused.log` |
+| 完整开发桌面 | **54/54** | `output/remove-save-desktop.log` |
+| NSIS安装器构建 | **通过** | `output/remove-save-installer.log` |
+| 成品删除保存＋页面列表回归 | **12/12** | `output/remove-save-packaged.log` |
+| 独立只读审核 | **PASS**，无 blocker/high/medium/low | Paseo reviewer `12ab1059-49cb-4d96-b2cf-2105676fea25`，审核`2ef08d8..8b332aa` |
+| 成品身份与内容核对 | 实际0.4.1、标题frowd、图标与源图一致；关键打包代码与受测out一致，正常退出 | `output/joint-0.4.1/inspection.json` |
+
+`tests/remove-save.desktop.spec.mjs`覆盖取消确认、选择目录/文件名并保存、取消文件选择、直接删除及撤销、真实磁盘写入失败后重试、空白跳过与收起/退出无询问、保存非当前已收起的正确页面、实际SQLite DELETE拒绝后保留页面与文件关联。旧删除回归仅对新的草稿问题显式选择丢弃，原文件确认与数据断言继续保留。
+
+候选安装器 `release/0.4.1/frowd-Setup-0.4.1-x64.exe` 为 **130,430,359字节**。安装身份、图标、编辑内核、存储schema和更新配置未改，依赖未升级。本轮未重复0.4.0真实NSIS升级链或独立编辑内核套件，没有覆盖用户安装或读写真实笔记；正式更新源和签名仍未配置。源码PR/审核状态以本轮PR为准。
+
 ## frowd 0.4.0 联合交付
 
 本轮按用户授权将名称/图标 PR #9 与页面收起/动效 PR #8 整合。PR #9先合入 `0fb28c5`；任务分支普通merge为 `ba6b220`，唯一冲突为本文件的历史记录，双方均保留。联合版本候选 `88f9915` 升为0.4.0，依赖版本未变，`package.name=frowang-markdown`、`appId=com.frowang.markdown`、内部 `Frowang Markdown.exe` 保持兼容，显示名与图标为frowd；收起450ms/展开400ms。
