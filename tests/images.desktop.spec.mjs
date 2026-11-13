@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -200,6 +200,52 @@ test('正文拖入图片保留撤销，保存失败后仍可编辑并另存完�
     expect(await readFile(join(directory, asset))).toEqual(png)
     expect(await readFile(retry, 'utf8')).toContain(asset)
   } finally {
+    await stop(app)
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
+
+test('图片导入回执延迟期间外部打开另一页，图片不会插到新页面', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'frowd-image-owner-'))
+  const other = join(directory, '另一页.md')
+  await writeFile(other, '# 另一页\n\n保留外部正文')
+  let app
+  try {
+    const launched = await launch(join(directory, 'profile'))
+    app = launched.app
+    const page = launched.page
+    await body(page).click()
+    await page.keyboard.insertText('原草稿')
+    const originalId = await page.evaluate(async () => (await window.desktop.listMetadata()).activeId)
+    // Delay only the completed import's reply; the image write, validation and
+    // document operation queue have already completed normally.
+    await app.evaluate(({ ipcMain }) => {
+      const original = ipcMain._invokeHandlers.get('documents:import-images')
+      ipcMain.removeHandler('documents:import-images')
+      ipcMain.handle('documents:import-images', async (...args) => {
+        const result = await original(...args)
+        globalThis.__imageReplyWaiting = true
+        await new Promise(resolve => { globalThis.__releaseImageReply = resolve })
+        return result
+      })
+    })
+    await transferImage(body(page))
+    await expect.poll(() => app.evaluate(() => globalThis.__imageReplyWaiting === true)).toBe(true)
+    await app.evaluate(({ app }, file) => app.emit('second-instance', {}, [], '', { files: [file] }), other)
+    await expect(page.getByRole('tab', { name: '另一页.md', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(body(page)).toContainText('保留外部正文')
+    await app.evaluate(() => globalThis.__releaseImageReply())
+    await editorReady(page)
+    await expect(images(page)).toHaveCount(0)
+    expect(await currentMarkdown(page)).toBe('# 另一页\n\n保留外部正文')
+    expect(await readFile(other, 'utf8')).toBe('# 另一页\n\n保留外部正文')
+    expect(await page.evaluate(async id => (await window.desktop.read(id)).markdown, originalId)).toBe('原草稿')
+    await page.getByRole('tab', { name: '未命名笔记', exact: true }).click()
+    await editorReady(page)
+    await expect(body(page)).toHaveText('原草稿')
+    await expect(images(page)).toHaveCount(0)
+  } finally {
+    await app?.evaluate(() => globalThis.__releaseImageReply?.()).catch(() => {})
     await stop(app)
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
