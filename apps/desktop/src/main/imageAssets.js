@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { link, mkdir, open, readFile, realpath, stat, unlink } from 'node:fs/promises'
+import { copyFile, link, mkdir, open, readFile, realpath, stat, unlink } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import MarkdownIt from 'markdown-it'
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -49,7 +50,18 @@ async function writeAttachment(path, bytes) {
     await file.sync()
     await file.close()
     file = null
-    try { await link(temporary, path) }
+    try {
+      try { await link(temporary, path) }
+      catch (error) {
+        // FAT/exFAT and some network filesystems do not support hard links.
+        // Exclusive copy still refuses an existing destination. Markdown is
+        // published only after this new attachment has been copied and flushed.
+        if (!['EPERM', 'ENOTSUP', 'ENOSYS', 'EINVAL'].includes(error.code)) throw error
+        await copyFile(temporary, path, constants.COPYFILE_EXCL)
+        const copied = await open(path, 'r+')
+        try { await copied.sync() } finally { await copied.close() }
+      }
+    }
     catch (error) {
       if (error.code !== 'EEXIST') throw error
       if (!(await readImage(path)).equals(bytes)) throw new Error('附件目标已有同名且内容不同的图片，请选择其他保存位置。')

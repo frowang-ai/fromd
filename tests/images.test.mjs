@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import fsPromises from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { DocumentStore } from '../apps/desktop/src/main/documentStore.js'
 import { imageSources } from '../apps/desktop/src/main/imageAssets.js'
 
@@ -136,4 +138,20 @@ test('图片读取和另存拒绝跳出文档根目录的目录联接', async t 
   await symlink(outside, join(target, 'images'), 'junction')
   await assert.rejects(store.save(safeDoc.id, join(target, 'copy.md')), /保存目录之外/)
   assert.deepEqual(await readFile(join(outside, 'image.png')), png)
+})
+
+test('无硬链接支持时独占复制附件，重复可复用且同名异内容仍拒绝', async t => {
+  const { directory, profile, store, id } = await fixture(t)
+  const link = t.mock.method(fsPromises, 'link', async () => { throw Object.assign(new Error('Unsupported filesystem'), { code: 'ENOTSUP' }) })
+  syncBuiltinESMExports()
+  t.after(() => { link.mock.restore(); syncBuiltinESMExports() })
+  const [source] = await store.importImages(id, [image()])
+  assert.deepEqual(await store.importImages(id, [image()]), [source])
+  await store.update(id, `![截图](${source})`, 1)
+  assert.equal((await store.save(id, join(directory, 'note.md'))).saved, true)
+  assert.deepEqual(await readFile(join(directory, source)), png)
+  const changed = Buffer.concat([png, Buffer.from('different')])
+  await writeFile(join(profile, source), changed)
+  await assert.rejects(store.importImages(id, [image()]), /同名且内容不同/)
+  assert.deepEqual(await readFile(join(profile, source)), changed)
 })
