@@ -83,11 +83,11 @@ export const writingSearchPlugin = new Plugin({
   },
 })
 
-export function findInView(view, query, matchCase = false, index = 0) {
+export function findInView(view, query, matchCase = false, index = 0, select = true) {
   const result = searchState(view.state.doc, query, matchCase, index)
   let transaction = view.state.tr.setMeta(writingSearchKey, result).setMeta('addToHistory', false)
   const match = result.matches[result.index]
-  if (match) {
+  if (match && select) {
     const selection = match.kind === 'math' ? NodeSelection.create(transaction.doc, match.from)
       : TextSelection.create(transaction.doc, match.from, match.to)
     transaction = transaction.setSelection(selection).scrollIntoView()
@@ -115,5 +115,13 @@ export function replaceInView(view, query, replacement, matchCase = false, index
   }
   view.dispatch(transaction)
   view.dispatch(closeHistory(view.state.tr))
-  return { ...findInView(view, query, matchCase, all ? 0 : index), replaced: matches.length }
+  let nextIndex = 0
+  if (!all) {
+    const replaced = matches[0], next = findDocumentMatches(view.state.doc, query, matchCase)
+    nextIndex = next.matches.findIndex(match => replaced.kind === 'math'
+      ? match.from > replaced.from || (match.from === replaced.from && match.offset >= replaced.offset + replacement.length)
+      : match.from >= replaced.from + replacement.length)
+    if (nextIndex < 0) nextIndex = 0
+  }
+  return { ...findInView(view, query, matchCase, nextIndex), replaced: matches.length }
 }

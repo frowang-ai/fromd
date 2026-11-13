@@ -69,3 +69,31 @@ test('源码图片插入在原选区且可撤销', async ({ page }) => {
   await source.focus(); await page.keyboard.press('Control+z')
   await expect(source).toHaveValue('before AFTER')
 })
+
+test('查找栏打开时继续写作不会把光标拉回匹配位置', async ({ page }) => {
+  await open(page, 'needle\n\n写作位置')
+  await page.getByRole('button', { name: '查找', exact: true }).click()
+  await page.getByRole('searchbox', { name: '查找正文' }).fill('needle')
+  await expect(page.getByRole('search').getByRole('status')).toHaveText('1 / 1')
+  await body(page).locator('p').last().evaluate(element => {
+    element.closest('[contenteditable]').focus()
+    const range = document.createRange(); range.selectNodeContents(element); range.collapse(false)
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range)
+  })
+  await page.keyboard.insertText('甲')
+  await expect(body(page).locator('p').last()).toHaveText('写作位置甲')
+  await page.waitForTimeout(500)
+  await page.keyboard.insertText('乙')
+  await expect(body(page).locator('p').last()).toHaveText('写作位置甲乙')
+  await expect(body(page).locator('p').first()).toHaveText('needle')
+})
+
+test('富文本图片插入是独立撤销步骤，保留刚输入的正文', async ({ page }) => {
+  await open(page, '原正文')
+  await body(page).click(); await page.keyboard.press('Control+End'); await page.keyboard.insertText('刚输入')
+  await page.getByRole('button', { name: '插入测试图片' }).click()
+  await expect(body(page).locator('img[alt="测试图片"]')).toHaveCount(1)
+  await body(page).click(); await page.keyboard.press('Control+z')
+  await expect(body(page).locator('img[alt="测试图片"]')).toHaveCount(0)
+  await expect(body(page)).toContainText('原正文刚输入')
+})

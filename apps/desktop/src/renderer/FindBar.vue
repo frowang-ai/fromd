@@ -23,15 +23,19 @@ const props = defineProps({ pane: Object, revision: Number, documentId: String, 
 const emit = defineEmits(['close', 'error'])
 const query = ref(''), replacement = ref(''), matchCase = ref(false), showReplace = ref(props.replaceMode), queryInput = ref(null)
 const result = ref({ count: 0, index: -1, truncated: false }), replaced = ref(null)
-let timer, disposed = false, changing = false
+let timer, disposed = false, changing = false, searchVersion = 0
 const status = computed(() => {
   if (replaced.value !== null) return `已替换 ${replaced.value} 处`
   if (!query.value) return ''
   return result.value.count ? `${result.value.index + 1} / ${result.value.count}${result.value.truncated ? '+' : ''}` : '无匹配'
 })
-function search(index = 0) {
+async function search(index = 0, select = true) {
   if (disposed || props.disabled || !props.pane) return
-  try { result.value = props.pane.find(query.value, matchCase.value, index) }
+  const version = ++searchVersion, pane = props.pane, id = props.documentId, mode = props.sourceMode, text = query.value, sensitive = matchCase.value
+  try {
+    if (await props.beforeEdit?.() === false || disposed || version !== searchVersion || props.disabled || props.pane !== pane || props.documentId !== id || props.sourceMode !== mode || query.value !== text || matchCase.value !== sensitive) return
+    result.value = pane.find(text, sensitive, index, select)
+  }
   catch (error) { emit('error', error.message) }
 }
 function move(direction) { replaced.value = null; clearTimeout(timer); search(result.value.index + direction) }
@@ -40,7 +44,7 @@ function enterReplace(event) { if (!event.isComposing) { event.preventDefault();
 async function replace(all) {
   if (props.disabled || !props.pane) return
   const pane = props.pane, id = props.documentId, mode = props.sourceMode, text = query.value, value = replacement.value
-  clearTimeout(timer); changing = true
+  clearTimeout(timer); searchVersion++; changing = true
   try {
     if (await props.beforeEdit?.() === false || disposed || props.disabled || props.pane !== pane || props.documentId !== id || props.sourceMode !== mode || query.value !== text || replacement.value !== value) return
     const next = props.pane.replaceSearch(query.value, replacement.value, matchCase.value, result.value.index, all)
@@ -55,19 +59,19 @@ async function focus(withReplace = props.replaceMode) {
 watch([query, matchCase], () => { replaced.value = null; clearTimeout(timer); timer = setTimeout(() => search(), 120) })
 watch(() => props.replaceMode, value => { if (value) showReplace.value = true })
 watch([() => props.documentId, () => props.sourceMode, () => props.pane], () => { replaced.value = null; void nextTick(() => search()) })
-watch([() => props.revision, () => props.disabled], () => { if (!changing) { clearTimeout(timer); timer = setTimeout(() => search(result.value.index), 120) } })
+watch([() => props.revision, () => props.disabled], () => { if (!changing) { clearTimeout(timer); timer = setTimeout(() => search(result.value.index, false), 120) } })
 onMounted(() => { void focus() })
-onBeforeUnmount(() => { disposed = true; clearTimeout(timer); props.pane?.clearSearch() })
+onBeforeUnmount(() => { disposed = true; searchVersion++; clearTimeout(timer); props.pane?.clearSearch() })
 defineExpose({ focus })
 </script>
 <style scoped>
-.find-bar { position: sticky; top: 48px; z-index: 15; margin: 8px auto; width: min(780px, calc(100% - 32px)); padding: 8px 10px; background: var(--panel-bg, #fffefa); border: 1px solid var(--border-color, #dce3d9); border-radius: 6px; box-shadow: 0 3px 12px #27382912; }
+.find-bar { position: sticky; top: 48px; z-index: 15; margin: 8px auto; width: min(780px, calc(100% - 32px)); padding: 8px 10px; background: var(--frowd-background, #fffefa); border: 1px solid var(--frowd-border, #dce3d9); border-radius: 6px; box-shadow: 0 3px 12px #27382912; }
 .find-row { display: flex; align-items: center; gap: 4px; }
 .find-row + .find-row { margin-top: 6px; }
-.find-row input { min-width: 70px; flex: 1; padding: 6px 8px; color: inherit; background: transparent; border: 1px solid var(--border-color, #dce3d9); border-radius: 4px; }
+.find-row input { min-width: 70px; flex: 1; padding: 6px 8px; color: inherit; background: transparent; border: 1px solid var(--frowd-border, #dce3d9); border-radius: 4px; }
 .find-row button { flex-shrink: 0; padding: 5px 7px; }
-.find-row button[aria-pressed=true] { background: var(--selected-bg, #dceae1); }
-.find-count { flex-shrink: 0; font-size: 12px; color: var(--muted-color, #728075); }
+.find-row button[aria-pressed=true] { background: var(--frowd-selected, #dceae1); }
+.find-count { flex-shrink: 0; font-size: 12px; color: var(--frowd-muted, #728075); }
 .find-limit { margin: 5px 0 0; font-size: 12px; }
 @media (max-width: 600px) { .find-row { flex-wrap: wrap; } .find-row input { flex-basis: 50%; } }
 </style>

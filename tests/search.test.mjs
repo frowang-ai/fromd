@@ -69,6 +69,17 @@ test('导航循环匹配且不进入撤销历史', () => {
   assert.equal(view.state.selection.from, 5)
   assert.equal(undo(view.state, transaction => view.dispatch(transaction)), false)
   assert.equal(findInView(view, 'absent').count, 0)
+  const selection = view.state.selection
+  findInView(view, 'one', false, 0, false)
+  assert.ok(view.state.selection.eq(selection))
+})
+
+test('单次替换后跳过插入内容中的相同查找词', () => {
+  const view = fakeView([paragraph([text('x and x')])])
+  const result = replaceInView(view, 'x', 'xx')
+  assert.equal(view.state.doc.textContent, 'xx and x')
+  assert.equal(result.index, 2)
+  assert.equal(view.state.selection.from, 8)
 })
 
 test('有界匹配禁止部分执行全部替换', () => {

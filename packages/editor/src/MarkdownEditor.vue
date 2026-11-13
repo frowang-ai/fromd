@@ -12,6 +12,7 @@ import * as core from '@milkdown/kit/core'
 import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { closeHistory } from '@milkdown/kit/prose/history'
 import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import * as utils from '@milkdown/kit/utils'
@@ -102,23 +103,26 @@ function focusSessionView() {
   if (!created || !activeSession) return
   focusEmbeddedView(view(), restoredViews); restoredViews = []
 }
-function find(query, matchCase = false, index = 0) {
+function find(query, matchCase = false, index = 0, select = true) {
   if (!created) return { count: 0, index: -1, truncated: false }
-  return findInView(view(), query, matchCase, index)
+  if (select) { restoredViews = []; rememberedViews = null }
+  return findInView(view(), query, matchCase, index, select)
 }
 function clearSearch() { if (created) clearViewSearch(view()) }
 function replaceSearch(query, replacement, matchCase = false, index = 0, all = false) {
   if (!created || view().composing) throw new Error('请先完成输入法组合输入。')
   return replaceInView(view(), query, replacement, matchCase, index, all)
 }
-function insertImages(sources) {
+function insertImages(sources, dropPoint) {
   if (!created || view().composing) throw new Error('请先完成输入法组合输入。')
-  const v = view(), transaction = v.state.tr
+  const v = view(), transaction = closeHistory(v.state.tr)
+  const destination = dropPoint && v.posAtCoords(dropPoint)
+  if (destination) transaction.setSelection(TextSelection.near(transaction.doc.resolve(destination.pos)))
   for (const source of sources) {
     const attrs = typeof source === 'string' ? { src: source, alt: '' } : { src: source.src, alt: source.alt || '' }
     transaction.replaceSelectionWith(v.state.schema.nodes.image.create(attrs))
   }
-  v.dispatch(transaction.scrollIntoView()); v.focus()
+  v.dispatch(transaction.scrollIntoView()); v.dispatch(closeHistory(v.state.tr)); v.focus()
 }
 function goToHeading(index) {
   if (!created) return false
@@ -128,7 +132,9 @@ function goToHeading(index) {
   })
   if (found === null) return false
   const v = view()
+  restoredViews = []; rememberedViews = null
   v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, found + 1)).setMeta('addToHistory', false).scrollIntoView())
+  v.focus()
   v.nodeDOM(found)?.scrollIntoView({ block: 'center' })
   return true
 }

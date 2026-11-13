@@ -90,12 +90,12 @@ function selectSourceRange(from, to) {
   mirror.remove(); input.scrollIntoView({ block: 'nearest' })
   return true
 }
-function find(query, matchCase = false, index = 0) {
-  if (!sourceMode.value) return props.engine.find(query, matchCase, index)
+function find(query, matchCase = false, index = 0, select = true) {
+  if (!sourceMode.value) return props.engine.find(query, matchCase, index, select)
   const result = findTextMatches(source.value, query, matchCase), count = result.matches.length
   const selected = count ? ((index % count) + count) % count : -1
   const match = result.matches[selected]
-  if (match) selectSourceRange(match.from, match.to)
+  if (match && select) selectSourceRange(match.from, match.to)
   return { count, index: selected, truncated: result.truncated }
 }
 function replaceSourceRange(from, to, replacement) {
@@ -137,12 +137,14 @@ function replaceSearch(query, replacement, matchCase = false, index = 0, all = f
     const match = result.matches[selected]
     replaceSourceRange(match.from, match.to, replacement)
   }
-  return { ...find(query, matchCase, all ? 0 : selected), replaced: all ? count : 1 }
+  const nextMatches = findTextMatches(source.value, query, matchCase).matches
+  const nextIndex = all ? 0 : Math.max(0, nextMatches.findIndex(match => match.from >= result.matches[selected].from + replacement.length))
+  return { ...find(query, matchCase, nextIndex), replaced: all ? count : 1 }
 }
 function clearSearch() { props.engine?.clearSearch() }
-function insertImages(sources) {
+function insertImages(sources, dropPoint) {
   if (!sourceMode.value) {
-    props.engine.insertImages(sources); emit('change', props.engine.getMarkdown()); return
+    props.engine.insertImages(sources, dropPoint); emit('change', props.engine.getMarkdown()); return
   }
   const markdown = sources.map(source => {
     const image = typeof source === 'string' ? { src: source, alt: '' } : source
@@ -152,7 +154,9 @@ function insertImages(sources) {
 }
 function goToHeading({ index, offset }) {
   if (!sourceMode.value) return props.engine.goToHeading(index)
-  return selectSourceRange(offset, offset)
+  const selected = selectSourceRange(offset, offset)
+  if (selected) sourceInput.value.focus({ preventScroll: true })
+  return selected
 }
 defineExpose({ getMarkdown, toggleSource, focusEditor, sourceMode, resolveImage, syncMarkdown, captureViewState, restoreViewState,
   find, replaceSearch, clearSearch, selectSourceRange, insertImages, goToHeading })

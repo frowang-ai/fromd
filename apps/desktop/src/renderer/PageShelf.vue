@@ -95,8 +95,8 @@ watch([query, () => props.documents.map(doc => `${doc.id}:${doc.revision}:${doc.
 onBeforeUnmount(() => { disposed = true; searchVersion++; clearTimeout(searchTimer); observer?.disconnect() })
 </script>
 <style scoped>
-.search-snippet { padding: 14px 12px; margin: 0; min-height: 65px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; color: var(--text-color, #405c4c); }
-.search-snippet mark { color: inherit; background: #f5df85; border-radius: 2px; }
+.search-snippet { padding: 14px 12px; margin: 0; min-height: 65px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; color: var(--frowd-text, #405c4c); }
+.search-snippet mark { color: inherit; background: var(--frowd-selected, #f5df85); border-radius: 2px; }
 .shelf-dismiss { position:fixed; inset:48px 0 0; z-index:24; }
 .page-shelf { position:fixed; left:12px; top:58px; bottom:42px; width:min(284px,calc(100vw - 24px)); display:flex; flex-direction:column; padding:12px; background:#fffefa; border:1px solid #dce3d9; border-radius:5px; box-shadow:0 4px 18px #27382916; z-index:25; }
 .shelf-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }
