@@ -59,7 +59,8 @@ export async function buildPdfDocument({ markdown, title = '文档', resolveImag
     if (!src) throw new Error('文档中有图片不可用，请检查后重新导出。')
     if (src.startsWith('data:image/')) { image.src = src; return }
     const url = new URL(src, document.baseURI)
-    if (url.protocol !== 'document-image:' && url.origin !== location.origin) throw new Error('图片必须来自当前文档。')
+    // Electron custom scheme, or the WebView2 form of the same scheme (Tauri lite shell).
+    if (url.protocol !== 'document-image:' && url.origin !== 'http://document-image.localhost' && url.origin !== location.origin) throw new Error('图片必须来自当前文档。')
     const response = await fetch(url, { credentials: 'same-origin', signal: AbortSignal.timeout(15000) })
     if (!response.ok) throw new Error('图片加载失败，请重试。')
     const blob = await response.blob()

@@ -1,0 +1,39 @@
+[package]
+name = "frowd-lite"
+version = "0.4.0"
+description = "frowd lite: Tauri prototype of the local-first Markdown editor"
+license = "MIT"
+edition = "2021"
+publish = false
+
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+base64 = "0.22"
+
+[dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = "2"
+rusqlite = { version = "0.35", features = ["bundled"] }
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1", features = ["v4"] }
+dunce = "1"
+percent-encoding = "2"
+tokio = { version = "1", features = ["sync", "time"] }
+base64 = "0.22"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell", "Win32_System_Com_StructuredStorage"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

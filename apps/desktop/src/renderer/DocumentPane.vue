@@ -42,7 +42,7 @@ function syncMarkdown(markdown) {
 function resolveImage(src) {
   if (/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)) return src
   if (!props.document.path || !src || /^[a-z][\w+.-]*:|^[/\\]/i.test(src)) return null
-  return `document-image://${props.document.id}/${encodeURIComponent(src)}`
+  return window.desktop.imageUrl?.(props.document.id, src) ?? `document-image://${props.document.id}/${encodeURIComponent(src)}`
 }
 function getMarkdown() { return sourceMode.value ? source.value : props.richActive ? props.engine?.getMarkdown() ?? props.document.markdown : props.document.markdown }
 function captureViewState() {
