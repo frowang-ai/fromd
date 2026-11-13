@@ -22,7 +22,7 @@ main[data-theme] .writing-editor .milkdown > .ProseMirror { font-size: var(--rea
 main[data-theme] .markdown-source { font-size: var(--reading-font-size, 16px); }
 .reading-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-shrink: 0; }
 .reading-tools button { font-size: 12px; padding: 6px 8px; }
-.writing-count { color: var(--frowd-muted, #849085); white-space: nowrap; font-size: 11px; }
+.writing-count { position: fixed; bottom: 10px; right: 20px; z-index: 19; padding: 3px 8px; border-radius: 4px; background: var(--frowd-background, #fffefa); color: var(--frowd-muted, #849085); white-space: nowrap; font-size: 11px; pointer-events: none; }
 
 main[data-theme=dark] {
   --frowd-background: #202723;

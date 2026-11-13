@@ -27,6 +27,7 @@ import { installWritingListViews } from './writingListView.js'
 import { describeWritingDocument, installWritingClipboard } from './writingClipboard.js'
 import { logWritingEvent } from './writingDiagnostics.js'
 import { writingSearchPlugin, findInView, replaceInView, clearViewSearch } from './writingSearch.js'
+import { writingCodeTheme } from './writingCodeTheme.js'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
 import 'katex/dist/katex.min.css'
@@ -150,7 +151,7 @@ onMounted(async () => {
       },
       featureConfigs: {
         [Crepe.Feature.Placeholder]: { text: '从这里开始写…', mode: 'doc' },
-        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言' },
+        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言', theme: writingCodeTheme },
       },
     })
     // Replace the generic-transaction-only synchronizer; input rules carry

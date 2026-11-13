@@ -91,7 +91,10 @@ function updateReading(patch) {
 }
 async function openReading(mode) {
   if (!commandReady.value) return
-  rememberView(); shelfOpen.value = false
+  const id = activeId.value
+  await waitComposition()
+  if (!commandReady.value || activeId.value !== id) return
+  rememberView(); shelfOpen.value = false; findOpen.value = false
   readingMode.value = readingMode.value === mode ? null : mode
   await nextTick(); readingPanel.value?.focus()
 }
@@ -100,7 +103,13 @@ async function goToHeading(heading) {
   const id = activeId.value, generation = current.value.generation
   await waitComposition()
   if (activeId.value !== id || current.value?.generation !== generation || !commandReady.value) return
-  sessions.get(id)?.goToHeading(heading)
+  const pane = sessions.get(id)
+  captureDisplayed()
+  analysis.value = analyzeMarkdown(pane.getMarkdown())
+  const candidates = analysis.value.headings.filter(item => item.text === heading.text && item.level === heading.level)
+  const target = candidates.find(item => item.index === heading.index) || (candidates.length === 1 ? candidates[0] : null)
+  if (target) pane.goToHeading(target)
+  else message.value = '大纲已更新，请重新选择标题。'
 }
 async function openFind(replace = false) {
   if (!commandReady.value || !current.value) return
@@ -151,16 +160,17 @@ function dropImages(event) {
   if (!event.target.closest('.ProseMirror, .markdown-source')) return
   const files = imageFiles(event.dataTransfer)
   if (!files.length) return
-  event.preventDefault(); event.stopPropagation(); void insertImageFiles(files)
+  const point = event.isTrusted ? { left: event.clientX, top: event.clientY } : undefined
+  event.preventDefault(); event.stopPropagation(); void insertImageFiles(files, point)
 }
-async function insertImageFiles(files) {
+async function insertImageFiles(files, dropPoint) {
   if (!commandReady.value || !current.value) return
   const id = activeId.value
   await run(async () => {
     const images = await Promise.all(files.map(async file => ({ mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) })))
     const sources = await api.importImages(id, images)
     const pane = sessions.get(id)
-    pane.insertImages(sources)
+    pane.insertImages(sources, dropPoint)
     change(id, pane.getMarkdown())
     await backup(findDocument(id))
   })
@@ -530,7 +540,7 @@ async function shelveDocument(id) {
   await run(async () => {
     const doc = findDocument(id), generation = doc?.generation, selection = selectionVersion
     await api.shelve(id)
-    shelfOpen.value = false
+    shelfOpen.value = false; readingMode.value = null; findOpen.value = false
     if (id === activeId.value) await animatePage(true, () => activeId.value === id && isLive(doc) && doc.generation === generation && selectionVersion === selection)
     // A real second-instance open can change the store while capture/animation
     // yields. Reconcile after that wait, never replay the pre-animation layout.
