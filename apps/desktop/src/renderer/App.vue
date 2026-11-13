@@ -1,5 +1,5 @@
 <template>
-  <main :aria-busy="!commandReady">
+  <main :aria-busy="!commandReady" :data-theme="readingTheme" :style="readingStyle(preferences)">
     <header ref="appBar" class="app-bar" :inert="busy || operationPending || !loaded" @pointerdown="rememberView">
       <button ref="pagesButton" class="pages-button" aria-label="页面列表" :aria-expanded="shelfOpen" @click="toggleShelf"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="13" height="16" rx="1"/><path d="M15 2H3v15M9 10h7M9 14h7"/></svg><span>{{ documents.length }}</span></button>
       <div class="tabs" role="tablist" aria-label="笔记标签页">
@@ -9,6 +9,11 @@
         </div>
       </div>
       <button class="new-tab" :disabled="!commandReady" aria-label="新建笔记" title="新建笔记 (Ctrl+N)" @click="command('new')">+</button>
+      <div class="reading-tools">
+        <button :disabled="!current || !commandReady" aria-label="查找正文" title="查找 (Ctrl+F)" @click="openFind(false)">查找</button>
+        <button :disabled="!current || !commandReady" :aria-expanded="readingMode === 'outline'" @click="openReading('outline')">大纲</button>
+        <button :disabled="!commandReady" :aria-expanded="readingMode === 'settings'" @click="openReading('settings')">阅读</button>
+      </div>
     </header>
     <div v-if="message" class="notice" role="alert">{{ message }}<button v-if="!fatal" @click="message = ''" aria-label="关闭提示">×</button></div>
     <div v-if="current?.conflict" class="conflict" role="alert">
@@ -16,7 +21,8 @@
       <button :disabled="busy || operationPending" @click="save(true)">另存当前修改</button><button :disabled="busy || operationPending" @click="reloadDocument">重新读取磁盘</button>
     </div>
     <div v-if="!loaded" role="status" class="loading">正在打开笔记…</div>
-    <div ref="editorContent" class="editor-content" :inert="busy || shelfOpen">
+    <FindBar v-if="findOpen && current" ref="findBar" :pane="sessions.get(activeId)" :revision="current.revision" :document-id="activeId" :source-mode="sourceMode" :disabled="!commandReady || shelfOpen" :replace-mode="replaceMode" :before-edit="waitComposition" @close="closeFind" @error="message = $event" />
+    <div ref="editorContent" class="editor-content" :inert="busy || shelfOpen" @paste.capture="pasteImages" @drop.capture="dropImages" @dragover="dragImages">
       <template v-for="doc in documents" :key="`${doc.id}-${doc.generation || 0}`">
         <DocumentPane v-if="visited.has(doc.id)" :ref="instance => setSession(doc.id, instance)" :document="doc" :active="doc.id === activeId" :editable="doc.id === activeId && ready[doc.id] && displayedId === doc.id && !busy" :inert="!ready[doc.id] || displayedId !== doc.id" :status="saveStatus(doc)" :engine="sharedEditor" :rich-active="displayedId === doc.id" @rename="title => rename(doc.id, title)" @finish-name="finishName(doc.id)" @change="text => change(doc.id, text)" />
       </template>
@@ -29,19 +35,26 @@
       <p>{{ documents.length ? '页面已收起' : '暂无页面' }}</p>
       <button v-if="documents.length" @click="toggleShelf">查看页面</button><button @click="command('new')">新建笔记</button>
     </section>
-    <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" @close="hideShelf" @open="activate" @remove="closeDocument" />
+    <PageShelf v-if="shelfOpen" ref="shelfPanel" :documents="documents" :active-id="activeId" :busy="busy || operationPending" :search-pages="searchPages" @close="hideShelf" @open="activate" @remove="closeDocument" @search-hit="openSearchHit" />
+    <ReadingPanel v-if="readingMode" ref="readingPanel" :mode="readingMode" :headings="analysis.headings" :preferences="preferences" :busy="!commandReady" :storage-error="readingError" @mode="readingMode = $event" @close="readingMode = null" @navigate="goToHeading" @preferences="updateReading" />
+    <div v-if="current" class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文按词；含代码和公式。字符数不含空白。">{{ analysis.wordCount }} 字词 · {{ analysis.characterCount }} 字符</div>
     <div v-if="undoRemoval" class="removal-notice" role="status">已移除<button :disabled="busy || operationPending" @click="undoRemove">撤销</button></div>
     <UpdateNotice ref="updateNotice" :busy="!commandReady" />
   </main>
 </template>
 <script setup>
-import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watchEffect } from 'vue'
+import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch, watchEffect } from 'vue'
 import MarkdownEditor from '@frowang/editor'
 import { buildPdfDocument } from '@frowang/editor/pdf'
 import DocumentPane from './DocumentPane.vue'
 import UpdateNotice from './UpdateNotice.vue'
 import PageShelf from './PageShelf.vue'
 import { startPageMotion } from './pageMotion.js'
+import FindBar from './FindBar.vue'
+import ReadingPanel from './ReadingPanel.vue'
+import { analyzeMarkdown } from '@frowang/editor/analysis'
+import { loadReadingPreferences, saveReadingPreferences, resolvedReadingTheme, readingStyle } from './readingPreferences.js'
+import './reading.css'
 const api = window.desktop
 const documents = ref([]), activeId = ref(null), visited = reactive(new Set()), ready = reactive({})
 const openDocuments = computed(() => documents.value.filter(doc => !doc.shelved))
@@ -56,6 +69,102 @@ let loadVersion = 0, composing = false, compositionWaiters = []
 const busy = ref(false), operationPending = ref(false), loaded = ref(false), message = ref(''), fatal = ref(false), sourceMode = ref(false)
 let disposers = [], selectionVersion = 0, openEventVersion = 0, menuRevision = 0
 const commandReady = computed(() => loaded.value && !busy.value && !operationPending.value && (!current.value || (!!ready[activeId.value] && displayedId.value === activeId.value)))
+const initialReading = loadReadingPreferences()
+const preferences = ref(initialReading.preferences), readingError = ref(initialReading.error)
+const readingMode = ref(null), readingPanel = ref(null), analysis = ref({ headings: [], wordCount: 0, characterCount: 0 })
+const darkMedia = window.matchMedia('(prefers-color-scheme: dark)'), systemDark = ref(darkMedia.matches)
+const readingTheme = computed(() => resolvedReadingTheme(preferences.value, systemDark.value))
+const findOpen = ref(false), replaceMode = ref(false), findBar = ref(null)
+let analysisTimer
+function systemThemeChanged(event) { systemDark.value = event.matches }
+darkMedia.addEventListener('change', systemThemeChanged)
+watch(() => [current.value?.id, current.value?.markdown], ([id, markdown], previous) => {
+  clearTimeout(analysisTimer)
+  if (previous?.[0] !== id) analysis.value = { headings: [], wordCount: 0, characterCount: 0 }
+  analysisTimer = setTimeout(() => {
+    if (current.value?.id === id) analysis.value = analyzeMarkdown(markdown || '')
+  }, 180)
+}, { immediate: true })
+function updateReading(patch) {
+  const result = saveReadingPreferences({ ...preferences.value, ...patch })
+  preferences.value = result.preferences; readingError.value = result.error
+}
+async function openReading(mode) {
+  if (!commandReady.value) return
+  rememberView(); shelfOpen.value = false
+  readingMode.value = readingMode.value === mode ? null : mode
+  await nextTick(); readingPanel.value?.focus()
+}
+async function goToHeading(heading) {
+  if (!commandReady.value || !current.value) return
+  const id = activeId.value, generation = current.value.generation
+  await waitComposition()
+  if (activeId.value !== id || current.value?.generation !== generation || !commandReady.value) return
+  sessions.get(id)?.goToHeading(heading)
+}
+async function openFind(replace = false) {
+  if (!commandReady.value || !current.value) return
+  const id = activeId.value
+  await waitComposition()
+  if (activeId.value !== id || !commandReady.value) return
+  rememberView(); shelfOpen.value = false; readingMode.value = null
+  replaceMode.value = replace; findOpen.value = true
+  await nextTick(); findBar.value?.focus(replace)
+}
+function closeFind() {
+  sessions.get(activeId.value)?.clearSearch()
+  findOpen.value = false; sessions.get(activeId.value)?.focusEditor()
+}
+async function searchPages(query) {
+  await flush()
+  return api.search(query)
+}
+async function openSearchHit(hit, query) {
+  if (busy.value || operationPending.value || !findDocument(hit.id)) return
+  try {
+    await activate(hit.id)
+    if (activeId.value !== hit.id || !commandReady.value || !ready[hit.id]) return
+    if (hit.matchIn === 'title') return
+    const pane = sessions.get(hit.id), result = pane.find(query)
+    if (result.count) { pane.focusEditor(); return }
+    const markdown = pane.getMarkdown(), match = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'iu').exec(markdown)
+    if (!match) { message.value = '页面内容已变化，请重新搜索。'; return }
+    if (!sourceMode.value) await toggleSource()
+    if (activeId.value === hit.id && commandReady.value) pane.selectSourceRange(match.index, match.index + match[0].length)
+  } catch (error) { message.value = error.message }
+}
+function imageFiles(data) {
+  return Array.from(data?.files || []).filter(file => /^image\/(png|jpeg|gif|webp)$/.test(file.type))
+}
+function pasteImages(event) {
+  if (!event.target.closest('.ProseMirror, .markdown-source')) return
+  const data = event.clipboardData
+  if (/<table[\s>]/i.test(data?.getData('text/html') || '')) return
+  const files = imageFiles(data)
+  if (!files.length) return
+  event.preventDefault(); event.stopPropagation(); void insertImageFiles(files)
+}
+function dragImages(event) {
+  if (Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file' && /^image\/(png|jpeg|gif|webp)$/.test(item.type))) event.preventDefault()
+}
+function dropImages(event) {
+  if (!event.target.closest('.ProseMirror, .markdown-source')) return
+  const files = imageFiles(event.dataTransfer)
+  if (!files.length) return
+  event.preventDefault(); event.stopPropagation(); void insertImageFiles(files)
+}
+async function insertImageFiles(files) {
+  if (!commandReady.value || !current.value) return
+  const id = activeId.value
+  await run(async () => {
+    const images = await Promise.all(files.map(async file => ({ mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) })))
+    const sources = await api.importImages(id, images)
+    const pane = sessions.get(id)
+    pane.insertImages(sources)
+    change(id, pane.getMarkdown())
+    await backup(findDocument(id))
+  })
+}
 watchEffect(() => {
   api.setMenuState({ documentId: activeId.value, ready: commandReady.value, busy: busy.value || operationPending.value,
     sourceMode: sourceMode.value, revision: ++menuRevision })
@@ -357,7 +466,10 @@ async function activate(id, expand = false) {
     doc.shelved = false; selectionVersion++
     activeId.value = id; sourceMode.value = sessions.get(id)?.sourceMode ?? false
   } catch (error) { message.value = error.message; expand = false }
-  finally { busy.value = false; operationPending.value = false; showActive(expand) }
+  finally {
+    busy.value = false; operationPending.value = false
+    try { await revealActive(expand) } catch (error) { message.value = error.message }
+  }
 }
 async function toggleSource() {
   const id = activeId.value, doc = current.value, pane = sessions.get(id)
@@ -371,6 +483,7 @@ async function toggleSource() {
       selectionVersion !== selection || !ready[id] || displayedId.value !== id) return
     busy.value = true
     rememberView()
+    pane.clearSearch()
     const mode = await pane.toggleSource()
     if (activeId.value === id && isLive(doc)) { sourceMode.value = mode; switched = true }
   } catch (error) { message.value = error.message }
@@ -392,7 +505,7 @@ async function toggleShelf() {
   if (busy.value || operationPending.value || !loaded.value) return
   if (shelfOpen.value) { hideShelf(); return }
   operationPending.value = true
-  try { await waitComposition(); rememberView(); shelfOpen.value = true }
+  try { await waitComposition(); rememberView(); readingMode.value = null; shelfOpen.value = true }
   finally { operationPending.value = false }
 }
 function hideShelf() { shelfOpen.value = false; void nextTick(() => pagesButton.value?.focus({ preventScroll: true })) }
@@ -467,7 +580,12 @@ async function command(request) {
   if (typeof request !== 'string' && (request.documentId !== activeId.value || request.revision !== menuRevision)) return
   if (name === 'new') { shelfOpen.value = false; await run(() => api.newDocument()) }
   if (name === 'open') { shelfOpen.value = false; await run(() => api.open()) }
+  if (name === 'searchPages') { if (!shelfOpen.value) await toggleShelf(); await nextTick(); shelfPanel.value?.focusSearch() }
+  if (name === 'reading') await openReading('settings')
   if (!current.value) return
+  if (name === 'find') await openFind(false)
+  if (name === 'replace') await openFind(true)
+  if (name === 'outline') await openReading('outline')
   if (name === 'save') await save(false)
   if (name === 'saveAs') await save(true)
   if (name === 'pdf') await exportPdf()
@@ -476,7 +594,10 @@ async function command(request) {
 function shortcut(event) {
   if (event.isComposing || !(event.ctrlKey || event.metaKey) || event.altKey) return
   const key = event.key.toLowerCase()
-  const action = key === 's' ? (event.shiftKey ? 'saveAs' : 'save') : !event.shiftKey && ({ n: 'new', o: 'open' })[key]
+  const action = key === 's' ? (event.shiftKey ? 'saveAs' : 'save')
+    : key === 'f' ? (event.shiftKey ? 'searchPages' : 'find')
+    : key === 'o' && event.shiftKey ? 'outline'
+    : !event.shiftKey && ({ n: 'new', o: 'open', h: 'replace', ',': 'reading' })[key]
   if (action) { event.preventDefault(); void command(action) }
 }
 onMounted(async () => {
@@ -489,7 +610,7 @@ onMounted(async () => {
     await api.ready()
   } catch (error) { fatal.value = true; message.value = `启动失败：${error.message}` }
 })
-onBeforeUnmount(() => { cancelMotion(); landingAnimation?.cancel(); timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut); window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true) })
+onBeforeUnmount(() => { clearTimeout(analysisTimer); darkMedia.removeEventListener('change', systemThemeChanged); cancelMotion(); landingAnimation?.cancel(); timers.forEach(clearTimeout); nameTimers.forEach(clearTimeout); disposers.forEach(dispose => dispose()); window.removeEventListener('keydown', shortcut); window.removeEventListener('compositionstart', startComposition, true); window.removeEventListener('compositionend', endComposition, true) })
 </script>
 <style>
 * { box-sizing: border-box; }

@@ -5,4 +5,5 @@ output/
 test-results/
 playwright-report/
 .pi/
+website/_worktrees/
 *.log

@@ -119,6 +119,7 @@ function wireIPC() {
   handle('documents:list', () => store.snapshot())
   handle('documents:list-metadata', () => store.listMetadata())
   handle('documents:read', id => store.read(id))
+  handle('documents:search', query => store.search(query))
   handle('documents:rename', (id, title) => store.rename(id, title))
   handle('documents:view-state', (id, state) => store.setViewState(id, state))
   handle('documents:new', () => store.newDocument())

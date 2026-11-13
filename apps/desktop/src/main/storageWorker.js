@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { searchDocumentText } from './documentSearch.js'
 
 const { directory, maxSessionBytes } = workerData
 const columns = ['title', 'path', 'markdown', 'contentHash', 'savedHash', 'baseline', 'bom', 'eol', 'revision', 'conflict', 'viewState', 'position', 'shelved']
@@ -113,6 +114,25 @@ function apply({ changes, deletions, activeId }) {
   })
 }
 // Each message finishes its short synchronous transaction before the next message.
+function search({ query, changes, deletions }) {
+  const pending = new Map(changes.map(change => [change.id, change.fields]))
+  const deleted = new Set(deletions)
+  const results = []
+  for (const row of db.prepare('SELECT id, title, markdown, revision FROM documents ORDER BY position').iterate()) {
+    const document = { ...row, ...pending.get(row.id) }
+    pending.delete(row.id)
+    if (deleted.has(row.id)) continue
+    const hit = searchDocumentText(document, query)
+    if (hit) results.push(hit)
+  }
+  for (const [id, fields] of pending) {
+    if (deleted.has(id)) continue
+    const hit = searchDocumentText({ id, ...fields }, query)
+    if (hit) results.push(hit)
+  }
+  return results
+}
+
 parentPort.on('message', ({ id, operation, payload }) => {
   try {
     let result
@@ -123,6 +143,7 @@ parentPort.on('message', ({ id, operation, payload }) => {
       result = row.markdown
     }
     else if (operation === 'apply') result = apply(payload)
+    else if (operation === 'search') result = search(payload)
     else if (operation === 'close') { db?.close(); db = null; result = true }
     else throw new Error('Unknown storage operation')
     parentPort.postMessage({ id, result })
