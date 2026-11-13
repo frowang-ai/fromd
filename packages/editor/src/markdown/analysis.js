@@ -34,9 +34,7 @@ export function countWritingText(text) {
 export function analyzeMarkdown(markdown = '') {
   const tokens = getMarkdownRenderer().parse(markdown, {})
   const offsets = [0]
-  for (let index = 0; index < markdown.length; index++) {
-    if (markdown[index] === '\n') offsets.push(index + 1)
-  }
+  for (const match of markdown.matchAll(/\r\n|\r|\n/g)) offsets.push(match.index + match[0].length)
   const headings = []
   const text = []
   for (let index = 0; index < tokens.length; index++) {
@@ -54,7 +52,11 @@ export function analyzeMarkdown(markdown = '') {
     else if (token.type === 'html_block') {
       // This plain-text pass also works in the storage/unit-test environment.
       // Rich HTML rendering and sanitization remain owned by the renderer.
-      text.push(token.content.replace(/<!--[\s\S]*?-->/g, '').replace(/<[^>]*>/g, ''))
+      const content = token.content.replace(/<!--[\s\S]*?-->/g, '')
+        .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+        .replace(/<\/?(?:p|div|br|h[1-6]|li|tr|td|th|pre|blockquote)\b[^>]*>/gi, '\n')
+        .replace(/<[^>]*>/g, '')
+      text.push(getMarkdownRenderer().utils.unescapeAll(content))
     }
   }
   return { headings, ...countWritingText(text.join('\n')) }

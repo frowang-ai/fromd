@@ -39,6 +39,7 @@ main[data-theme=dark] {
   --writing-code-number: #edc299;
   --writing-code-operator: #a7c8f1;
   --writing-code-comment: #a9b6b0;
+  --writing-code-error: #f0b4aa;
   color-scheme: dark;
 }
 
@@ -107,11 +108,12 @@ main[data-theme=dark] .writing-editor .writing-block-fence,
 main[data-theme=dark] .writing-editor .writing-block-done { color: var(--frowd-muted); }
 main[data-theme=dark] .writing-editor .writing-math-inline .writing-math-source { background: transparent; color: #e5b5ed; caret-color: #e5b5ed; }
 main[data-theme=dark] .writing-editor .writing-block-code .cm-editor { color: var(--frowd-text); background: var(--frowd-surface); }
-main[data-theme=dark] .writing-editor .writing-block-code .cm-content { caret-color: var(--frowd-accent); }
-main[data-theme=dark] .writing-editor .writing-block-code .cm-cursor,
-main[data-theme=dark] .writing-editor .writing-block-code .cm-dropCursor { border-left-color: var(--frowd-accent); }
-main[data-theme=dark] .writing-editor .writing-block-code .cm-activeLine { background: #35473b; }
-main[data-theme=dark] .writing-editor .writing-block-code .cm-selectionBackground { background: #506c58; }
+main[data-theme=dark] .writing-editor .cm-content { caret-color: var(--frowd-accent); }
+main[data-theme=dark] .writing-editor .cm-cursor,
+main[data-theme=dark] .writing-editor .cm-dropCursor { border-left-color: var(--frowd-accent); }
+main[data-theme=dark] .writing-editor .cm-activeLine,
+main[data-theme=dark] .writing-editor .cm-activeLineGutter { background: #35473b; }
+main[data-theme=dark] .writing-editor .cm-selectionBackground { background: #506c58; }
 main[data-theme=dark] .writing-editor .milkdown > .ProseMirror mark { background: #685b2d; }
 main[data-theme=dark] .writing-editor .milkdown > .ProseMirror kbd { color: var(--frowd-text); background: var(--frowd-surface); border-color: var(--frowd-border); }
 

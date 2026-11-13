@@ -22,6 +22,7 @@ test('outline offsets retain UTF-16 source positions with emoji, CRLF and repeat
   const { headings } = analyzeMarkdown(markdown)
   assert.deepEqual(headings.map(item => item.offset), [markdown.indexOf('##'), markdown.lastIndexOf('##')])
   assert.deepEqual(headings.map(item => item.index), [0, 1])
+  assert.equal(analyzeMarkdown('first\r\r## second').headings[0].offset, 7)
 })
 
 test('word count uses individual CJK characters and non-CJK words, with nonspace Unicode character count', () => {
@@ -35,6 +36,8 @@ test('Markdown analysis excludes syntax, URLs and hidden comments while counting
   const result = analyzeMarkdown('**你好** [world](https://example.com) <!-- hidden -->\n\n```js\nhello\n```\n\n$x+1$')
   assert.deepEqual(result, { headings: [], wordCount: 6, characterCount: 15 })
   assert.equal(analyzeMarkdown('<div><!-- hidden -->visible</div>').wordCount, 1)
+  assert.equal(analyzeMarkdown('<div>A &amp; B<script>hidden()</script></div>').wordCount, 2)
+  assert.equal(analyzeMarkdown('<table><tr><td>First</td><td>Second</td></tr></table>').wordCount, 2)
 })
 
 test('preferences validate untrusted storage and write only supported settings', () => {
