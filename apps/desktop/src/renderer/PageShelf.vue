@@ -2,34 +2,70 @@
   <div class="shelf-dismiss" @click="$emit('close')" aria-hidden="true"></div>
   <aside class="page-shelf" aria-label="页面列表" :inert="busy" @keydown.esc.stop.prevent="$emit('close')">
     <div class="shelf-heading"><h2>页面</h2><button aria-label="收起页面列表" @click="$emit('close')">‹</button></div>
-    <input ref="searchInput" v-model="search" class="shelf-search" aria-label="搜索页面" placeholder="搜索页面" />
+    <input ref="searchInput" v-model="search" class="shelf-search" aria-label="搜索页面" placeholder="搜索标题和正文" />
     <div class="shelf-filters">
       <button :aria-pressed="!onlyShelved" @click="onlyShelved = false">全部 {{ documents.length }}</button>
       <button :aria-pressed="onlyShelved" @click="onlyShelved = true">已收起 {{ documents.filter(doc => doc.shelved).length }}</button>
     </div>
     <div ref="list" class="shelf-list">
       <article v-for="doc in filtered" :key="doc.id" :data-page-id="doc.id" class="page-card" :class="{ current: doc.id === activeId }">
-        <button class="page-card-open" :aria-label="`打开 ${doc.title}`" @click="$emit('open', doc.id, true)">
-          <div class="page-thumbnail" aria-hidden="true" inert>
+        <button class="page-card-open" :aria-label="`打开 ${doc.title}`" @click="openCard(doc)">
+          <p v-if="hitsById.has(doc.id)" class="search-snippet"><template v-for="(part, index) in snippetParts(hitsById.get(doc.id).snippet)" :key="index"><mark v-if="part.match">{{ part.text }}</mark><span v-else>{{ part.text }}</span></template></p>
+          <div v-else class="page-thumbnail" aria-hidden="true" inert>
             <div v-if="visible.has(doc.id)" class="page-thumbnail-content" v-html="preview(doc)"></div>
           </div>
           <span class="page-card-caption"><span>{{ doc.title }}</span><small>{{ doc.id === activeId ? '当前' : doc.shelved ? '已收起' : '已打开' }}</small></span>
         </button>
         <button class="page-card-delete" :aria-label="`${doc.path ? '移除' : '删除'} ${doc.title}`" :title="doc.path ? '从列表移除，不删除磁盘文件' : '删除页面（本次会话可撤销最近一次删除）'" @click="$emit('remove', doc.id)">×</button>
       </article>
-      <p v-if="!filtered.length" class="shelf-empty">{{ search ? '没有匹配的页面' : onlyShelved ? '没有已收起的页面' : '暂无页面' }}</p>
+      <p v-if="searching" class="shelf-empty" role="status">正在搜索…</p>
+      <p v-else-if="searchError" class="shelf-empty" role="alert">{{ searchError }}</p>
+      <p v-else-if="!filtered.length" class="shelf-empty">{{ search ? '没有匹配的页面' : onlyShelved ? '没有已收起的页面' : '暂无页面' }}</p>
     </div>
   </aside>
 </template>
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderMarkdown } from '@frowang/editor/markdown'
-const props = defineProps({ documents: { type: Array, required: true }, activeId: String, busy: Boolean })
-defineEmits(['open', 'remove', 'close'])
+import { findTextMatches } from '@frowang/editor/search'
+const props = defineProps({ documents: { type: Array, required: true }, activeId: String, busy: Boolean, searchPages: Function })
+const emit = defineEmits(['open', 'remove', 'close', 'search-hit'])
 const search = ref(''), onlyShelved = ref(false), list = ref(null), searchInput = ref(null)
+const hits = ref([]), searching = ref(false), searchError = ref('')
+const query = computed(() => search.value.trim())
+const hitsById = computed(() => new Map(hits.value.map(hit => [hit.id, hit])))
 const visible = reactive(new Set()), cache = new Map()
-const filtered = computed(() => props.documents.filter(doc => (!onlyShelved.value || doc.shelved) && doc.title.toLocaleLowerCase().includes(search.value.trim().toLocaleLowerCase())))
-let observer
+const filtered = computed(() => props.documents.filter(doc => (!onlyShelved.value || doc.shelved) &&
+  (!query.value || (props.searchPages ? hitsById.value.has(doc.id) : doc.title.toLocaleLowerCase().includes(query.value.toLocaleLowerCase())))))
+let observer, searchTimer, searchVersion = 0, disposed = false
+function requestSearch() {
+  const version = ++searchVersion, text = query.value
+  clearTimeout(searchTimer); hits.value = []; searchError.value = ''
+  searching.value = Boolean(text && props.searchPages)
+  if (!searching.value) return
+  searchTimer = setTimeout(async () => {
+    try {
+      const result = await props.searchPages(text)
+      if (!disposed && version === searchVersion) hits.value = result
+    } catch (error) { if (!disposed && version === searchVersion) searchError.value = error.message }
+    finally { if (!disposed && version === searchVersion) searching.value = false }
+  }, 160)
+}
+function openCard(doc) {
+  const hit = hitsById.value.get(doc.id)
+  if (hit?.matchIn === 'body') emit('search-hit', hit, query.value)
+  else emit('open', doc.id, true)
+}
+function snippetParts(text = '') {
+  const parts = [], { matches } = findTextMatches(text, query.value)
+  let offset = 0
+  for (const match of matches) {
+    parts.push({ text: text.slice(offset, match.from), match: false }, { text: text.slice(match.from, match.to), match: true })
+    offset = match.to
+  }
+  parts.push({ text: text.slice(offset), match: false })
+  return parts
+}
 function focusSearch() { searchInput.value?.focus({ preventScroll: true }) }
 defineExpose({ focusSearch })
 function preview(doc) {
@@ -55,9 +91,12 @@ onMounted(() => {
   void observe(); focusSearch()
 })
 watch(filtered, observe)
-onBeforeUnmount(() => observer?.disconnect())
+watch([query, () => props.documents.map(doc => `${doc.id}:${doc.revision}:${doc.title}`).join('\n')], requestSearch)
+onBeforeUnmount(() => { disposed = true; searchVersion++; clearTimeout(searchTimer); observer?.disconnect() })
 </script>
 <style scoped>
+.search-snippet { padding: 14px 12px; margin: 0; min-height: 65px; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; color: var(--text-color, #405c4c); }
+.search-snippet mark { color: inherit; background: #f5df85; border-radius: 2px; }
 .shelf-dismiss { position:fixed; inset:48px 0 0; z-index:24; }
 .page-shelf { position:fixed; left:12px; top:58px; bottom:42px; width:min(284px,calc(100vw - 24px)); display:flex; flex-direction:column; padding:12px; background:#fffefa; border:1px solid #dce3d9; border-radius:5px; box-shadow:0 4px 18px #27382916; z-index:25; }
 .shelf-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:9px; }

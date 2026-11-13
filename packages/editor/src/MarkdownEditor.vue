@@ -26,6 +26,7 @@ import { installWritingListKeys, writingListLabels } from './writingListKeys.js'
 import { installWritingListViews } from './writingListView.js'
 import { describeWritingDocument, installWritingClipboard } from './writingClipboard.js'
 import { logWritingEvent } from './writingDiagnostics.js'
+import { writingSearchPlugin, findInView, replaceInView, clearViewSearch } from './writingSearch.js'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
 import 'katex/dist/katex.min.css'
@@ -100,13 +101,43 @@ function focusSessionView() {
   if (!created || !activeSession) return
   focusEmbeddedView(view(), restoredViews); restoredViews = []
 }
+function find(query, matchCase = false, index = 0) {
+  if (!created) return { count: 0, index: -1, truncated: false }
+  return findInView(view(), query, matchCase, index)
+}
+function clearSearch() { if (created) clearViewSearch(view()) }
+function replaceSearch(query, replacement, matchCase = false, index = 0, all = false) {
+  if (!created || view().composing) throw new Error('请先完成输入法组合输入。')
+  return replaceInView(view(), query, replacement, matchCase, index, all)
+}
+function insertImages(sources) {
+  if (!created || view().composing) throw new Error('请先完成输入法组合输入。')
+  const v = view(), transaction = v.state.tr
+  for (const source of sources) {
+    const attrs = typeof source === 'string' ? { src: source, alt: '' } : { src: source.src, alt: source.alt || '' }
+    transaction.replaceSelectionWith(v.state.schema.nodes.image.create(attrs))
+  }
+  v.dispatch(transaction.scrollIntoView()); v.focus()
+}
+function goToHeading(index) {
+  if (!created) return false
+  let found = null, current = 0
+  view().state.doc.descendants((node, position) => {
+    if (node.type.name === 'heading' && current++ === index) found = position
+  })
+  if (found === null) return false
+  const v = view()
+  v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, found + 1)).setMeta('addToHistory', false).scrollIntoView())
+  v.nodeDOM(found)?.scrollIntoView({ block: 'center' })
+  return true
+}
 function clearSession() {
   if (!created) return
   switching = true; clearTimeout(updateTimer); activeSession = null; rememberedViews = null; restoredViews = []; sessionResolver = null
   try { setState(EditorState.create({ schema: view().state.schema, plugins: allPlugins })); original = ''; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown() }
   finally { switching = false }
 }
-defineExpose({ getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView, find, replaceSearch, clearSearch, insertImages, goToHeading })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -127,6 +158,7 @@ onMounted(async () => {
     await editor.editor.remove(syncListOrderPlugin)
     if (disposed) return
     editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils))
+    editor.editor.use(utils.$prose(() => writingSearchPlugin))
     editor.editor.use(imageSchema.extendSchema(previous => ctx => {
       const schema = previous(ctx)
       return { ...schema, parseDOM: schema.parseDOM.map(rule => rule.tag === 'img[src]' ? {
@@ -206,6 +238,8 @@ onMounted(async () => {
 onBeforeUnmount(() => { disposed = true; clearTimeout(updateTimer); resolveReady(false); if (created) editor?.destroy().catch(() => {}) })
 </script>
 <style>
+.writing-search-match { background: #f5df85; color: #272c25; }
+.writing-search-current { background: #e8b64e; outline: 2px solid #986c25; outline-offset: 1px; }
 .writing-editor .milkdown {
   --crepe-color-background: #fffefa; --crepe-color-surface: #fffefa;
   --crepe-color-on-background: #333b38; --crepe-color-on-surface: #333b38;

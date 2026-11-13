@@ -10,6 +10,7 @@
 </template>
 <script setup>
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { findTextMatches } from '@frowang/editor/search'
 const props = defineProps({ document: { type: Object, required: true }, active: Boolean, editable: Boolean, status: String, engine: Object, richActive: Boolean })
 const emit = defineEmits(['change', 'rename', 'finish-name'])
 const composing = ref(false), nameValue = ref(props.document.draftName ?? props.document.title)
@@ -41,6 +42,7 @@ function syncMarkdown(markdown) {
 }
 function resolveImage(src) {
   if (/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)) return src
+  if (/^_frowd-assets\/[0-9a-f]{64}\.(png|jpg|gif|webp)$/.test(src)) return `document-image://${props.document.id}/${encodeURIComponent(src)}`
   if (!props.document.path || !src || /^[a-z][\w+.-]*:|^[/\\]/i.test(src)) return null
   return `document-image://${props.document.id}/${encodeURIComponent(src)}`
 }
@@ -73,5 +75,85 @@ async function toggleSource() {
   return sourceMode.value
 }
 function focusEditor() { if (sourceMode.value) sourceInput.value?.focus(); else props.engine?.focusSessionView() }
-defineExpose({ getMarkdown, toggleSource, focusEditor, sourceMode, resolveImage, syncMarkdown, captureViewState, restoreViewState })
+function selectSourceRange(from, to) {
+  const input = sourceInput.value
+  if (!input) return false
+  input.setSelectionRange(from, to)
+  // Measure wrapped source lines with the textarea's actual width and font.
+  const mirror = document.createElement('div'), marker = document.createElement('span'), style = getComputedStyle(input)
+  for (const property of ['font', 'lineHeight', 'letterSpacing', 'padding', 'boxSizing', 'wordBreak', 'overflowWrap']) mirror.style[property] = style[property]
+  Object.assign(mirror.style, { position: 'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap', width: `${input.clientWidth}px`, left: '-100000px' })
+  mirror.textContent = input.value.slice(0, from)
+  marker.textContent = input.value.slice(from, to) || '\u200b'
+  mirror.append(marker); document.body.append(mirror)
+  input.scrollTop = Math.max(0, marker.offsetTop - input.clientHeight / 2)
+  mirror.remove(); input.scrollIntoView({ block: 'nearest' })
+  return true
+}
+function find(query, matchCase = false, index = 0) {
+  if (!sourceMode.value) return props.engine.find(query, matchCase, index)
+  const result = findTextMatches(source.value, query, matchCase), count = result.matches.length
+  const selected = count ? ((index % count) + count) % count : -1
+  const match = result.matches[selected]
+  if (match) selectSourceRange(match.from, match.to)
+  return { count, index: selected, truncated: result.truncated }
+}
+function replaceSourceRange(from, to, replacement) {
+  const input = sourceInput.value, focused = document.activeElement
+  const wasDisabled = input.disabled, inertAncestors = []
+  for (let element = input.parentElement; element; element = element.parentElement) {
+    if (element.inert) { inertAncestors.push(element); element.inert = false }
+  }
+  try {
+    // Import commands hold the async command lock. Temporarily permit this
+    // synchronous native edit so source insertions retain Chromium undo history.
+    input.disabled = false; input.focus({ preventScroll: true }); input.setSelectionRange(from, to)
+    if (!document.execCommand('insertText', false, replacement)) input.setRangeText(replacement, from, to, 'end')
+    source.value = input.value; emit('change', source.value)
+  } finally {
+    input.disabled = wasDisabled
+    for (const element of inertAncestors) element.inert = true
+    if (focused !== input) focused?.focus({ preventScroll: true })
+  }
+}
+function replaceSearch(query, replacement, matchCase = false, index = 0, all = false) {
+  if (!props.editable) return { count: 0, index: -1, replaced: 0, truncated: false }
+  if (!sourceMode.value) {
+    const result = props.engine.replaceSearch(query, replacement, matchCase, index, all)
+    emit('change', props.engine.getMarkdown())
+    return result
+  }
+  const result = findTextMatches(source.value, query, matchCase), count = result.matches.length
+  if (all && result.truncated) throw new Error('匹配超过 10,000 处，请缩小查找范围后再全部替换。')
+  if (!count) return { count: 0, index: -1, replaced: 0, truncated: false }
+  const selected = ((index % count) + count) % count
+  if (all) {
+    const parts = []
+    let previous = 0
+    for (const match of result.matches) { parts.push(source.value.slice(previous, match.from), replacement); previous = match.to }
+    parts.push(source.value.slice(previous))
+    replaceSourceRange(0, source.value.length, parts.join(''))
+  } else {
+    const match = result.matches[selected]
+    replaceSourceRange(match.from, match.to, replacement)
+  }
+  return { ...find(query, matchCase, all ? 0 : selected), replaced: all ? count : 1 }
+}
+function clearSearch() { props.engine?.clearSearch() }
+function insertImages(sources) {
+  if (!sourceMode.value) {
+    props.engine.insertImages(sources); emit('change', props.engine.getMarkdown()); return
+  }
+  const markdown = sources.map(source => {
+    const image = typeof source === 'string' ? { src: source, alt: '' } : source
+    return `![${(image.alt || '').replace(/[\[\]\\]/g, '\\$&')}](${image.src})`
+  }).join('\n')
+  replaceSourceRange(sourceInput.value.selectionStart, sourceInput.value.selectionEnd, markdown)
+}
+function goToHeading({ index, offset }) {
+  if (!sourceMode.value) return props.engine.goToHeading(index)
+  return selectSourceRange(offset, offset)
+}
+defineExpose({ getMarkdown, toggleSource, focusEditor, sourceMode, resolveImage, syncMarkdown, captureViewState, restoreViewState,
+  find, replaceSearch, clearSearch, selectSourceRange, insertImages, goToHeading })
 </script>
