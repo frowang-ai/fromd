@@ -1,0 +1,122 @@
+/* Reading preferences belong to the desktop surface. The reusable editor keeps
+   its own light defaults when mounted by another caller. */
+main[data-theme] {
+  --frowd-background: #fffefa;
+  --frowd-surface: #f1f4ef;
+  --frowd-text: #333b38;
+  --frowd-muted: #849085;
+  --frowd-border: #dce3d9;
+  --frowd-accent: #3c7161;
+  --frowd-selected: #e4eee8;
+  --frowd-hover: #edf2ed;
+  --frowd-warning: #735d33;
+  min-height: 100vh;
+  background: var(--frowd-background);
+  color: var(--frowd-text);
+  color-scheme: light;
+}
+
+main[data-theme] .document-shell { max-width: var(--reading-column-width, 900px); }
+main[data-theme] .writing-editor .milkdown { --crepe-base-font-size: var(--reading-font-size, 16px); }
+main[data-theme] .writing-editor .milkdown > .ProseMirror { font-size: var(--reading-font-size, 16px); }
+main[data-theme] .markdown-source { font-size: var(--reading-font-size, 16px); }
+.reading-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-shrink: 0; }
+.reading-tools button { font-size: 12px; padding: 6px 8px; }
+.writing-count { color: var(--frowd-muted, #849085); white-space: nowrap; font-size: 11px; }
+
+main[data-theme=dark] {
+  --frowd-background: #202723;
+  --frowd-surface: #29322d;
+  --frowd-text: #dce5dc;
+  --frowd-muted: #a0b0a4;
+  --frowd-border: #45554a;
+  --frowd-accent: #a0cfb5;
+  --frowd-selected: #384d40;
+  --frowd-hover: #303e34;
+  --frowd-warning: #ebd5a0;
+  --writing-code-keyword: #a6d8b0;
+  --writing-code-string: #e2b8eb;
+  --writing-code-number: #edc299;
+  --writing-code-operator: #a7c8f1;
+  --writing-code-comment: #a9b6b0;
+  color-scheme: dark;
+}
+
+main[data-theme=dark] .app-bar { background: #202723ed; border-color: var(--frowd-border); }
+main[data-theme=dark] button,
+main[data-theme=dark] .draft-name,
+main[data-theme=dark] .shelf-search,
+main[data-theme=dark] .page-card-caption { color: var(--frowd-text); }
+main[data-theme=dark] button:hover,
+main[data-theme=dark] .draft-name:hover,
+main[data-theme=dark] .draft-name:focus,
+main[data-theme=dark] .tab-item:hover,
+main[data-theme=dark] .pages-button[aria-expanded=true] { background: var(--frowd-hover); }
+main[data-theme=dark] .tab-item.selected { background: var(--frowd-selected); }
+main[data-theme=dark] .tab-item button:hover,
+main[data-theme=dark] .page-card-open:hover { background: transparent; }
+main[data-theme=dark] .document-meta,
+main[data-theme=dark] .close-tab,
+main[data-theme=dark] .loading,
+main[data-theme=dark] .empty-workspace,
+main[data-theme=dark] .shelf-empty,
+main[data-theme=dark] .page-card-caption small { color: var(--frowd-muted); }
+main[data-theme=dark] .markdown-source,
+main[data-theme=dark] .page-shelf,
+main[data-theme=dark] .page-thumbnail,
+main[data-theme=dark] .removal-notice,
+main[data-theme=dark] .update-notice { background: var(--frowd-background); color: var(--frowd-text); border-color: var(--frowd-border); }
+main[data-theme=dark] .shelf-search { border-color: var(--frowd-border); }
+main[data-theme=dark] .shelf-filters button[aria-pressed=true] { color: var(--frowd-accent); border-color: var(--frowd-accent); }
+main[data-theme=dark] .page-thumbnail-content { color: var(--frowd-text); }
+main[data-theme=dark] .page-thumbnail::after { background: linear-gradient(transparent, var(--frowd-background)); }
+main[data-theme=dark] .page-card-delete { background: var(--frowd-surface); }
+main[data-theme=dark] .page-card-delete:hover { color: #f0b4aa; background: #543b37; }
+main[data-theme=dark] .notice,
+main[data-theme=dark] .conflict { background: #473f2b; color: var(--frowd-warning); }
+main[data-theme=dark] :focus-visible { outline-color: var(--frowd-accent); }
+
+main[data-theme=dark] .writing-editor .milkdown {
+  --crepe-color-background: var(--frowd-background);
+  --crepe-color-on-background: var(--frowd-text);
+  --crepe-color-surface: var(--frowd-surface);
+  --crepe-color-surface-low: #25312a;
+  --crepe-color-on-surface: var(--frowd-text);
+  --crepe-color-on-surface-variant: #bed0c2;
+  --crepe-color-outline: #97b09e;
+  --crepe-color-primary: var(--frowd-accent);
+  --crepe-color-secondary: var(--frowd-selected);
+  --crepe-color-on-secondary: #d9eadc;
+  --crepe-color-inverse: #dce5dc;
+  --crepe-color-on-inverse: #202723;
+  --crepe-color-inline-code: #e4c6b4;
+  --crepe-color-error: #f0b4aa;
+  --crepe-color-hover: var(--frowd-hover);
+  --crepe-color-selected: var(--frowd-selected);
+  --crepe-color-inline-area: #39473c;
+  --crepe-shadow-1: 0 2px 8px #0005;
+  --crepe-shadow-2: 0 3px 12px #0006;
+}
+main[data-theme=dark] .writing-editor .writing-math-preview:hover { background: var(--frowd-hover); }
+main[data-theme=dark] .writing-editor .writing-math-block > .writing-math-preview:hover { background: transparent; }
+main[data-theme=dark] .writing-editor .writing-math-block.is-editing,
+main[data-theme=dark] .writing-editor .writing-block-source { border-color: var(--frowd-border); }
+main[data-theme=dark] .writing-editor .writing-block-source,
+main[data-theme=dark] .writing-editor .writing-math-source { background: var(--frowd-surface); color: #c9dbce; }
+main[data-theme=dark] .writing-editor .writing-block-fence,
+main[data-theme=dark] .writing-editor .writing-block-done { color: var(--frowd-muted); }
+main[data-theme=dark] .writing-editor .writing-math-inline .writing-math-source { background: transparent; color: #e5b5ed; caret-color: #e5b5ed; }
+main[data-theme=dark] .writing-editor .writing-block-code .cm-editor { color: var(--frowd-text); background: var(--frowd-surface); }
+main[data-theme=dark] .writing-editor .writing-block-code .cm-content { caret-color: var(--frowd-accent); }
+main[data-theme=dark] .writing-editor .writing-block-code .cm-cursor,
+main[data-theme=dark] .writing-editor .writing-block-code .cm-dropCursor { border-left-color: var(--frowd-accent); }
+main[data-theme=dark] .writing-editor .writing-block-code .cm-activeLine { background: #35473b; }
+main[data-theme=dark] .writing-editor .writing-block-code .cm-selectionBackground { background: #506c58; }
+main[data-theme=dark] .writing-editor .milkdown > .ProseMirror mark { background: #685b2d; }
+main[data-theme=dark] .writing-editor .milkdown > .ProseMirror kbd { color: var(--frowd-text); background: var(--frowd-surface); border-color: var(--frowd-border); }
+
+@media (max-width: 700px) {
+  .reading-tools { gap: 0; }
+  .reading-tools button { padding-inline: 5px; }
+  .reading-panel { right: 8px; }
+}
