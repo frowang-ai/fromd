@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('desktop', {
   newDocument: () => invoke('documents:new'),
   open: () => invoke('documents:open'),
   update: (id, text, revision) => invoke('documents:update', id, text, revision),
+  importImages: (id, images) => invoke('documents:import-images', id, images),
   activate: id => invoke('documents:activate', id),
   save: (id, saveAs = false) => invoke('documents:save', id, saveAs),
   close: id => invoke('documents:close', id),

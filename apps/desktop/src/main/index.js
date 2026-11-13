@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, protocol, shell, Menu, session } from 'electron'
 import { join, resolve, relative, extname, dirname, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { readFile, realpath } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { DocumentStore, atomicWrite, suggestedFilename } from './documentStore.js'
@@ -135,6 +135,7 @@ function wireIPC() {
     return store.snapshot()
   })
   handle('documents:update', (id, markdown, revision) => store.update(id, markdown, revision))
+  handle('documents:import-images', (id, images) => store.importImages(id, images))
   handle('documents:activate', id => store.activate(id))
   handle('documents:shelve', id => store.shelve(id))
   handle('documents:undo-remove', () => store.undoRemove())
@@ -192,18 +193,12 @@ async function protocols() {
   })
   protocol.handle('document-image', async request => {
     try {
-      const url = new URL(request.url), doc = store.get(url.host), source = decodeURIComponent(url.pathname.slice(1))
-      if (!doc.path || isAbsolute(source) || /^[a-z][\w+.-]*:/i.test(source)) return new Response('', { status: 403 })
-      const root = await realpath(dirname(doc.path)), path = await realpath(resolve(root, source)), delta = relative(root, path)
-      if (delta.startsWith('..') || isAbsolute(delta) || !/^\.(png|jpg|jpeg|gif|webp)$/i.test(extname(path))) return new Response('', { status: 403 })
-      const info = await statImage(path)
-      if (info.size > 10 * 1024 * 1024) return new Response('', { status: 413 })
-      return new Response(await readFile(path), { headers: { 'content-type': mime[extname(path).toLowerCase()], 'access-control-allow-origin': process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : 'app://editor' } })
+      const url = new URL(request.url), source = decodeURIComponent(url.pathname.slice(1))
+      const { path, bytes } = await store.readImage(url.host, source)
+      return new Response(bytes, { headers: { 'content-type': mime[extname(path).toLowerCase()], 'access-control-allow-origin': process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : 'app://editor' } })
     } catch { return new Response('', { status: 404 }) }
   })
 }
-// Separate import alias avoids conflating document-size and image-size checks.
-import { stat as statImage } from 'node:fs/promises'
 async function createWindow() {
   window = new BrowserWindow({ width: 1160, height: 850, minWidth: 520, minHeight: 400, title: 'frowd', icon: join(rendererRoot, 'icon.png'), show: false,
     webPreferences: { preload: join(here, '../preload/index.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, spellcheck: false } })
