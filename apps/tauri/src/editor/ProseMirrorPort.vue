@@ -1,21 +1,23 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="emit('view-change')">
-   <MarkdownEditor ref="engine" link-navigation :resolve-image="resolveImage" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
+   <MarkdownEditor ref="engine" link-navigation resource-import @resource-files="resourceFiles" :resolve-image="resolveImage" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
-   @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
+   @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
  </div>
 </template>
 <script setup>
 import {ref,nextTick,onMounted,onBeforeUnmount} from 'vue'
 import MarkdownEditor from '@frowang/editor'
 import {sourceOffset} from '@frowang/editor/location'
+import {resourceImageUrl} from '../documents/host.mjs'
+import {resourceMarkdown} from '../documents/resources.mjs'
 import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
-const emit=defineEmits(['change','view-change','navigation-hint'])
+const emit=defineEmits(['change','view-change','navigation-hint','resource-files'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
-let owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
-const resolveImage=src=>/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)?src:null
+let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
+const resolveImage=src=>/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)?src:resourceImageUrl(renderDocId,src)
 async function ready(){await nextTick();await engine.value.whenReady();if(disposed)throw Error('编辑器已关闭。')}
 function editable(){engine.value?.setEditable(Boolean(owner)&&!frozen.value&&mode.value==='rendered');if(root.value)root.value.inert=frozen.value;if(source.value)source.value.readOnly=frozen.value||!owner}
 async function waitComposition(){
@@ -37,7 +39,7 @@ function capture(){
  }}
 }
 async function activate(doc){
- await ready();owner=null;editable()
+ await ready();owner=null;renderDocId=doc.id;editable()
  const cached=doc.session,saved=cached?.viewState||doc.viewState
  mode.value=saved?.mode||'rendered';sourceText.value=doc.markdown
  history=cached?.sourceHistory?.text===doc.markdown?cached.sourceHistory:sourceHistory(doc.markdown)
@@ -111,7 +113,31 @@ function openLink(detail){
  if(!owner||detail.id!==owner.id||detail.generation!==owner.generation||frozen.value||mode.value!=='rendered')return
  window.dispatchEvent(new CustomEvent('frowd:open-link',{detail}))
 }
-function clear(){owner=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
+function resourceFiles(event){
+ if(!owner||frozen.value||event.id!==owner.id||event.generation!==owner.generation)return
+ emit('resource-files',{...owner,files:event.files})
+}
+function sourcePaste(event){
+ const files=Array.from(event.clipboardData?.files||[])
+ if(!files.length)return
+ event.preventDefault()
+ if(owner&&!frozen.value)emit('resource-files',{...owner,files})
+}
+async function insertResources(items){
+ if(!owner||!frozen.value||composing)throw Error('资源插入需要已冻结的文档会话。')
+ const markup=resourceMarkdown(items)
+ if(mode.value==='rendered')engine.value.insertResources(items)
+ else {
+  const range=sourceSelection(),text=markdown()
+  const next=text.slice(0,range.start)+markup+text.slice(range.end)
+  history=recordSource(history,next,range)
+  sourceText.value=next;source.value.value=next
+  sourceRange={start:range.start+markup.length,end:range.start+markup.length}
+  source.value.setSelectionRange(sourceRange.start,sourceRange.end)
+  emit('change',{...owner,markdown:next})
+ }
+}
+function clear(){owner=null;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
 function focus(){if(mode.value==='source')source.value?.focus();else engine.value?.focus()}
 function start(){composing=true}
 function end(event){
@@ -120,7 +146,7 @@ function end(event){
 }
 onMounted(()=>{root.value.addEventListener('compositionstart',start);root.value.addEventListener('compositionend',end);ready().then(editable).catch(()=>{})})
 onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('compositionstart',start);root.value?.removeEventListener('compositionend',end)})
-defineExpose({ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
+defineExpose({insertResources,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 </script>
 <style>
 .pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:46px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}

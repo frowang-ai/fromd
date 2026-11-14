@@ -8,6 +8,8 @@
           <button @click="action(() => coordinator.open())">打开… <kbd>Ctrl+O</kbd></button>
           <button :disabled="!current" @click="action(() => coordinator.save())">保存 <kbd>Ctrl+S</kbd></button>
           <button :disabled="!current" @click="action(() => coordinator.save(state.activeId, true))">另存为… <kbd>Ctrl+Shift+S</kbd></button>
+          <button :disabled="!current || state.busy" @click="insertResource(null, 'image')">插入图片…</button>
+          <button :disabled="!current || state.busy" @click="insertResource(null, 'attachment')">插入附件…</button>
           <button :disabled="!current" @click="removePage(state.activeId)">移除当前页面</button>
         </div></details>
         <details><summary>视图</summary><div class="menu-popup">
@@ -75,7 +77,7 @@
 
         <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
         <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
-          <ProseMirrorPort ref="editor" v-show="current" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <ProseMirrorPort ref="editor" v-show="current" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
         </div>
@@ -141,7 +143,7 @@ const api={...documentsApi,shelve:async id=>{
  const snapshot=await documentsApi.shelve(id)
  if(id===state.activeId&&!media.matches){
   const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),capture:async()=> {
-   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,ignoreElements:element=>element.classList.contains('crepe-drop-cursor'),backgroundColor:'#fffefa',allowTaint:false,useCORS:false})
+   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,ignoreElements:element=>element.classList.contains('crepe-drop-cursor'),backgroundColor:'#fffefa',allowTaint:false,useCORS:true})
    return canvas.toDataURL('image/png')
   },isCurrent:()=>state.activeId===id&&!disposed})
   cancelMotion=flight.cancel;await flight.finished;cancelMotion=null
@@ -155,6 +157,7 @@ async function waitAllComposition(){
 }
 const port={
  ready:async()=>{await nextTick();await editor.value.ready()},
+ insertResources:items=>editor.value.insertResources(items),
  capture:()=>editor.value?.capture(),
  waitComposition:waitAllComposition,
  activate:async doc=>{await editor.value.activate(doc);mode.value=doc.session?.viewState?.mode||doc.viewState?.mode||'rendered'},
@@ -195,6 +198,7 @@ function dropTab(event,id){
 }
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
+function insertResource(event,kind='auto'){const owner=event||editor.value?.capture();if(owner)return action(()=>coordinator.importResources({id:owner.id,generation:owner.generation},event?.files||null,kind))}
 function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}
 function collapse(id){contextPage.value=null;return action(()=>coordinator.layout('shelve',id))}
 function contextLayout(name){const id=contextPage.value;return action(()=>coordinator.layout(name,id))}

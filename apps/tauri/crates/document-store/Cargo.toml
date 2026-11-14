@@ -13,3 +13,7 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
 thiserror = "2"
+
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+pulldown-cmark = { version = "=0.13.6", default-features = false }
+percent-encoding = "=2.3.2"

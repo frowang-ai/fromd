@@ -7626,3 +7626,17 @@ This is a candidate integration, not a table-interaction or native-runtime
 acceptance statement. Third-party package resolutions are pinned in the app pnpm
 and native Cargo lockfiles; the existing notices above still apply to retained
 packages. No new third-party package is represented as licensed by SoloMD's MIT.
+
+## Native resource validation and Markdown reference parsing
+
+The resource follow-up uses these pinned Rust libraries directly:
+- image 0.25.10 — MIT OR Apache-2.0; only PNG/JPEG/GIF/WebP features requested by
+  the document crate, with decoder limits and actual byte decoding.
+- pulldown-cmark 0.13.6 — MIT; parser only, default CLI/HTML features disabled.
+- percent-encoding 2.3.2 — MIT OR Apache-2.0; relative-path decoding.
+
+These retain their own licenses; they are not SoloMD code or covered by its
+copyright. Native transitive codec/utility resolutions are recorded in
+apps/tauri/crates/document-store/Cargo.lock and apps/tauri/src-tauri/Cargo.lock.
+Existing Tauri feature unification can retain codecs used by other native plugins.
+No package-size or native distribution acceptance is implied before local build.

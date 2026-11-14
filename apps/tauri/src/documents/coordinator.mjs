@@ -2,8 +2,8 @@ import {findText} from './search.mjs';
 
 /** frowd document ownership and persistence. Editor buffers are not a second store. */
 export class DocumentCoordinator {
-  constructor(api, port, state, { autosaveMs = 220 } = {}) {
-    this.api = api; this.port = port; this.state = state; this.autosaveMs = autosaveMs;
+  constructor(api, port, state, { autosaveMs = 220, resourceTimeoutMs = 15000, pickerTimeoutMs = 120000 } = {}) {
+    this.api = api; this.port = port; this.state = state; this.autosaveMs = autosaveMs; this.resourceTimeoutMs=resourceTimeoutMs;this.pickerTimeoutMs=pickerTimeoutMs;
     this.buffers = new Map(); this.saves = new Map(); this.names = new Map(); this.nameSaves = new Map();
     this.sessions = new Map(); this.timers = new Map(); this.tail = Promise.resolve(); this.generation = 0; this.disposed = false;
     Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', undoRemoval: null, removalSequence: 0, layoutRevision: 0 });
@@ -211,6 +211,26 @@ export class DocumentCoordinator {
         }
         throw error;
       }
+    });
+  }
+  importResources(owner, files = null, kind = 'auto') {
+    return this.run(async () => {
+      if(!owner||owner.id!==this.state.activeId||owner.generation!==this.generation)throw Error('页面已切换，本次资源未插入。');
+      if(this.resourceFlight)throw Error('上次资源导入尚未结束，请等待后重试。');
+      await this.flush();
+      const id=owner.id,generation=owner.generation;
+      let timeout;
+      const flight=Promise.resolve().then(()=>files?this.api.importResources(id,files,kind):this.api.chooseResources(id,kind));
+      this.resourceFlight=flight;
+      flight.finally(()=>{if(this.resourceFlight===flight)this.resourceFlight=null}).catch(()=>{});
+      const deadline=new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('资源导入超时，正文未插入；迟到资源只保留登记，请稍后重试。')),files?this.resourceTimeoutMs:this.pickerTimeoutMs)});
+      let result;
+      try{result=await Promise.race([flight,deadline])}finally{clearTimeout(timeout)}
+      if(result.cancelled)return result;
+      if(id!==this.state.activeId||generation!==this.generation)throw Error('资源归属已变化，本次未插入正文。');
+      await this.port.insertResources(result.resources);
+      await this.flush();
+      return result;
     });
   }
   save(id = this.state.activeId, saveAs = false) {

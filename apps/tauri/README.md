@@ -31,15 +31,15 @@ PM/shared-editor graph; regenerate with node apps/tauri/scripts/inventory-editor
   are not patched. No columnResizing plugin or replacement table view is added.
 - packages/editor/src/writingMarkdownLocation.js: original Markdown AST/source ranges
   mapped to PM textblocks. No PM search coordinates are added to document storage.
-- src/documents/coordinator.mjs and host.mjs: unchanged serial ownership, final-input
+- src/documents/coordinator.mjs and host.mjs: serial ownership, final-input
   flush, stale acknowledgements, bounded search, versioned ordering and close IPC.
-- crates/document-store and src-tauri: unchanged SQLite authority, schema3, stable
+- crates/document-store and src-tauri: SQLite authority, schema3, stable
   ids/nullable paths, file rules, rollback/capacity/undo and close handshake.
 
 No SoloMD localStorage drafts, AI/sync/recipes/telemetry, MCP sidecar or updater
 initializes. Shared editor diagnostics are bounded local metadata, not a document
-store. Wildcard asset access remains disabled. Images currently render embedded
-raster data only; file links use the existing document-scoped native API.
+store. Wildcard asset access remains disabled. Images render embedded raster data or docId-scoped managed/relative raster resources;
+file links use the existing document-scoped native API.
 
 ## Source and navigation semantics
 
@@ -133,7 +133,7 @@ There is no installer, file-association registration or real-data migration.
 
 Local native acceptance checklist (still pending):
 
-- All 13 Rust domain/helper tests pass, including schema3/NULL, failed transactions,
+- All 27 Rust domain/helper tests pass, including schema3/NULL, failed transactions,
   undo retention, file BOM/EOL/conflict, search and visible-slot reorder/reopen.
 - Actual Tauri launch: new/rename/switch/shelve/expand; both minus controls; same-title
   undo prompt; nonempty draft save/delete/cancel; file removal keeps the disk original.
@@ -175,7 +175,79 @@ Real browser drag/edit/undo and synthetic clipboard serialization checks do not
 establish physical Windows IME or OS clipboard behavior. Existing Crepe has no
 columnResizing plugin; the rejected resize compatibility experiment is not enabled.
 The Node structural checks cover merge/split and paste, not persisted merged-cell
-Markdown roundtrips or every nested/irregular table. Local images/durable draft assets, attachments/import,
-PDF export and mobile lifecycle/build verification remain later implementation.
+Markdown roundtrips or every nested/irregular table. Durable images/basic attachments are implemented below and await native acceptance.
+Broader import and PDF export and mobile lifecycle/build verification remain later implementation.
 Android needs SDK/NDK/JDK and a device/emulator; iOS needs Mac/Xcode. No mobile
 runtime or four-platform completion is claimed. See VALIDATION_V1.md for evidence.
+
+## Resources (2026-11-15 follow-up)
+
+RESOURCES_V1.md records the implementation and failure boundaries. Images pasted
+as browser File items and File > Insert image/attachment are imported into the
+profile's immutable resources/objects directory. Additive tables in the existing
+SQLite bind content hashes to docId; the document table remains schema3.
+Markdown uses relative .frowd-assets/<SHA256>.<extension> references. A dedicated
+frowd-resource protocol validates document ownership/relative root and decoded
+raster bytes; renderer paths, wildcard asset scope and shell execution are absent.
+Attachment Ctrl-click reveals the file rather than launching it.
+
+src/documents/resources.mjs validates binary packets and literal labels.
+coordinator.importResources serializes gestures with switch/remove/save/close,
+waits for body/name IME, then really freezes editing. The PM/source port inserts
+one undoable batch after successful registration and flushes the owned body.
+Imports time out after 15 seconds (native picker: 120 seconds). One uncancellable
+flight remains tracked until it settles; retry while hung fails finitely.
+Late results never insert. A failed body backup after successful registration
+retains the inserted editor content for a subsequent save retry.
+
+src-tauri/src/assets.rs owns validation, quota, registration, image resolution
+and create-only export copies; resource_host.rs provides binary IPC/native
+selection, controlled image responses and reveal-only attachment access.
+Managed attachment labels stay literal filenames, including escaped brackets;
+normal link/body math semantics remain unchanged.
+
+Save As copies managed resources plus Markdown-referenced relative raster images
+from an existing file's owning directory, to the SAME relative paths beside the
+target Markdown. It never rewrites the editor buffer/revision/history. Same-content
+files are reused; different-content collisions and resource/Markdown self-aliases
+fail without overwriting. Ordinary file-link targets, remote/absolute images and
+raw HTML img tags are not copied. Normal saving in the same directory only
+materializes managed references and does not newly require old external images.
+Removing a page/undoing an insertion retains resources; undo-remove copies ownership
+to its fresh docId. No GC or cloud upload runs.
+
+Local native acceptance for this unit remains pending. From repository root in
+a Windows MSVC Developer PowerShell:
+
+```powershell
+cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
+cargo check --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
+$taskProfile = Join-Path (Get-Location).Path 'output/native-resources-profile'
+$sampleDir = Join-Path (Get-Location).Path 'output/native-resource-files'
+New-Item -ItemType Directory -Force -Path $taskProfile,$sampleDir | Out-Null
+Copy-Item apps/tauri/tests/fixtures/synthetic-resource.png $sampleDir
+Set-Content -LiteralPath (Join-Path $sampleDir 'attachment.txt') -Value 'synthetic attachment' -Encoding utf8
+$env:FROWANG_USER_DATA = $taskProfile
+npm run tauri:dev
+# Close normally and start again with the same synthetic taskProfile.
+npm run tauri:dev
+Remove-Item Env:FROWANG_USER_DATA
+```
+
+Use this profile only; no existing notes/migration/installer is needed. Verify:
+
+- Insert the synthetic PNG/attachment into a pathless draft in body and source.
+  Check image display, literal attachment label, Undo/Redo, rename, shelf restore
+  and normal close/reopen. Resources and references must remain independent of title.
+- Save As into two temporary directories. Open the copied Markdown in a new
+  isolated profile and confirm its relative raster works. Check identical resource
+  reuse, different-content collision refusal and no original-file deletion.
+- Run the 14 new Rust asset tests (27 total domain/helper tests): batch validation,
+  registration/commit rollback, retained quotas/undo ownership, additive schema3
+  migration, canonical/junction bounds, raster decoding, export conflict/self-alias,
+  BOM/EOL and accurate post-write DB-failure reporting.
+- Check the custom protocol/CORS in actual WebView2, native picker cancellation,
+  physical Chinese IME and system paste with synthetic content. Browser doubles
+  establish none of these native checks.
+- Record native binary bytes separately; company frontend dist bytes are not the
+  native executable size. PDF/Office/mobile remain outside this unit.

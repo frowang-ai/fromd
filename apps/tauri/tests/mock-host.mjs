@@ -8,6 +8,8 @@ export function installMockHost(options = {}) {
  ]).map((d,position)=>[d.id,{path:null,revision:0,position,dirty:false,conflict:false,viewState:null,...d,savedText:d.path?d.markdown:'',preview:d.markdown.slice(0,1200)}]));
  let activeId=options.activeId??'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
  const h={rows,externalTexts:new Map(),calls:[],holds:new Set(),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
+ h.objects=new Map(options.objects||[]);h.bindings=new Map((options.bindings||[]).map(([id,refs])=>[id,new Set(refs)]));h.resourceChoice=null;
+ h.resourceUrl=(id,reference)=>{const object=h.objects.get(reference);return h.bindings.get(id)?.has(reference)&&object?'data:'+object.mime+';base64,'+object.base64:null};
  const snapshot=()=>({documents:[...rows.values()].sort((a,b)=>a.position-b.position).map(({markdown,savedText,...d})=>({...d,dirty:markdown!==savedText})),activeId,layoutRevision,undoRemoval:removed?.doc.title??null});
  h.release=command=>{h.holds.delete(command);h.gates.get(command)?.();h.gates.delete(command)};
  h.onClose=fn=>{callbacks.push(fn);return()=>callbacks=callbacks.filter(c=>c!==fn)};
@@ -19,6 +21,26 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
+   case 'import_resources':{
+    if(!doc)throw Error('page removed')
+    const result=[];let offset=0
+    for(const item of args.metadata){
+     const bytes=new Uint8Array(args.payload.slice(offset,offset+item.size));offset+=item.size
+     const digest=await crypto.subtle.digest('SHA-256',bytes),hash=[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')
+     const ext=item.image?'png':(item.name.split('.').pop().replace(/[^a-z0-9]/ig,'').slice(0,8)||'bin')
+     const reference='.frowd-assets/'+hash+'.'+ext
+     let binary='';for(const b of bytes)binary+=String.fromCharCode(b)
+     h.objects.set(reference,{reference,base64:btoa(binary),mime:item.image?'image/png':'application/octet-stream'})
+     if(!h.bindings.has(doc.id))h.bindings.set(doc.id,new Set())
+     h.bindings.get(doc.id).add(reference)
+     result.push({id:hash,reference,name:item.name,mime:item.image?'image/png':'application/octet-stream',size:item.size,image:item.image})
+    }
+    return {cancelled:false,resources:result}
+   }
+   case 'choose_resources':{
+    if(!h.resourceChoice)return {cancelled:true}
+    return h.invoke('import_resources',{id:args.id,...h.resourceChoice})
+   }
    case 'search_documents':{
     const fold=t=>t.replace(/[A-Z]/g,c=>c.toLowerCase()),query=args.query.trim(),results=[];
     for(const d of [...rows.values()].sort((a,b)=>a.position-b.position)){
@@ -64,7 +86,7 @@ export function installMockHost(options = {}) {
     removed={doc:structuredClone(doc),wasActive:activeId===doc.id};rows.delete(doc.id);if(activeId===doc.id)activeId=[...rows.values()].find(d=>!d.shelved)?.id??null;layoutRevision++;return snapshot();
    }
    case 'undo_remove':{
-    if(removed){const id='undo-'+counter++;rows.set(id,{...removed.doc,id});if(!removed.doc.shelved&&(removed.wasActive||!activeId))activeId=id;removed=null;layoutRevision++;}return snapshot();
+    if(removed){const id='undo-'+counter++;rows.set(id,{...removed.doc,id});h.bindings.set(id,new Set(h.bindings.get(removed.doc.id)||[]));if(!removed.doc.shelved&&(removed.wasActive||!activeId))activeId=id;removed=null;layoutRevision++;}return snapshot();
    }
    case 'save_document':if(h.saveChoice==='cancel')return{cancelled:true};if(h.saveChoice==='fail')throw Error('合成文件保存失败');doc.path??='/synthetic/'+doc.title+'.md';doc.savedText=doc.markdown;return{cancelled:false,snapshot:snapshot()};
    case 'open_document':return{cancelled:true};

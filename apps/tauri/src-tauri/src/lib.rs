@@ -1,5 +1,6 @@
 use frowd_documents::filename::suggested_name;
 mod document_links;
+mod resource_host;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
 use serde_json::Value;
@@ -218,6 +219,9 @@ fn open_document_link(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    if resource_host::reveal_managed(&app, &state, &id, &href)? {
+        return Ok(());
+    }
     let doc = lock(&state)?
         .snapshot()
         .map_err(|e| e.to_string())?
@@ -261,6 +265,12 @@ fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 pub fn run() {
     tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("frowd-resource", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(resource_host::image_response(&app, request))
+            });
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_opener::Builder::new()
@@ -289,6 +299,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            resource_host::import_resources,
+            resource_host::choose_resources,
             list_metadata,
             search_documents,
             read_document,

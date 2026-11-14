@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core';
+import {resourcePacket,relativeImage} from './resources.mjs';
+import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 // Only a loopback Vite development test can inject the in-memory IPC double.
@@ -9,6 +10,12 @@ const call = (command, args = {}) => testHost ? testHost.invoke(command, args) :
 export const browserTestHost = Boolean(testHost);
 export const documentsApi = {
   list: () => call('list_metadata'),
+  importResources: async(id,files,kind)=>{
+    const {metadata,payload}=await resourcePacket(files,kind);
+    if(testHost)return call('import_resources',{id,metadata,payload:Array.from(payload)});
+    return invoke('import_resources',payload,{headers:{'x-frowd-doc-id':encodeURIComponent(id),'x-frowd-resources':encodeURIComponent(JSON.stringify(metadata))}});
+  },
+  chooseResources:(id,kind)=>call('choose_resources',{id,kind}),
   search: query => call('search_documents', { query }),
   read: id => call('read_document', { id }),
   create: () => call('create_document', { markdown: '', title: '未命名笔记' }),
@@ -32,3 +39,8 @@ export const documentsApi = {
 export const onHostClose = callback => testHost ? Promise.resolve(testHost.onClose(callback)) :
   listen('frowd:close-requested', callback);
 export function openDocumentLink(id, href) { return call('open_document_link', { id, href }); }
+
+export function resourceImageUrl(id,reference){
+ if(!id||!relativeImage(reference))return null;
+ return testHost?testHost.resourceUrl?.(id,reference)??null:convertFileSrc('image','frowd-resource')+'?id='+encodeURIComponent(id)+'&ref='+encodeURIComponent(reference);
+}

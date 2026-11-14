@@ -12,6 +12,7 @@ import * as core from '@milkdown/kit/core'
 import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { Fragment, Slice } from '@milkdown/kit/prose/model'
 import { closeHistory } from '@milkdown/kit/prose/history'
 import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
@@ -36,8 +37,8 @@ import 'katex/dist/katex.min.css'
 import './writingLists.css'
 import './writingTextStyles.css'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, linkNavigation: Boolean })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change'])
+const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean })
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change', 'resource-files'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -123,8 +124,22 @@ function revealMarkdown(offset, needle = '') {
   element?.scrollIntoView({ block: 'start' })
   return range.exact
 }
+// Host registers immutable references first. One transaction preserves history.
+function insertResources(items) {
+  if (!created || !activeSession || view().composing) throw Error('资源插入时编辑会话不可用。')
+  const v = view(), {schema} = v.state, nodes = []
+  for (const item of items) {
+    if (!/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(item.reference)) throw Error('资源引用无效。')
+    if (nodes.length) nodes.push(schema.text(' '))
+    if (item.image) nodes.push(schema.nodes.image.create({src:item.reference,alt:item.name,title:''}))
+    else nodes.push(schema.text(item.name || '附件', [schema.marks.link.create({href:item.reference,title:null})]))
+  }
+  if (!nodes.length) return
+  v.dispatch(closeHistory(v.state.tr).replaceSelection(new Slice(Fragment.fromArray(nodes),0,0)).scrollIntoView())
+  v.dispatch(closeHistory(v.state.tr))
+}
 function focus() { if (created) view().focus() }
-defineExpose({ setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -155,7 +170,7 @@ onMounted(async () => {
         const originalSrc = attrs.src
         const resolver = sessionResolver || props.resolveImage
         const safeSrc = resolver ? resolver(originalSrc) : (isAllowedResourceUrl(originalSrc) ? originalSrc : null)
-        if (safeSrc) attrs.src = safeSrc
+        if (safeSrc) { attrs.src = safeSrc; if (props.resourceImport) attrs.crossorigin = 'anonymous' }
         else { delete attrs.src; attrs.alt = `${attrs.alt || ''} [图片暂不可用]` }
         return [dom[0], attrs]
       } }
@@ -213,6 +228,16 @@ onMounted(async () => {
       parse: markdown => editor.editor.action(ctx => ctx.get(core.parserCtx)(markdown)),
       normalize: markdown => editor.editor.action(ctx => normalizeWritingMarkdown(markdown, text => ctx.get(core.remarkCtx).parse(text))),
     })
+    if (props.resourceImport) {
+      const handlers = v.props.handleDOMEvents || {}
+      v.setProps({handleDOMEvents:{...handlers,paste(editorView,event) {
+        const files = Array.from(event.clipboardData?.files || [])
+        if (!files.length) return handlers.paste?.(editorView,event) || false
+        event.preventDefault()
+        if (activeSession && editorView.editable && !switching) emit('resource-files',{...activeSession,files})
+        return true
+      }}})
+    }
     logWritingEvent('editor-ready', { editorId, ...describeWritingDocument(view().state.doc) })
     view().dom.setAttribute('role', 'textbox')
     view().dom.setAttribute('aria-label', 'Markdown 正文')

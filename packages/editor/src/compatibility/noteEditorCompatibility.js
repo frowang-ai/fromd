@@ -55,6 +55,10 @@ export function normalizeNoteBracketMath(markdown, parseMarkdown) {
         textContainers.push({ start, end, paragraph: node.type === 'paragraph', topLevelParagraph: node.type === 'paragraph' && parent?.type === 'root' })
       }
       if (node.type === 'link') {
+        // Managed attachment labels are literal filenames, not formula input.
+        if (/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(node.url || '')) {
+          protectedRanges.push([start, end]); return
+        }
         const labelStart = node.children?.[0]?.position?.start.offset
         const labelEnd = node.children?.at(-1)?.position?.end.offset
         // Link labels are visible phrasing content. Only their surrounding

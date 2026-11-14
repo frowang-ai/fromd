@@ -101,6 +101,7 @@ pub struct Store {
     max_bytes: i64,
     last_removed: Option<Removed>,
     _profile_lock: File,
+    profile: PathBuf,
 }
 
 fn json_column(row: &Row<'_>, name: &str) -> rusqlite::Result<Value> {
@@ -373,6 +374,7 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
                 set_active(&tx, first.as_deref())?;
             }
         }
+        assets::schema(&tx)?;
         capacity(&tx, max_bytes)?;
         tx.commit()?;
         Ok(Self {
@@ -380,6 +382,7 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
             max_bytes,
             last_removed: None,
             _profile_lock: lock,
+            profile: fs::canonicalize(directory)?,
         })
     }
     fn ensure_exists(&self, id: &str) -> Result<()> {
@@ -673,6 +676,7 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
         let Some(removed) = self.last_removed.clone() else {
             return self.snapshot();
         };
+        let old_id = removed.doc.id.clone();
         let mut doc = removed.doc;
         doc.id = Uuid::new_v4().to_string();
         if let Some(path) = doc.path.as_ref() {
@@ -692,6 +696,7 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
         ids.insert(removed.index.min(ids.len()), doc.id.clone());
         let tx = self.conn.unchecked_transaction()?;
         insert(&tx, &doc)?;
+        tx.execute("INSERT OR IGNORE INTO resource_bindings(docId,hash) SELECT ?1,hash FROM resource_bindings WHERE docId=?2",params![doc.id,old_id])?;
         for (position, id) in ids.iter().enumerate() {
             tx.execute(
                 "UPDATE documents SET position=?1 WHERE id=?2",
@@ -811,6 +816,7 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
         if same && doc.conflict {
             return Err(invalid("磁盘文件已被修改或删除，请另存当前内容。"));
         }
+        self.materialize_resources(id, &doc, &path, !same)?;
         if same && !doc.dirty() {
             return self.snapshot();
         }
@@ -888,3 +894,7 @@ pub mod filename;
 
 #[path = "search.rs"]
 pub mod search;
+
+#[path = "assets.rs"]
+mod assets;
+pub use assets::{ResourceInfo, ResourceInput, MAX_ATTACHMENT_BYTES, MAX_IMPORT_BYTES};
