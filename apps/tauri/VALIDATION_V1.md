@@ -127,8 +127,8 @@ The 54/15/46/74 results above remain the preceding unit's results, not reruns.
 Production implementation and dependencies are unchanged; the review inference
 that cached.pm is older than current source did not reproduce an implicit rollback.
 
-- T0 = "初始T0\\n"; body D gives T1 = "初始T0 正文D\\n"; source S gives
-  T2 = "初始T0 正文D 源码S\\n". With or without a page switch during source T2:
+- T0 is "初始T0" + LF; body D gives T1 = "初始T0 正文D" + LF; source S gives
+  T2 = "初始T0 正文D 源码S" + LF. With or without a page switch during source T2:
   return to body remains T2 without Undo, then Undo -> T1 and Redo -> T2.
 - B independently edits/undoes/redoes B0/B1 without changing A's text or revision.
   Stable pre-Undo checkpoints cover the delayed event/autosave window.
