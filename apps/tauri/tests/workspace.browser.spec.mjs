@@ -246,3 +246,51 @@ test('search ignores late responses/errors and clears stale results while next q
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail='search_documents');await search.fill('错误');
  await expect(page.locator('.search-status')).toContainText('合成写入失败');await expect(page.locator('.search-result')).toHaveCount(0);
 });
+
+const reorderDocs=[
+ {id:'a',title:'方案讨论',markdown:'A 合成正文',shelved:false},
+ {id:'x',title:'中间收起',markdown:'X',shelved:true},
+ {id:'b',title:'公式推导',markdown:'B',shelved:false},
+ {id:'c',title:'第三页',markdown:'C',shelved:false}
+];
+async function dragBefore(page,from,to){
+ await page.locator('[data-tab-id="'+from+'"]').dragTo(page.locator('[data-tab-id="'+to+'"]'),{targetPosition:{x:3,y:12}});
+}
+test('native tab drag preserves shelved slots/current text and synchronizes sidebar order',async({page})=>{
+ await boot(page,{documents:reorderDocs});await append(page,' 排序前最后输入');
+ await dragBefore(page,'c','a');
+ await expect(page.locator('.tab-title')).toHaveText(['第三页','方案讨论','公式推导']);
+ await expect(page.locator('.tab.selected')).toContainText('方案讨论');
+ expect((await stored(page)).markdown).toContain('排序前最后输入');
+ const order=await page.evaluate(()=>[...window.__FROWD_TEST_HOST__.rows.values()].sort((a,b)=>a.position-b.position).map(d=>d.id));
+ expect(order).toEqual(['c','x','a','b']);
+ await expect(page.locator('[aria-label="已展开页面"] .page-title')).toHaveText(['▤第三页','▤方案讨论','▤公式推导']);
+ await page.screenshot({path:evidence+'tab-reorder.png',fullPage:true});
+ await page.locator('.cm-content').press('Control+z');
+ await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
+ expect((await stored(page)).markdown).not.toContain('排序前最后输入');
+});
+test('stale native drag is rejected, refreshes shelf metadata and permits retry',async({page})=>{
+ await boot(page,{documents:reorderDocs});
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.holds.add('reorder_documents'));
+ await dragBefore(page,'c','a');
+ await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reorder_documents??0)).toBe(1);
+ await page.evaluate(async()=>{const h=window.__FROWD_TEST_HOST__;await h.invoke('shelve_document',{id:'b'});h.release('reorder_documents')});
+ await expect(page.getByRole('alert')).toContainText('页面布局已变化');
+ await expect(page.locator('.tab-title')).toHaveText(['方案讨论','第三页']);
+ await expect(page.locator('.shelved-row .page-title')).toHaveText(['▤中间收起','▤公式推导']);
+ await dragBefore(page,'c','a');await expect(page.locator('.tab-title')).toHaveText(['第三页','方案讨论']);
+ await expect(page.locator('.tab.selected')).toContainText('方案讨论');
+});
+test('tab drop waits for title IME completion before freezing and persisting reorder',async({page})=>{
+ await boot(page,{documents:reorderDocs});
+ const input=page.getByRole('textbox',{name:'当前页面名称',exact:true});
+ await input.dispatchEvent('compositionstart',{data:'pin'});
+ await input.evaluate(el=>{el.value='排序中文名';el.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true}))});
+ await dragBefore(page,'c','a');await page.waitForTimeout(80);
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reorder_documents??0)).toBe(0);
+ await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable','true');
+ await input.dispatchEvent('compositionend',{data:'排序中文名'});
+ await expect(page.locator('.tab-title')).toHaveText(['第三页','排序中文名','公式推导']);
+ expect((await stored(page)).title).toBe('排序中文名');
+});

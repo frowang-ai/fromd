@@ -64,7 +64,7 @@
         <div class="tabbar">
           <button ref="pageAnchor" class="workbar-toggle" aria-label="显示页面工作栏" @click="sidebarOpen = !sidebarOpen">◫</button>
           <div class="tabs" aria-label="已展开标签">
-            <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId }" @contextmenu.prevent="contextPage = doc.id">
+            <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover.prevent="overTab($event,doc.id)" @drop.prevent="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="contextPage = doc.id">
               <button :disabled="state.busy || !state.loaded" class="tab-title" :title="doc.path || doc.title" @click="selectPage(doc.id)">{{ doc.title }}</button>
               <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
             </div>
@@ -125,6 +125,8 @@ const editor=ref(null),editorPanel=ref(null),pageAnchor=ref(null)
 const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('rendered')
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
 const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
+const dropTarget=ref(null),dropAfter=ref(false)
+let dragging=null
 let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
 const media=matchMedia('(max-width: 760px)')
 const current=computed(()=>state.documents?.find(d=>d.id===state.activeId)||null)
@@ -169,6 +171,27 @@ watch(()=>[query.value,state.markdown,state.loaded,state.documents.map(d=>[d.id,
  if(query.value.trim()&&state.loaded)searchTimer=setTimeout(()=>search.request(query.value),150)
 })
 function selectResult(result){return action(async()=>{await coordinator.activate(result.id,result.location);if(narrow.value)sidebarOpen.value=false})}
+function startDrag(event,id){
+ if(state.busy||event.target.closest('.tab-minus')){event.preventDefault();return}
+ dragging={id,ids:opened.value.map(d=>d.id),revision:state.layoutRevision}
+ event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-frowd-tab',id)
+}
+function overTab(event,id){
+ if(!dragging)return
+ event.dataTransfer.dropEffect='move';dropTarget.value=id
+ const rect=event.currentTarget.getBoundingClientRect();dropAfter.value=event.clientX>rect.left+rect.width/2
+}
+function endDrag(){dragging=null;dropTarget.value=null}
+function dropTab(event,id){
+ if(!dragging)return
+ const drag=dragging,after=dropAfter.value;endDrag()
+ if(drag.id===id)return
+ const ids=drag.ids.filter(value=>value!==drag.id),index=ids.indexOf(id)
+ if(index<0)return
+ ids.splice(index+(after?1:0),0,drag.id)
+ if(ids.every((value,i)=>value===drag.ids[i]))return
+ action(()=>coordinator.reorder(ids,drag.revision))
+}
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}

@@ -30,6 +30,12 @@ export function installMockHost(options = {}) {
     }
     return results;
    }
+   case 'reorder_documents':{
+    const ordered=[...rows.values()].sort((a,b)=>a.position-b.position),visible=ordered.filter(d=>!d.shelved).map(d=>d.id);
+    if(args.layoutRevision!==layoutRevision||args.ids.length!==visible.length||new Set(args.ids).size!==visible.length||args.ids.some(id=>!visible.includes(id)))throw Error('页面布局已变化，请刷新后再排序。');
+    let index=0;const next=ordered.map(d=>d.shelved?d.id:args.ids[index++]);next.forEach((id,position)=>rows.get(id).position=position);
+    layoutRevision++;return snapshot();
+   }
    case 'list_metadata':return snapshot();
    case 'read_document':if(!doc)throw Error('page removed');return {...doc,dirty:doc.markdown!==doc.savedText};
    case 'create_document':{

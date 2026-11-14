@@ -192,3 +192,79 @@ fn search_caps_pages_and_does_not_read_associated_disk_files() {
         .unwrap();
     assert_eq!(store.search("needle").unwrap().len(), 100);
 }
+
+#[test]
+fn visible_reorder_keeps_shelf_slots_active_and_persists_on_reopen() {
+    let dir = tempdir().unwrap();
+    let expected;
+    let active;
+    {
+        let mut store = Store::open(dir.path(), 100_000).unwrap();
+        let a = store.create("A", "A").unwrap().active_id.unwrap();
+        let x = store.create("X", "X").unwrap().active_id.unwrap();
+        let b = store.create("B", "B").unwrap().active_id.unwrap();
+        let c = store.create("C", "C").unwrap().active_id.unwrap();
+        store.shelve(&x).unwrap();
+        store.activate(&b).unwrap();
+        active = b.clone();
+        let revision = store.snapshot().unwrap().layout_revision;
+        let before = store.snapshot().unwrap();
+        assert!(store
+            .reorder_visible(&[c.clone(), a.clone(), a.clone()], revision)
+            .is_err());
+        assert_eq!(store.snapshot().unwrap().layout_revision, revision);
+        let snap = store
+            .reorder_visible(&[c.clone(), a.clone(), b.clone()], revision)
+            .unwrap();
+        expected = vec![c, x, a, b];
+        assert_eq!(
+            snap.documents
+                .iter()
+                .map(|d| d.id.clone())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(snap.documents[1].shelved);
+        assert_eq!(snap.active_id, before.active_id);
+        assert!(store
+            .reorder_visible(
+                &[
+                    expected[2].clone(),
+                    expected[3].clone(),
+                    expected[0].clone()
+                ],
+                revision
+            )
+            .is_err());
+        assert_eq!(
+            store.snapshot().unwrap().layout_revision,
+            snap.layout_revision
+        );
+    }
+    let store = Store::open(dir.path(), 100_000).unwrap();
+    let snap = store.snapshot().unwrap();
+    assert_eq!(
+        snap.documents
+            .iter()
+            .map(|d| d.id.clone())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(snap.active_id, Some(active));
+}
+#[test]
+fn failed_reorder_transaction_rolls_back_every_position_and_layout_revision() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(dir.path(), 100_000).unwrap();
+    let a = store.create("A", "A").unwrap().active_id.unwrap();
+    let b = store.create("B", "B").unwrap().active_id.unwrap();
+    let before = store.snapshot().unwrap();
+    store.conn.execute_batch("CREATE TRIGGER fail_reorder BEFORE UPDATE OF position ON documents WHEN OLD.title='B' BEGIN SELECT RAISE(ABORT,'forced failure'); END;").unwrap();
+    assert!(store
+        .reorder_visible(&[b, a], before.layout_revision)
+        .is_err());
+    assert_eq!(
+        serde_json::to_value(store.snapshot().unwrap()).unwrap(),
+        serde_json::to_value(before).unwrap()
+    );
+}

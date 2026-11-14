@@ -6,7 +6,7 @@ export class DocumentCoordinator {
     this.api = api; this.port = port; this.state = state; this.autosaveMs = autosaveMs;
     this.buffers = new Map(); this.saves = new Map(); this.names = new Map(); this.nameSaves = new Map();
     this.sessions = new Map(); this.timers = new Map(); this.tail = Promise.resolve(); this.generation = 0; this.disposed = false;
-    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', undoRemoval: null, removalSequence: 0 });
+    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', undoRemoval: null, removalSequence: 0, layoutRevision: 0 });
   }
   metadata(snapshot, selection = false) {
     this.state.documents = snapshot.documents.map(doc => {
@@ -15,6 +15,7 @@ export class DocumentCoordinator {
     });
     if (selection) this.state.activeId = snapshot.activeId;
     this.state.undoRemoval = snapshot.undoRemoval ?? null;
+    this.state.layoutRevision = snapshot.layoutRevision ?? 0;
     if (snapshot.warning) this.state.error = snapshot.warning;
   }
   report(error) { this.state.error = String(error?.message ?? error); this.state.saveState = '保存失败'; }
@@ -182,6 +183,25 @@ export class DocumentCoordinator {
       this.metadata(await this.api[action](id), true);
       // Preserve the live editor/history/selection for unrelated layout changes.
       if (previousId !== this.state.activeId) await this.loadActive();
+    });
+  }
+  reorder(ids, expectedRevision) {
+    return this.run(async () => {
+      await this.flush();
+      try {
+        if(expectedRevision !== this.state.layoutRevision)throw Error('页面布局已变化，请重新拖动。');
+        this.metadata(await this.api.reorder(ids,expectedRevision));
+      } catch(error) {
+        // A rejected drag never applies its optimistic order. Refresh the authority,
+        // retaining the live session when selection has not changed.
+        const snapshot=await this.api.list();
+        if(snapshot.activeId===this.state.activeId)this.metadata(snapshot);
+        else {
+          const read=snapshot.activeId?await this.api.read(snapshot.activeId):null;
+          this.metadata(snapshot,true);await this.loadActive(read);
+        }
+        throw error;
+      }
     });
   }
   save(id = this.state.activeId, saveAs = false) {
