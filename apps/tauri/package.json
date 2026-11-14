@@ -1,0 +1,19 @@
+{
+  "name": "frowd-tauri",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:web": "vite build --config vite.config.mjs",
+    "dev:web": "vite --config vite.config.mjs",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
+  },
+  "dependencies": {
+    "vue": "3.5.24"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.4",
+    "vite": "6.4.6"
+  }
+}

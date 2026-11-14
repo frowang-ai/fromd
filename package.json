@@ -19,7 +19,11 @@
     "package:dir": "npm run build && electron-builder --config electron-builder.config.cjs --win --x64 --dir --publish never",
     "dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win portable --x64 --publish never",
     "dist:installer": "npm run build && electron-builder --config electron-builder.config.cjs --win nsis --x64 --publish never",
-    "test:update": "playwright test -c playwright.updates.config.mjs"
+    "test:update": "playwright test -c playwright.updates.config.mjs",
+    "tauri:web": "vite build --config apps/tauri/vite.config.mjs",
+    "tauri:check": "cargo check --manifest-path apps/tauri/src-tauri/Cargo.toml",
+    "tauri:dev": "npm run tauri:web; cargo tauri dev --manifest-path apps/tauri/src-tauri/Cargo.toml",
+    "tauri:build": "npm run tauri:web; cargo tauri build --manifest-path apps/tauri/src-tauri/Cargo.toml --no-bundle"
   },
   "dependencies": {
     "@frowang/editor": "*",

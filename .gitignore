@@ -6,3 +6,7 @@ test-results/
 playwright-report/
 .pi/
 *.log
+
+# Tauri local build output
+apps/tauri/dist/
+apps/tauri/src-tauri/target/

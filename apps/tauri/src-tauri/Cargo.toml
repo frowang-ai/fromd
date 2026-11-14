@@ -1,0 +1,26 @@
+[package]
+name = "frowd-tauri"
+version = "0.1.0"
+description = "frowd Tauri document workspace"
+authors = ["Fro <frostianw@gmail.com>"]
+license = "MIT"
+edition = "2021"
+
+[lib]
+name = "frowd_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.4.1", features = [] }
+
+[dependencies]
+tauri = { version = "2.8.5", features = [] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+uuid = { version = "1.18", features = ["v4", "serde"] }
+thiserror = "2.0"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

@@ -7608,3 +7608,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```
+
+## SoloMD Tauri reference (planned, not included in this unit)
+
+The fusion plan fixes the intended upstream reference at https://github.com/zhitongblog/solomd, tag v5.0.21, commit 0b30523c70387b046018f857c7bf90bcdc40f54c, under its MIT license. A bounded clone attempt on 2026-11-14 failed because the company environment could not connect to github.com:443. This unit does not copy or redistribute unverified SoloMD source; any later import must retain the upstream license and list the exact files and dependencies brought into the product.
