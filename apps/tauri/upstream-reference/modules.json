@@ -1,0 +1,176 @@
+{
+  "repository": "zhitongblog/solomd",
+  "commit": "0b30523c70387b046018f857c7bf90bcdc40f54c",
+  "tag": "v5.0.21",
+  "modules": {
+    "cm-live-render": {
+      "source": "app/src/lib/cm-live-render.ts",
+      "sha256": "e71ee863e375d677db85e84b3bdb296950bc417c19baecc5fca71bc51d20b18f",
+      "derivedSha256": "e71ee863e375d677db85e84b3bdb296950bc417c19baecc5fca71bc51d20b18f"
+    },
+    "cm-ime-guard": {
+      "source": "app/src/lib/cm-ime-guard.ts",
+      "sha256": "98b60552e8dffe9bbad6d39330e1bb4a4c47e93e06b5763bcce77189882c6828",
+      "derivedSha256": "98b60552e8dffe9bbad6d39330e1bb4a4c47e93e06b5763bcce77189882c6828"
+    },
+    "cm-drag-aware": {
+      "source": "app/src/lib/cm-drag-aware.ts",
+      "sha256": "372133974da9e7e9e2ada5a70588a6790f2fb00730c6976a53e036fbe4e0bb61",
+      "derivedSha256": "372133974da9e7e9e2ada5a70588a6790f2fb00730c6976a53e036fbe4e0bb61"
+    },
+    "html-live-render": {
+      "source": "app/src/lib/html-live-render.ts",
+      "sha256": "fd018406a545843cd687288e561f5a86f5493bec19e1e938ed96a6071919d0b8",
+      "derivedSha256": "9cbb39141bfd4f760d234a4c0e3a72b259e22e31163fbaca64d8e5b7ae9ba8ac"
+    },
+    "code-copy": {
+      "source": "app/src/lib/code-copy.ts",
+      "sha256": "66fa800fca8a788f422b73f73e0036115bfe61712679a36084ce5a72527c30f4",
+      "derivedSha256": "66fa800fca8a788f422b73f73e0036115bfe61712679a36084ce5a72527c30f4"
+    },
+    "platform": {
+      "source": "app/src/lib/platform.ts",
+      "sha256": "9c88155a47f310ff93075f424646ad7d253f6729324b4295cc440f4b74a3f6f7",
+      "derivedSha256": "9c88155a47f310ff93075f424646ad7d253f6729324b4295cc440f4b74a3f6f7"
+    },
+    "cm-live-blocks": {
+      "source": "app/src/lib/cm-live-blocks.ts",
+      "sha256": "c136b391d325b0d72417d71732cadfee308978fbadfddf91de6123c614259138",
+      "derivedSha256": "aa623408cf6fcd9eb978de277b41b08d54df6bf8119e9ddaaa0ba24c8c4957ba"
+    },
+    "markdown": {
+      "source": "app/src/lib/markdown.ts",
+      "sha256": "816d7b189ce8026b4aa25a7bbf6a9e2d93f73c7412f2ee25ec3d0f4ae71f55c5",
+      "derivedSha256": "816d7b189ce8026b4aa25a7bbf6a9e2d93f73c7412f2ee25ec3d0f4ae71f55c5"
+    },
+    "equations": {
+      "source": "app/src/lib/equations.ts",
+      "sha256": "82cef9998bc59661f80af4060be36357018d547120d992fd6311ca132efbb8df",
+      "derivedSha256": "82cef9998bc59661f80af4060be36357018d547120d992fd6311ca132efbb8df"
+    },
+    "md-image-url": {
+      "source": "app/src/lib/md-image-url.ts",
+      "sha256": "038babcb9fc5734e6f70392cd53ae10721f125738465b8510df99fa8d845f5c7",
+      "derivedSha256": "4cc3f209bedcd1f1726dda9b91849e3e4b6a96799a1e4d031af186b5021a194b"
+    },
+    "sanitize-html": {
+      "source": "app/src/lib/sanitize-html.ts",
+      "sha256": "c38263f37b903b053c246c89e24d5f48e5959449ac31aae58d10bbc549bfc9f2",
+      "derivedSha256": "c38263f37b903b053c246c89e24d5f48e5959449ac31aae58d10bbc549bfc9f2"
+    },
+    "markmap-render": {
+      "source": "app/src/lib/markmap-render.ts",
+      "sha256": "fa9350e9673d212ffd067ccdc573535a2672dec5da1176ec7b414ee01e2a3800",
+      "derivedSha256": "fa9350e9673d212ffd067ccdc573535a2672dec5da1176ec7b414ee01e2a3800"
+    },
+    "excalidraw": {
+      "source": "app/src/lib/excalidraw.ts",
+      "sha256": "8c83c0cc8533b9afa29d7c18c625290f71d52d0a8617e6064dbe6ca6a92d4404",
+      "derivedSha256": "8c83c0cc8533b9afa29d7c18c625290f71d52d0a8617e6064dbe6ca6a92d4404"
+    },
+    "render-deps": {
+      "source": "app/src/lib/render-deps.ts",
+      "sha256": "02459da9cb009c0ff09f8698ba2dac9c362b86c5c526d7853793b872a33288e1",
+      "derivedSha256": "02459da9cb009c0ff09f8698ba2dac9c362b86c5c526d7853793b872a33288e1"
+    },
+    "hljs-setup": {
+      "source": "app/src/lib/hljs-setup.ts",
+      "sha256": "b1f2ab1944618b6ffb14517c0050a0ab658e0aa34f97efe857d791a3ffe82197",
+      "derivedSha256": "b1f2ab1944618b6ffb14517c0050a0ab658e0aa34f97efe857d791a3ffe82197"
+    },
+    "markdown-table": {
+      "source": "app/src/lib/markdown-table.ts",
+      "sha256": "974a5cc056e07ecb5115230e6a4b02db1487fd89cb59ff7be153c31833359b2e",
+      "derivedSha256": "974a5cc056e07ecb5115230e6a4b02db1487fd89cb59ff7be153c31833359b2e"
+    },
+    "table-cell-edit": {
+      "source": "app/src/lib/table-cell-edit.ts",
+      "sha256": "1127f6613c5e89803275a0c85f00601cef86793ccf4bb6630f8eabb6d2cce29b",
+      "derivedSha256": "1127f6613c5e89803275a0c85f00601cef86793ccf4bb6630f8eabb6d2cce29b"
+    },
+    "plantuml": {
+      "source": "app/src/lib/plantuml.ts",
+      "sha256": "57713af4bef333e2e4dc036460f405f355934f4dac1581cbb137d95a89f39e01",
+      "derivedSha256": "57713af4bef333e2e4dc036460f405f355934f4dac1581cbb137d95a89f39e01"
+    },
+    "mermaid-lazy": {
+      "source": "app/src/lib/mermaid-lazy.ts",
+      "sha256": "1a696d2a52a471a426c93f0638d76517542c851a2943afb6a95b6b5a9ba4442f",
+      "derivedSha256": "1a696d2a52a471a426c93f0638d76517542c851a2943afb6a95b6b5a9ba4442f"
+    },
+    "tldraw-board": {
+      "source": "app/src/lib/tldraw-board.ts",
+      "sha256": "b125fe3a5ddee0b01082bb3982940dd702f9d92a1a75d77bca0a2ee49d617761",
+      "derivedSha256": "b125fe3a5ddee0b01082bb3982940dd702f9d92a1a75d77bca0a2ee49d617761"
+    },
+    "tldraw-markdown": {
+      "source": "app/src/lib/tldraw-markdown.ts",
+      "sha256": "78dfa55cbffcaea6b910f6e94ce43acb0266e12e32e1a35365bb794d64e9b72b",
+      "derivedSha256": "78dfa55cbffcaea6b910f6e94ce43acb0266e12e32e1a35365bb794d64e9b72b"
+    },
+    "cm-stable-click": {
+      "source": "app/src/lib/cm-stable-click.ts",
+      "sha256": "8191eb93a989c3901abf5b55ba370e4349b488a3b3be0ad84f673875bee70ca3",
+      "derivedSha256": "8191eb93a989c3901abf5b55ba370e4349b488a3b3be0ad84f673875bee70ca3"
+    },
+    "cm-cjk-dblclick": {
+      "source": "app/src/lib/cm-cjk-dblclick.ts",
+      "sha256": "eded7270f8ceefb582ee19224a14b0cd8e560a5fa3f8d083ecc51eb503bac611",
+      "derivedSha256": "eded7270f8ceefb582ee19224a14b0cd8e560a5fa3f8d083ecc51eb503bac611"
+    },
+    "editor-commands": {
+      "source": "app/src/lib/editor-commands.ts",
+      "sha256": "5b808aef19700cf1f22a3c089012a52e650c26db031a0162690705b6050e87e3",
+      "derivedSha256": "937f9ad181782add2155246ec735c66be8802e1f3cdfc14b9e0e75e8a4042565"
+    },
+    "cm-task-list": {
+      "source": "app/src/lib/cm-task-list.ts",
+      "sha256": "e9ef3fdbd1be63c35ca2885eff2e91b619033b0999dba593750db14438eca294",
+      "derivedSha256": "e9ef3fdbd1be63c35ca2885eff2e91b619033b0999dba593750db14438eca294"
+    },
+    "cm-cjk-emphasis": {
+      "source": "app/src/lib/cm-cjk-emphasis.ts",
+      "sha256": "217ce0b9952619afd4c4b7a153a310dccb0e241e6c03b03eea51aedd50fe76ef",
+      "derivedSha256": "217ce0b9952619afd4c4b7a153a310dccb0e241e6c03b03eea51aedd50fe76ef"
+    },
+    "list-continuation": {
+      "source": "app/src/lib/list-continuation.ts",
+      "sha256": "60fbfec79903549d75c19909d99743b8cc24011f71c33da409d00a80156251f4",
+      "derivedSha256": "60fbfec79903549d75c19909d99743b8cc24011f71c33da409d00a80156251f4"
+    },
+    "list-renumber": {
+      "source": "app/src/lib/list-renumber.ts",
+      "sha256": "5059ecac37a38744e5b1f4330b81f1e6a8d3b9993add55ea144dd7836921404f",
+      "derivedSha256": "5059ecac37a38744e5b1f4330b81f1e6a8d3b9993add55ea144dd7836921404f"
+    },
+    "md-format": {
+      "source": "app/src/lib/md-format.ts",
+      "sha256": "5aa44358428b6b2608bd884a19fa3fb4df377305869ab28472d5d20b3e44b889",
+      "derivedSha256": "5aa44358428b6b2608bd884a19fa3fb4df377305869ab28472d5d20b3e44b889"
+    },
+    "code-languages": {
+      "source": "app/src/lib/code-languages.ts",
+      "sha256": "b54e5846cfdc04bf5c2eecc8beb853c969d479b3e8163122a220177166802b1a",
+      "derivedSha256": "b54e5846cfdc04bf5c2eecc8beb853c969d479b3e8163122a220177166802b1a"
+    },
+    "cm-find-panel": {
+      "source": "app/src/lib/cm-find-panel.ts",
+      "sha256": "838931d4571c05beb0ae10b659144918fc080bcb49413eb04893671a02c93ff4",
+      "derivedSha256": "838931d4571c05beb0ae10b659144918fc080bcb49413eb04893671a02c93ff4"
+    },
+    "heading-fold": {
+      "source": "app/src/lib/heading-fold.ts",
+      "sha256": "a4470a9524ec198db7f8ce2e0f2a0b08ae1eb368df25655c77993e463042742f",
+      "derivedSha256": "a4470a9524ec198db7f8ce2e0f2a0b08ae1eb368df25655c77993e463042742f"
+    }
+  },
+  "adaptations": {
+    "cm-live-blocks": "Remove out-of-scope tldraw runtime/widget and handler; retain table/math/diagram candidate behavior pending separate table selection audit.",
+    "image-resolve": "Replace unrestricted filesystem/asset URLs with an explicit embedded-raster-only host adapter pending document-scoped assets.",
+    "link-open": "Route Ctrl-link intent to fixed frowd host command; no SoloMD useFiles/tabs store.",
+    "CodeMirrorPort": "Bind selected actual SoloMD extensions to frowd docId/generation and per-document EditorState sessions.",
+    "host": "Tauri configuration/release profile derive from upstream; remove MCP sidecar, broad asset scope, AI/Git/sync and telemetry initialization. Keep only dialog/clipboard-write/opener plugins.",
+    "pageMotion": "Reuse frowd pageMotion curved collapse drawing with bounded frontend-only capture and document-region bounds; floating name is excluded.",
+    "whitespace": "Remove only diff-check reported blank-line trailing spaces/extra EOF in cm-live-blocks, editor-commands, html-live-render and md-image-url; original source hashes retained separately."
+  }
+}

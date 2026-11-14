@@ -7609,6 +7609,20 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```
 
-## SoloMD Tauri reference (planned, not included in this unit)
+## SoloMD derived Tauri/CodeMirror candidate
 
-The fusion plan fixes the intended upstream reference at https://github.com/zhitongblog/solomd, tag v5.0.21, commit 0b30523c70387b046018f857c7bf90bcdc40f54c, under its MIT license. A bounded clone attempt on 2026-11-14 failed because the company environment could not connect to github.com:443. This unit does not copy or redistribute unverified SoloMD source; any later import must retain the upstream license and list the exact files and dependencies brought into the product.
+Selected actual source from zhitongblog/solomd v5.0.21, commit
+0b30523c70387b046018f857c7bf90bcdc40f54c, is included under apps/tauri.
+Its MIT license and copyright are preserved in apps/tauri/LICENSE.SOLOMD.
+Original source paths/hashes and local adaptations are recorded in
+apps/tauri/upstream-reference/modules.json.
+
+Imported scope: CodeMirror live formatting/blocks, Markdown rendering/sanitization,
+table/math/list helpers, IME and drag guards, language loading, and outline parsing.
+Tauri/Vite configuration and size profile are derived with frowd identity, scoped
+native commands and no MCP sidecar or blanket asset permissions. SoloMD tabs,
+localStorage session authority, AI, sync and telemetry startup are not imported.
+This is a candidate integration, not a table-interaction or native-runtime
+acceptance statement. Third-party package resolutions are pinned in the app pnpm
+and native Cargo lockfiles; the existing notices above still apply to retained
+packages. No new third-party package is represented as licensed by SoloMD's MIT.

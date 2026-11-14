@@ -1,82 +1,195 @@
 <template>
   <div class="app-shell">
-    <header class="topbar"><div class="brand"><span class="brand-mark">f</span><b>frowd</b></div><nav class="tabs"><div v-for="doc in openDocuments" :key="doc.id" class="tab" :class="{ active: doc.id === activeId }"><button @click="activate(doc.id)">{{ doc.title }}</button><button class="minus" @click.stop="shelve(doc.id)">−</button></div><button class="new" @click="createDocument">＋</button></nav><button class="quiet" @click="sidebarOpen = !sidebarOpen">{{ sidebarOpen ? '隐藏工作栏' : '显示工作栏' }}</button><button class="quiet" @click="sourceMode ? switchToRendered() : switchToSource()">{{ sourceMode ? '正文' : '源码' }}</button></header>
+    <header class="app-header">
+      <div class="brand"><img src="./assets/icon.png" alt="" /><span>frowd</span></div>
+      <nav class="app-menu" aria-label="应用菜单">
+        <details ref="fileMenu"><summary>文件</summary><div class="menu-popup">
+          <button @click="action(() => coordinator.create())">新建页面 <kbd>Ctrl+N</kbd></button>
+          <button @click="action(() => coordinator.open())">打开… <kbd>Ctrl+O</kbd></button>
+          <button :disabled="!current" @click="action(() => coordinator.save())">保存 <kbd>Ctrl+S</kbd></button>
+          <button :disabled="!current" @click="action(() => coordinator.save(state.activeId, true))">另存为… <kbd>Ctrl+Shift+S</kbd></button>
+          <button :disabled="!current" @click="removePage(state.activeId)">移除当前页面</button>
+        </div></details>
+        <details><summary>视图</summary><div class="menu-popup">
+          <button :disabled="!current" @click="setMode('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
+          <button :disabled="!current" @click="setMode('source')">源码 <kbd>Ctrl+Shift+M</kbd><span v-if="mode === 'source'">✓</span></button>
+          <button @click="sidebarOpen = !sidebarOpen; closeMenus()">{{ sidebarOpen ? '隐藏' : '显示' }}工作栏</button>
+        </div></details>
+      </nav>
+      <span class="window-document">{{ current?.title || 'frowd' }}</span>
+    </header>
+
     <div class="workspace">
-      <aside v-if="sidebarOpen" class="sidebar"><div class="switch"><button :class="{ selected: sidebarMode === 'pages' }" @click="sidebarMode = 'pages'">页面</button><button :class="{ selected: sidebarMode === 'outline' }" @click="sidebarMode = 'outline'">大纲</button></div><template v-if="sidebarMode === 'pages'"><input v-model="query" class="search" placeholder="搜索页面" /><div class="group-title"><span>已展开 {{ openDocuments.length }}</span><button class="link" :disabled="!shelvedDocuments.length" @click="expandAll">全部展开</button></div><button v-for="doc in filteredOpenDocuments" :key="doc.id" class="page" :class="{ active: doc.id === activeId }" @click="activate(doc.id)"><span>{{ doc.title }}</span><span class="page-actions"><i @click.stop="shelve(doc.id)">−</i><i @click.stop="removeDocument(doc)">×</i></span></button><p v-if="!filteredOpenDocuments.length" class="empty">没有匹配的已展开页面</p><div class="group-title collapsed-title">已收起 {{ shelvedDocuments.length }}</div><button v-for="doc in filteredShelvedDocuments" :key="doc.id" class="page shelved" @click="activate(doc.id)"><span>{{ doc.title }}</span><i>↗</i></button><p v-if="!filteredShelvedDocuments.length" class="empty">暂无已收起页面</p></template><template v-else><div class="group-title">当前文稿 {{ outline.length }} 个标题</div><button v-for="heading in outline" :key="heading.key" class="outline" :style="{ paddingLeft: (8 + heading.level * 12) + 'px' }" @click="revealHeading(heading)">{{ heading.text }}</button><p v-if="!outline.length" class="empty">当前文稿没有标题</p></template></aside>
-      <main class="main"><p v-if="message" class="message">{{ message }}</p><div v-if="currentDocument" class="stage"><textarea v-if="sourceMode" ref="sourceInput" v-model="sourceText" class="source" @input="sourceChanged" /><MarkdownEditor v-else ref="editor" :model-value="currentMarkdown" link-navigation @session-change="editorChanged" /><div class="name-bar"><input v-if="!currentDocument.path" :value="currentDocument.title" @input="nameChanged" @compositionstart="nameComposing = true" @compositionend="endNameComposition" @blur="finishName" @keydown.enter.prevent="finishName" /><span v-else>{{ currentDocument.title }}</span><small>{{ saveState }}</small></div></div><div v-else class="empty-stage"><p>所有页面已收起</p><button @click="createDocument">新建页面</button></div></main>
+      <button v-if="sidebarOpen && narrow" class="drawer-dismiss" aria-label="关闭工作栏遮罩" @click="sidebarOpen = false"></button>
+      <aside v-show="sidebarOpen" class="sidebar" :class="{ drawer: narrow }" aria-label="页面工作栏">
+        <div class="sidebar-top"><div class="sidebar-switch">
+          <button :aria-pressed="sidebarMode === 'pages'" @click="sidebarMode = 'pages'">页面</button>
+          <button :aria-pressed="sidebarMode === 'outline'" @click="sidebarMode = 'outline'">大纲</button>
+        </div><button class="sidebar-hide" aria-label="隐藏工作栏" @click="sidebarOpen = false">‹</button></div>
+        <template v-if="sidebarMode === 'pages'">
+          <input v-model="query" type="search" class="page-search" aria-label="搜索页面名称" placeholder="搜索页面名称" />
+          <section class="page-group" aria-label="已展开页面">
+            <div class="group-heading"><span>已展开 {{ opened.length }}</span><button class="expand-all" :disabled="!shelved.length || state.busy" @click="action(() => coordinator.layout('expand'))">全部展开</button></div>
+            <div v-for="doc in filteredOpened" :key="doc.id" class="page-row" :class="{ active: doc.id === state.activeId }" :data-page-id="doc.id" @contextmenu.prevent="contextPage = doc.id">
+              <button class="page-title" :disabled="state.busy || !state.loaded" @click="selectPage(doc.id)"><span class="page-symbol">▤</span>{{ doc.title }}</button>
+              <button class="row-minus" :disabled="state.busy || !state.loaded" :aria-label="'侧栏收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
+              <button class="row-more" :disabled="state.busy || !state.loaded" :aria-label="'页面菜单 ' + doc.title" @click="contextPage = contextPage === doc.id ? null : doc.id">⋯</button>
+            </div>
+            <p v-if="!filteredOpened.length" class="empty-list">{{ query ? '没有匹配页面' : '没有已展开页面' }}</p>
+          </section>
+          <section class="page-group shelved-group" aria-label="已收起页面">
+            <div class="group-heading"><span>已收起 {{ shelved.length }}</span></div>
+            <div v-for="doc in filteredShelved" :key="doc.id" class="page-row shelved-row" :data-page-id="doc.id">
+              <button class="page-title" :disabled="state.busy || !state.loaded" @click="selectPage(doc.id)"><span class="page-symbol">▤</span>{{ doc.title }}</button>
+              <span class="restore-icon" aria-hidden="true">↗</span>
+              <button class="row-more" :disabled="state.busy || !state.loaded" :aria-label="'页面菜单 ' + doc.title" @click="contextPage = contextPage === doc.id ? null : doc.id">⋯</button>
+            </div>
+            <p v-if="!filteredShelved.length" class="empty-list">{{ query ? '没有匹配页面' : '暂无收起页面' }}</p>
+          </section>
+        </template>
+        <section v-else class="outline-list" aria-label="当前文稿大纲">
+          <button v-for="heading in outline" :key="heading.start" :style="{paddingLeft: (10 + 12 * (heading.level - 1)) + 'px'}" @click="reveal(heading.start)">{{ heading.title.replace(/^#+\s*/, '') }}</button>
+          <p v-if="!outline.length" class="empty-list">当前文稿没有标题</p>
+        </section>
+        <div class="sidebar-footer">{{ state.documents.length }} 个页面 · {{ shelved.length }} 个已收起</div>
+      </aside>
+
+      <main class="main-area">
+        <div class="tabbar">
+          <button ref="pageAnchor" class="workbar-toggle" aria-label="显示页面工作栏" @click="sidebarOpen = !sidebarOpen">◫</button>
+          <div class="tabs" aria-label="已展开标签">
+            <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId }" @contextmenu.prevent="contextPage = doc.id">
+              <button :disabled="state.busy || !state.loaded" class="tab-title" :title="doc.path || doc.title" @click="selectPage(doc.id)">{{ doc.title }}</button>
+              <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
+            </div>
+          </div>
+          <button class="new-tab" aria-label="新建页面" :disabled="state.busy || !state.loaded" @click="action(() => coordinator.create())">＋</button>
+        </div>
+
+        <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
+        <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
+          <CodeMirrorPort ref="editor" v-show="current" @change="coordinator.changed($event)" @view-change="scheduleView" />
+          <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
+          <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
+        </div>
+        <div v-if="current" class="name-dock" data-html2canvas-ignore="true" :inert="editingLocked">
+          <span aria-hidden="true">♧</span>
+          <input v-if="!current.path" :key="current.id" :data-doc-id="current.id" :value="nameDraft" aria-label="当前页面名称" placeholder="未命名笔记"
+            @input="nameInput" @compositionstart="nameStart" @compositionend="nameEnd" @blur="finishName" @keydown.enter="nameEnter" />
+          <span v-else class="file-name" :title="current.path">{{ current.title }}</span>
+          <span class="save-state" role="status" aria-label="保存状态">{{ state.saveState }}</span>
+        </div>
+      </main>
     </div>
-    <div v-if="undoRemoval" class="undo"><span>已移除「{{ undoRemoval }}」</span><button @click="undoRemove">撤销</button><button @click="undoRemoval = ''">×</button></div>
+
+    <div v-if="contextDocument" class="context-backdrop" @click.self="contextPage = null">
+      <div class="page-context" role="menu" :aria-label="'页面操作 ' + contextDocument.title">
+        <span class="context-title">{{ contextDocument.title }}</span>
+        <button role="menuitem" v-if="!contextDocument.path" @click="focusName(contextPage)">改名</button>
+        <button role="menuitem" v-if="!contextDocument.shelved" @click="collapse(contextPage)">收起</button>
+        <button role="menuitem" @click="contextLayout('shelveOthers')">收起其他页面</button>
+        <button role="menuitem" @click="contextLayout('shelveAll')">收起全部页面</button>
+        <button role="menuitem" @click="removePage(contextPage)">移除页面…</button>
+      </div>
+    </div>
+    <div v-if="removalDialog" class="modal-backdrop">
+      <section class="remove-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-title" @keydown.esc.prevent="answerRemoval('cancel')">
+        <h2 id="remove-title">{{ removalDialog.path ? '保留文件修改？' : '保留这篇笔记？' }}</h2>
+        <p>「{{ removalDialog.title }}」</p>
+        <p>{{ removalDialog.path ? '移除页面不会删除磁盘原件。' : '保存为 Markdown 后，再从页面列表移除。' }}</p>
+        <div class="dialog-actions"><button @click="answerRemoval('cancel')">取消</button><button @click="answerRemoval('discard')">{{ removalDialog.path ? '不保存' : '直接删除' }}</button><button class="primary" @click="answerRemoval('save')">{{ removalDialog.path ? '保存' : '保存为 Markdown' }}</button></div>
+      </section>
+    </div>
+    <div v-if="state.undoRemoval && !undoDismissed" class="removal-notice" role="status">已移除 <button :disabled="state.busy || !state.loaded" @click="action(() => coordinator.undoRemove())">撤销</button><button aria-label="关闭移除提示" @click="undoDismissed = true">×</button></div>
+    <div v-if="browserTestHost" class="test-host-badge">浏览器验证 · 模拟 IPC</div>
   </div>
 </template>
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import MarkdownEditor from '@frowang/editor'
-const invoke = (command, args = {}) => window.__TAURI_INTERNALS__.invoke(command, args)
-const api = {
-  list: () => invoke('list_metadata'),
-  read: id => invoke('read_document', { id }),
-  create: () => invoke('create_document', { markdown: '', title: '未命名笔记' }),
-  update: (id, markdown, revision) => invoke('update_document', { id, markdown, revision }),
-  rename: (id, title) => invoke('rename_document', { id, title }),
-  view: (id, value) => invoke('set_view_state', { id, viewState: value }),
-  activate: id => invoke('activate_document', { id }),
-  shelve: id => invoke('shelve_document', { id }),
-  expand: () => invoke('expand_all'),
-  undo: () => invoke('undo_remove'),
-  remove: id => invoke('remove_document', { id }),
+import {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
+import CodeMirrorPort from './editor/CodeMirrorPort.vue'
+import {DocumentCoordinator} from './documents/coordinator.mjs'
+import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {scanHeadings} from './upstream/lib/heading-fold'
+import {startPageMotion} from './pageMotion.js'
+import html2canvas from 'html2canvas'
+
+const state=reactive({})
+const editor=ref(null),editorPanel=ref(null),pageAnchor=ref(null)
+const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('rendered')
+const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
+const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
+let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
+const media=matchMedia('(max-width: 760px)')
+const current=computed(()=>state.documents?.find(d=>d.id===state.activeId)||null)
+const opened=computed(()=>state.documents?.filter(d=>!d.shelved)||[])
+const shelved=computed(()=>state.documents?.filter(d=>d.shelved)||[])
+const matches=docs=>docs.filter(d=>d.title.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase()))
+const filteredOpened=computed(()=>matches(opened.value)),filteredShelved=computed(()=>matches(shelved.value))
+const outline=computed(()=>scanHeadings(state.markdown||''))
+const contextDocument=computed(()=>state.documents?.find(d=>d.id===contextPage.value))
+const api={...documentsApi,shelve:async id=>{
+ const snapshot=await documentsApi.shelve(id)
+ if(id===state.activeId&&!media.matches){
+  const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),capture:async()=> {
+   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,backgroundColor:'#fffefa',allowTaint:false,useCORS:false})
+   return canvas.toDataURL('image/png')
+  },isCurrent:()=>state.activeId===id&&!disposed})
+  cancelMotion=flight.cancel;await flight.finished;cancelMotion=null
+ }
+ return snapshot
+}}
+async function waitAllComposition(){
+ for(let i=0;i<600&&(globalComposing||nameComposing.value);i++)await new Promise(r=>setTimeout(r,16))
+ if(globalComposing||nameComposing.value)throw Error('请先完成输入法组合输入，再重试。')
+ await editor.value?.waitComposition()
 }
-const documents = ref([]), activeId = ref(null), sidebarOpen = ref(true), sidebarMode = ref('pages'), query = ref('')
-const currentMarkdown = ref(''), sourceText = ref(''), sourceMode = ref(false), message = ref(''), undoRemoval = ref('')
-const editor = ref(null), sourceInput = ref(null), composing = ref(false), nameComposing = ref(false), pending = ref(false), saveState = ref('已保存'), busy = ref(false)
-let generation = 0, timer = null
-const openDocuments = computed(() => documents.value.filter(doc => !doc.shelved))
-const shelvedDocuments = computed(() => documents.value.filter(doc => doc.shelved))
-const currentDocument = computed(() => documents.value.find(doc => doc.id === activeId.value) || null)
-const filteredOpenDocuments = computed(() => filter(openDocuments.value))
-const filteredShelvedDocuments = computed(() => filter(shelvedDocuments.value))
-const outline = computed(() => {
-  const result = []; let fence = false
-  currentMarkdown.value.split(/\n/).forEach((line, index) => { if (/^\s*\x60\x60\x60/.test(line)) { fence = !fence; return } if (fence) return; const match = /^(#{1,6})\s+(.+?)\s*$/.exec(line); if (match) result.push({ key: index + ':' + match[2], level: match[1].length, text: match[2], line: index }) })
-  return result
+const port={
+ ready:async()=>{await nextTick();await editor.value.ready()},
+ capture:()=>editor.value?.capture(),
+ waitComposition:waitAllComposition,
+ activate:async doc=>{await editor.value.activate(doc);mode.value=doc.session?.viewState?.mode||doc.viewState?.mode||'rendered'},
+ clear:()=>editor.value?.clear(),
+ freeze:async()=>{await waitAllComposition();editor.value.setFrozen(true);editingLocked.value=true;return()=>{editor.value?.setFrozen(false);editingLocked.value=false}}
+}
+const coordinator=new DocumentCoordinator(api,port,state)
+function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
+async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
+function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}
+function collapse(id){contextPage.value=null;return action(()=>coordinator.layout('shelve',id))}
+function contextLayout(name){const id=contextPage.value;return action(()=>coordinator.layout(name,id))}
+async function setMode(value){await action(()=>coordinator.run(async()=>{await editor.value.setMode(value);mode.value=value;await coordinator.flush()}))}
+function scheduleView(){clearTimeout(viewTimer);viewTimer=setTimeout(()=>{if(!state.busy)coordinator.flush().catch(e=>coordinator.report(e))},250)}
+watch(()=>[current.value?.id,current.value?.title],()=>{if(!nameComposing.value)nameDraft.value=current.value?.title||''},{flush:'sync'})
+watch(()=>state.undoRemoval,()=>undoDismissed.value=false)
+function nameStart(){nameComposing.value=true}
+function nameInput(event){nameDraft.value=event.target.value;if(!event.isComposing&&!nameComposing.value)coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
+function nameEnd(event){nameComposing.value=false;nameDraft.value=event.target.value;coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
+function finishName(event){if(nameComposing.value)return;coordinator.nameChanged(event.target.dataset.docId,event.target.value);coordinator.flushName(event.target.dataset.docId).catch(e=>coordinator.report(e))}
+function nameEnter(event){if(event.isComposing||nameComposing.value||event.keyCode===229)return;event.preventDefault();event.target.blur()}
+async function focusName(id){contextPage.value=null;await selectPage(id);await nextTick();const input=document.querySelector('.name-dock input');input?.focus();input?.select()}
+function reveal(position){editor.value?.reveal(position);if(narrow.value)sidebarOpen.value=false}
+function askRemoval(doc){removalDialog.value=doc;return new Promise(resolve=>{removalResolve=resolve;nextTick(()=>document.querySelector('.remove-dialog button')?.focus())})}
+function answerRemoval(answer){removalDialog.value=null;removalResolve?.(answer);removalResolve=null}
+function removePage(id){return action(()=>coordinator.remove(id,askRemoval))}
+function globalStart(){globalComposing=true}
+function globalEnd(){globalComposing=false}
+function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=false}
+function shortcut(event){
+ if(event.isComposing||globalComposing||removalDialog.value)return
+ if(event.key==='Escape'){contextPage.value=null;closeMenus();if(narrow.value)sidebarOpen.value=false}
+ if(!(event.ctrlKey||event.metaKey)||event.altKey)return
+ const key=event.key.toLowerCase()
+ if(key==='n'){event.preventDefault();action(()=>coordinator.create())}
+ if(key==='o'){event.preventDefault();action(()=>coordinator.open())}
+ if(key==='s'){event.preventDefault();action(()=>coordinator.save(state.activeId,event.shiftKey))}
+ if(key==='m'&&event.shiftKey){event.preventDefault();setMode(mode.value==='source'?'rendered':'source')}
+ if(key==='tab'&&opened.value.length){event.preventDefault();const index=opened.value.findIndex(d=>d.id===state.activeId);selectPage(opened.value[(index+(event.shiftKey?-1:1)+opened.value.length)%opened.value.length].id)}
+}
+async function openLink(event){const detail=event.detail;if(!current.value||detail.id&&detail.id!==current.value.id)return;try{await openDocumentLink(current.value.id,detail.href)}catch(e){coordinator.report(e)}}
+onMounted(async()=>{
+ narrow.value=media.matches;sidebarOpen.value=!narrow.value;media.addEventListener('change',resize)
+ window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
+ try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
 })
-function filter(list) { const needle = query.value.trim().toLocaleLowerCase(); return needle ? list.filter(doc => doc.title.toLocaleLowerCase().includes(needle)) : list }
-function apply(snapshot) { documents.value = snapshot.documents || []; activeId.value = snapshot.activeId || null; undoRemoval.value = snapshot.undoRemoval || ''; if (snapshot.warning) message.value = snapshot.warning }
-function text() { return sourceMode.value ? sourceText.value : (editor.value && editor.value.getMarkdown ? editor.value.getMarkdown() : currentMarkdown.value) }
-async function waitIme() { for (let i = 0; composing.value && i < 120; i++) await new Promise(resolve => requestAnimationFrame(resolve)) }
-async function flush() {
-  await waitIme(); const doc = currentDocument.value; if (!doc || !pending.value) return
-  const body = text(); if (body === currentMarkdown.value && !sourceMode.value) { pending.value = false; return }
-  try { apply(await api.update(doc.id, body, doc.revision + 1)); currentMarkdown.value = body; pending.value = false; saveState.value = '已保存' } catch (error) { saveState.value = '保存失败'; message.value = String(error); throw error }
-}
-function schedule() { pending.value = true; saveState.value = '保存中…'; clearTimeout(timer); timer = setTimeout(() => flush().catch(() => {}), 250) }
-function editorChanged(event) { if (!event || event.id !== activeId.value) return; currentMarkdown.value = event.markdown; schedule() }
-function sourceChanged() { currentMarkdown.value = sourceText.value; schedule() }
-function activateName(value) { const doc = currentDocument.value; if (!doc || doc.path) return; clearTimeout(doc.nameTimer); doc.nameTimer = setTimeout(() => api.rename(doc.id, value).then(apply).catch(error => { message.value = String(error) }), 220) }
-function nameChanged(event) { if (!event.isComposing && !nameComposing.value) activateName(event.target.value) }
-function endNameComposition(event) { nameComposing.value = false; activateName(event.target.value) }
-function finishName(event) { if (!nameComposing.value) activateName(event && event.target ? event.target.value : (currentDocument.value ? currentDocument.value.title : '')) }
-async function loadActive() {
-  const id = activeId.value; if (!id) return
-  const doc = await api.read(id); currentMarkdown.value = doc.markdown; sourceText.value = doc.markdown; sourceMode.value = doc.viewState && doc.viewState.mode === 'source'; generation += 1; await nextTick(); if (sourceMode.value) sourceInput.value && sourceInput.value.focus(); else editor.value && editor.value.activateSession({ id, generation, markdown: doc.markdown, viewState: doc.viewState })
-}
-async function activate(id) {
-  if (busy.value || !id) return; busy.value = true
-  try { await flush(); apply(await api.activate(id)); await loadActive() } catch (error) { message.value = String(error) } finally { busy.value = false }
-}
-async function createDocument() { if (busy.value) return; busy.value = true; try { await flush(); const snap = await api.create(); apply(snap); await loadActive() } catch (error) { message.value = String(error) } finally { busy.value = false } }
-async function shelve(id) { if (busy.value) return; busy.value = true; try { await flush(); apply(await api.shelve(id)); if (activeId.value) await loadActive() } catch (error) { message.value = String(error) } finally { busy.value = false } }
-async function expandAll() { if (busy.value) return; busy.value = true; try { await flush(); apply(await api.expand()); if (activeId.value) await loadActive() } catch (error) { message.value = String(error) } finally { busy.value = false } }
-async function undoRemove() { if (busy.value) return; busy.value = true; try { apply(await api.undo()); await loadActive() } catch (error) { message.value = String(error) } finally { busy.value = false } }
-async function removeDocument(doc) { if (busy.value || !doc || !confirm('移除「' + doc.title + '」？草稿保留在本次会话的撤销入口。')) return; busy.value = true; try { await flush(); apply(await api.remove(doc.id)); await loadActive() } catch (error) { message.value = String(error) } finally { busy.value = false } }
-async function switchToSource() { await flush(); sourceText.value = text(); sourceMode.value = true; await nextTick(); sourceInput.value && sourceInput.value.focus() }
-async function switchToRendered() { await flush(); currentMarkdown.value = sourceText.value; sourceMode.value = false; generation += 1; await nextTick(); editor.value && editor.value.activateSession({ id: activeId.value, generation, markdown: sourceText.value, viewState: currentDocument.value && currentDocument.value.viewState }) }
-function revealHeading(heading) {
-  if (sourceMode.value) { const input = sourceInput.value; if (!input) return; const before = sourceText.value.split(/\n/).slice(0, heading.line).join('\n'); const start = before.length + (heading.line ? 1 : 0); input.focus(); input.setSelectionRange(start, start + heading.text.length); input.scrollTop = Math.max(0, heading.line * 24 - 120); return }
-  const nodes = Array.from(document.querySelectorAll('.ProseMirror h1,.ProseMirror h2,.ProseMirror h3,.ProseMirror h4,.ProseMirror h5,.ProseMirror h6')); const node = nodes.find(item => item.textContent.trim() === heading.text); if (node) node.scrollIntoView({ behavior: 'smooth', block: 'center' })
-}
-function handleScroll() { const doc = currentDocument.value; if (!doc) return; clearTimeout(doc.viewTimer); doc.viewTimer = setTimeout(() => api.view(doc.id, { mode: sourceMode.value ? 'source' : 'rendered', scrollTop: window.scrollY, ...(sourceInput.value ? { sourceScrollTop: sourceInput.value.scrollTop, sourceSelection: { start: sourceInput.value.selectionStart, end: sourceInput.value.selectionEnd } } : {}) }).catch(() => {}), 220) }
-function keydown(event) { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); flush().catch(() => {}) } if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') { event.preventDefault(); createDocument() } }
-async function boot() { try { let snap = await api.list(); if (!snap.documents.length) snap = await api.create(); apply(snap); await loadActive() } catch (error) { message.value = String(error) } }
-onMounted(() => { window.addEventListener('keydown', keydown, true); window.addEventListener('compositionstart', () => composing.value = true, true); window.addEventListener('compositionend', () => { composing.value = false; schedule() }, true); window.addEventListener('scroll', handleScroll, true); boot() })
-onBeforeUnmount(() => { clearTimeout(timer); window.removeEventListener('keydown', keydown, true); window.removeEventListener('scroll', handleScroll, true) })
+onBeforeUnmount(()=>{disposed=true;cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

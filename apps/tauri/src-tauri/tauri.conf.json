@@ -1,30 +1,41 @@
 {
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "frowd",
-  "version": "0.1.0",
-  "identifier": "com.frowang.frowd",
+  "version": "0.5.0",
+  "identifier": "com.frowang.frowd.tauri.v1",
   "build": {
-    "beforeDevCommand": "npm run dev:web",
-    "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build:web",
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "frowd",
         "width": 1280,
         "height": 820,
-        "minWidth": 860,
-        "minHeight": 560,
-        "resizable": true
+        "minWidth": 480,
+        "minHeight": 360,
+        "visible": true,
+        "center": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https://asset.localhost; connect-src ipc: http://ipc.localhost"
-    },
-    "withGlobalTauri": true
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'"
+    }
   },
+  "mainBinaryName": "frowd-tauri",
   "bundle": {
-    "active": false
-  }
+    "active": false,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "license": "MIT",
+    "publisher": "Fro",
+    "category": "Productivity"
+  },
+  "plugins": {}
 }

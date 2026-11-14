@@ -1,0 +1,33 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+
+// Only a loopback Vite development test can inject the in-memory IPC double.
+// Release bundles tree-shake this branch. No browser document authority is used.
+const testHost = import.meta.env.DEV && location.hostname === '127.0.0.1' &&
+  new URLSearchParams(location.search).get('testHost') === '1' ? window.__FROWD_TEST_HOST__ : null;
+const call = (command, args = {}) => testHost ? testHost.invoke(command, args) : invoke(command, args);
+export const browserTestHost = Boolean(testHost);
+export const documentsApi = {
+  list: () => call('list_metadata'),
+  read: id => call('read_document', { id }),
+  create: () => call('create_document', { markdown: '', title: '未命名笔记' }),
+  update: (id, markdown, revision) => call('update_document', { id, markdown, revision }),
+  rename: (id, title) => call('rename_document', { id, title }),
+  view: (id, viewState) => call('set_view_state', { id, viewState }),
+  activate: id => call('activate_document', { id }),
+  shelve: id => call('shelve_document', { id }),
+  expand: () => call('expand_all'),
+  shelveOthers: id => call('shelve_others', { id }),
+  shelveAll: () => call('shelve_all'),
+  reorder: (ids, layoutRevision) => call('reorder_documents', { ids, layoutRevision }),
+  open: () => call('open_document'),
+  save: (id, saveAs = false) => call('save_document', { id, saveAs }),
+  remove: (id, decision) => call('remove_document', { id, decision }),
+  undo: () => call('undo_remove'),
+  checkpoint: () => call('checkpoint'),
+  closeReady: () => call('close_ready'),
+  cancelClose: () => call('cancel_close'),
+};
+export const onHostClose = callback => testHost ? Promise.resolve(testHost.onClose(callback)) :
+  listen('frowd:close-requested', callback);
+export function openDocumentLink(id, href) { return call('open_document_link', { id, href }); }
