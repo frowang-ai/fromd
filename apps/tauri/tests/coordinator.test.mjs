@@ -61,3 +61,11 @@ test('stale owner events cannot change the active document buffer',async()=>{
  const {c,port,state,rows}=fixture();await c.boot();const old={...port.current};await c.activate('b');
  c.changed({...old,markdown:'WRONG PAGE'});await c.flush();assert.equal(state.markdown,'# b');assert.equal(rows.get('b').markdown,'# b');c.dispose();
 });
+
+test('failed target read restores selection without showing the old body under the new docId',async()=>{
+ const {c,api,state,port,rows}=fixture();await c.boot();const original=api.read;
+ api.read=async id=>{if(id==='b')throw Error('read unavailable');return original(id)};
+ await assert.rejects(c.activate('b'),/read unavailable/);
+ assert.equal(state.activeId,'a');assert.equal(port.current.id,'a');assert.equal(port.current.markdown,'# a');
+ api.read=original;await c.activate('b');assert.equal(port.current.id,'b');assert.equal(rows.get('b').markdown,'# b');
+});
