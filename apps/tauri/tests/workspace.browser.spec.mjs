@@ -215,6 +215,13 @@ test('dismissed removal toast reopens only on a new successful same-title remova
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.saveChoice='cancel');
  await page.getByText('文件',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'Ctrl+S'}).first().click();
  await expect(page.locator('.removal-notice')).toHaveCount(0);
+ await remove(page,'公式推导');await page.getByRole('button',{name:'取消',exact:true}).click();
+ await expect(page.locator('.removal-notice')).toHaveCount(0);
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail='remove_document');
+ await remove(page,'公式推导');await page.getByRole('button',{name:'直接删除',exact:true}).click();
+ await expect(page.getByRole('alert')).toContainText('合成写入失败');
+ await expect(page.locator('.removal-notice')).toHaveCount(0);
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail=null);
  await remove(page,'公式推导');await page.getByRole('button',{name:'直接删除',exact:true}).click();
  await expect(page.locator('.removal-notice')).toBeVisible();
 });
@@ -231,7 +238,6 @@ test('full-text search covers drafts and shelves, includes unacknowledged input,
  await search.fill('收起页合成');await expect(page.locator('.search-result')).toHaveCount(1);
  await page.screenshot({path:evidence+'full-text-search.png',fullPage:true});
  await page.locator('.search-result').click();await expect(page.locator('.tab.selected')).toContainText('阅读摘录');
- const selection=await page.locator('.cm-content').evaluate(()=>window.getSelection()?.toString());
  // CM draws its own selection; the persisted source range records the selected match.
  await expect.poll(async()=> (await stored(page,'c')).viewState?.sourceSelection?.end-(await stored(page,'c')).viewState?.sourceSelection?.start).toBe(5);
 });

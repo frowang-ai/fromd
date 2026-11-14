@@ -10,6 +10,5 @@ C:/Users/10633/AppData/Local/Programs/nodejs (Node 24.22.0 / npm 11.19.1).
 Normal auto-review escalation and absolute executable paths resolve that issue.
 
 There is still no successful native Tauri startup, compiled Rust test run or
-SQLite restart acceptance. The remaining native prerequisite is approval of the
-official Visual Studio Build Tools UAC flow prepared under task output.
+SQLite restart acceptance. Per the latest user instruction, company development continues without waiting for UAC; native compilation and lifecycle acceptance move to the local Windows node using README.md.
 No user installer has been run and no real userData has been read.

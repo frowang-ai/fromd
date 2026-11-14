@@ -1,113 +1,97 @@
 # Tauri fusion validation — 2026-11-15
 
-Status: reviewable frontend/host integration progress, not unit 1 acceptance.
-The task remains on feat/tauri-blackboard-v1 at the company Windows worktree.
-7327e3f and 2ba593e remain in history; no existing user installation is replaced.
+Status: reviewable progress / Draft, not native unit-1 acceptance.
+Branch feat/tauri-blackboard-v1 retains the d8a855b (0.4.6) baseline and all
+7327e3f/2ba593e/e046130/f144cdf progress history. No history was rewritten.
 
-## Scope now connected
+## Current checks (company Windows)
 
-The actual selected SoloMD v5.0.21 CM live modules run in CodeMirrorPort.vue,
-through frowd DocumentCoordinator and the fixed host adapter. The native host calls
-the independent Rust Store. The Vue shell has page/outline workbar, title-only
-expanded/shelved projections, both minus actions, search-group expand-all, menus,
-floating docId-bound names, narrow drawer, remove decisions and close handshake.
-Only SQLite is intended to persist documents. The browser double is explicitly
-in-memory and test-only; it does not establish native persistence.
+- Root npm test: 74/74. These are existing Node domain tests, not Tauri runtime.
+- npm run test:tauri: 29/29.
+- npm run test:tauri:browser: 24/24. Actual Vue/CM UI, Edge 157 / Playwright 1.63.0,
+  synthetic documents and test-only in-memory native IPC. No unhandled page errors.
+- npm run tauri:web: vue-tsc and Vite production build passed.
+- Frontend dist: 128 files, 5,814,496 bytes uncompressed. This is not native package size.
+  Large entry/diagram chunk and mixed static/dynamic import warnings remain.
+- Production output does not contain the browser host injection identifier or test query.
+- Rustfmt completed for changed Rust sources. This is parsing/formatting only.
+- 13 Rust domain/helper tests are written; NOT executed or marked passed.
+  Native type-check, binary build, actual Tauri launch, SQLite schema3/close/reopen,
+  native dialogs and native package size await local Windows execution.
+- No company C++/UAC retry was performed. Per the latest user instruction, frontend
+  development proceeds and native verification moves to the local node.
+- No real notes/profiles/clipboard, user installers, public releases, extra agents,
+  security policy changes, Windows/Paseo restart or real-data migration.
 
-The reported handoff race was reproduced before fixing:
-- Late input during rename acknowledgement was lost on switch.
-- Late input during view-state acknowledgement was lost on switch.
-- No real editing freeze existed across activate IPC.
-All three new controlled-delay Node tests failed first. The fix now captures/reflushes
-after metadata acknowledgements, and holds an EditorPort freeze across transitions.
-Both document and name composition must finish before the actual editor becomes
-read-only/inert. Close confirmation remains inside the same frozen handoff until
-checkpoint and close_ready finish. Failure releases the editor and leaves the page.
+## Review fixes, reproduced before implementation
 
-## Actual checks
+- With an existing active page and with an empty desktop, failed target read changed
+  backend activation/shelving. New Node cases failed first (activation committed 2/1
+  times instead of zero). Reads now succeed before activation commits.
+- Dismissing a removal prompt then removing another same-title page hid undo. The
+  new Edge regression failed first. A successful-removal sequence now resets it.
+  Save cancellation, cancelled removal and failed removal keep it dismissed.
+- Suggested filenames strip .md/.markdown/.txt case insensitively before appending
+  .md, retaining Windows sanitation/device-name handling. Its Rust regression is pending.
 
-- Root npm test: 74 passed, 0 failed. This preserves existing domain regressions;
-  these old Electron modules do not prove Tauri behavior.
-- Tauri coordinator/removal/handoff Node tests: 17 passed, 0 failed.
-- Browser integration: 18 passed, 0 failed, using installed Microsoft Edge 157,
-  Playwright 1.63.0 and fresh temporary browser contexts. No unhandled page errors.
-- npm run tauri:web: vue-tsc and Vite production build completed.
-  Root and app dependency trees coexist; explicit Tauri global types avoid
-  conflicting root/app Trusted Types declarations without disabling type checking.
-- Production build excludes __FROWD_TEST_HOST__ and testHost injection code.
-  The development browser badge is visible in screenshots so evidence is not
-  confused with a native Tauri launch.
-- Actual frontend output was about 5.8 MB uncompressed, including local
-  fonts/diagram chunks. Large entry/diagram chunk warnings remain; no native
-  executable or installer size is claimed.
-- Official Tauri CLI info detects Rust 1.100.0, Node 24.22.0 and WebView2
-  157.0.4341.46, but no MSVC/Windows SDK installation.
-- Rustfmt parses the native host, domain and link modules. Native Rust type-check,
-  domain-test execution, binary build, actual Tauri launch and schema3 close/reopen
-  are still blocked by link.exe being unavailable. No native tests are marked passed.
-- GitHub connectivity was intermittent: an initial read-only ls-remote succeeded;
-  a later bounded access to github.com:443 failed after roughly 21 seconds.
-  A bundle/evidence handoff is used if the final Git delivery remains unavailable.
-- No UAC was retriggered; no Windows/Paseo restart, real userData/notes/clipboard
-  reads, user installer execution, public release or security setting change.
+The earlier f144cdf handoff regressions remain: input arriving while rename/view
+acknowledgements wait is recaptured and flushed; transitions wait for IME, acquire
+a real contenteditable/readOnly/inert freeze and hold it through final persistence.
 
-The first browser invocation had no downloaded Chromium headless shell. Tests were
-switched to the already installed Edge channel, without a browser installation.
-One test initially read mock storage before asynchronous selection finished;
-it now asserts completion by the selected target tab before inspecting storage.
+## Newly implemented and verified at frontend boundary
 
-## What the browser suite verifies
+Full-text search queries SQLite drafts without disk scans or page activation.
+It covers pathless drafts, shelved pages and the latest unacknowledged active text.
+Search is literal, ASCII case insensitive, capped at 256 query characters and 100
+matching pages, showing the first body occurrence or a title hit per page.
+Single-flight coalescing, query invalidation, late/error rejection and an 8-second
+timeout bound the frontend behavior. Results retain docId; a loaded-body match is
+recomputed before selection, using editor-neutral line/Unicode-character locations.
+Those locations do not become document schema or CM-specific storage coordinates.
 
-1. Confirmed workbar/menu positions, both minus controls and name-only shelf.
-2. Final input on an immediate switch, rendered/source text and per-doc history.
-3. Both shelf entry points, empty desktop and ordered expand-all/current-page rules.
-4. Floating rename after long-document scrolling; title changes do not edit H1.
-5. Synthetic name composition finishes on the old docId before a switch.
-6. Real contenteditable=false/inert freeze during delayed layout IPC, then release.
-7. Nonempty draft cancel, cancelled/failed save, delete and new-ID undo.
-8. Backup failure retains text and selection; retry persists before switching.
-9. Close flush/checkpoint/confirmation ordering while the actual editor is frozen.
-10. Duplicate-heading positions and current-document outline projection.
-11. Narrow drawer and selection dismissal.
-12. Byte-for-text Markdown preservation when no edit occurs.
-13. Title search includes shelved pages without an implicit activation.
-14. File-backed names remain read-only; removal does not invoke file deletion.
-15. Real curved collapse frame and direct restoration with no reverse capture.
-16. Close backup failure stays open/editable, then succeeds on retry.
-17. Retained upstream formatting shortcut uses the same document-owned save path.
-18. Failed target read retains the prior page/body pairing and permits retry.
+Actual HTML tab drag/drop uses reorder_documents and layoutRevision. The existing
+domain operation substitutes visible slots without moving shelved slots, changing
+the active page, or rebuilding the live editor session. Last input is flushed after
+IME completion. Stale drags are rejected and authoritative metadata refreshed.
+Node and browser cases cover unsaved text/history, shelf slots, stale/retry and IME.
+Rust transaction rollback/reopen cases are written but await native execution.
 
-These tests inject a mock IPC service. They do not run Rust, show a native file
-dialog, touch physical external files, prove SQLite restart, or exercise every
-Windows input method. Native tests under document_tests.rs remain mandatory
-after the MSVC prerequisite is unblocked.
+## Existing connected behavior
 
-## Screenshots (actual browser UI, synthetic documents)
+Actual selected SoloMD v5.0.21 modules run through CodeMirrorPort, DocumentCoordinator,
+fixed Tauri IPC and the Rust Store. Vue has page/outline workbar; title-only shelf;
+both minus actions; expand-all at the expanded header below search; menu-only source;
+viewport docId-bound naming; narrow drawer; save/delete/cancel and close handshake.
+SQLite is the only persistence authority. No SoloMD localStorage drafts, AI/sync,
+telemetry, MCP sidecar or updater starts. Wildcard asset access remains disabled.
 
-Task output/tauri-browser-evidence contains:
-- workspace.png: integrated Vue/CM candidate workbench.
-- floating-name-scrolled.png: name input retained in the viewport of a long note.
-- narrow-workspace.png: narrow UI after selecting/restoring a shelf item.
-- collapse-frame.png: captured actual one-way collapse animation.
+The 24 browser cases also cover byte-preserving mode changes, duplicate outline
+headings, close failure/retry, captured final input and per-doc history, floating
+rename, synthetic IME ownership, empty desktop/expand-all, file-backed title/removal,
+same-title undo, one-way collapse/direct restore and candidate formatting shortcuts.
+Mock IPC cannot prove native file writes/dialogs, Rust transactions or restart.
 
-The supplied parent HTML prototype is not a runtime screenshot and is not used
-as implementation evidence.
+## Actual browser screenshots
 
-## Open acceptance and later work
+Task output/tauri-browser-evidence contains workspace.png, floating-name-scrolled.png,
+narrow-workspace.png, collapse-frame.png, full-text-search.png and tab-reorder.png.
+All show the actual Vue/CM implementation with synthetic data and the mock-IPC badge;
+the parent's HTML prototype is not runtime evidence.
 
-- MSVC/Windows SDK UAC: the verified official installer and manual entry are under
-  output/toolchain-prep-20261114/install-build-tools.cmd. The agent has not rerun it.
-- Native schema3 restore, actual Windows launch, save/dialog/close/reopen and native
-  package-size validation remain open.
-- Candidate table local drag selection, rich-text/cross-cell copy, click/double-click,
-  Ctrl-link and IME must pass the parent's separate evaluation. The original
-  table event behavior is not represented as resolved; the final kernel is not accepted.
-- The resource boundary intentionally has no wildcard asset scope; local images,
-  durable draft assets, attachments and imports are later units. The current adapter
-  renders embedded raster images only; this is a known functional gap.
-- Existing PDF export has not been migrated into this candidate host; print CSS only excludes the name dock and application chrome. The existing Electron implementation remains a reference, not proof of Tauri export.
-- Reorder command exists in the native domain but tab drag UI is not yet wired.
-  Full-text search, richer import/resource paths and mobile lifecycle validation
-  remain in scope for subsequent units.
-- Android SDK/NDK/JDK were not found in the previously checked standard locations;
-  no Android build/runtime acceptance is claimed. iOS requires Mac/Xcode.
+## Native handoff and remaining scope
+
+README.md supplies portable checkout/dependency/tool checks, isolated debug profile,
+Rust domain tests, host type-check, native dev/reopen and unbundled build commands.
+Company has Node 24.22.0/npm 11.19.1, Rust 1.100.0 MSVC and WebView2 157.0.4341.46;
+MSVC linker/SDK are not available here. The user chose local native verification.
+
+CM/SoloMD remains a candidate. Table local/rich-text/cross-cell selection, copy,
+click/double-click/Ctrl-link and IME require the parent's separate kernel evaluation.
+No final editor or unit-1 acceptance is claimed. Local resources/durable draft
+assets, attachments/import and PDF export still need integration. Embedded raster
+data is the current image boundary; print CSS merely excludes the name dock/chrome.
+Android SDK/NDK/JDK/device and iOS Mac/Xcode validation remain open. No four-platform
+completion is claimed.
+
+GitHub's current bounded company access failed to connect to github.com:443 after
+21 seconds. A verified prerequisite bundle and concise evidence ZIP are the fallback.

@@ -7,5 +7,5 @@ export default defineConfig({
  use:{channel:'msedge',baseURL:'http://127.0.0.1:1420',viewport:{width:1280,height:860},reducedMotion:'reduce',trace:'retain-on-failure'},
  outputDir:'../../output/tauri-browser-results',
  reporter:[['list'],['html',{outputFolder:'../../output/tauri-browser-report',open:'never'}]],
- webServer:{command:'"C:/Users/10633/AppData/Local/Programs/nodejs/node.exe" node_modules/vite/bin/vite.js --host 127.0.0.1',cwd:app,url:'http://127.0.0.1:1420',reuseExistingServer:false,timeout:30000}
+ webServer:{command:'"'+process.execPath+'" node_modules/vite/bin/vite.js --host 127.0.0.1',cwd:app,url:'http://127.0.0.1:1420',reuseExistingServer:false,timeout:30000}
 });

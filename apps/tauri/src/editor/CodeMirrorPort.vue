@@ -122,7 +122,7 @@ async function revealMatch(location){
  if(!view||!owner)return;
  const line=view.state.doc.line(Math.min(location.line,view.state.doc.lines));
  const start=line.from+[...line.text].slice(0,location.column).join('').length;
- const end=Math.min(view.state.doc.length,start+[...view.state.doc.sliceString(start)].slice(0,location.length).join('').length);
+ const end=Math.min(view.state.doc.length,start+location.needle.length);
  view.dispatch({selection:{anchor:start,head:end},effects:EditorView.scrollIntoView(start,{y:'start',yMargin:50})});
  view.focus();
 }

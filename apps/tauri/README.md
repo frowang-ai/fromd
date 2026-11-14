@@ -32,34 +32,103 @@ renders embedded raster data only; document-scoped local resource integration re
 a later unit. File links are revealed; folders are opened; relative links require a
 saved owning document. Shell commands are not exposed to the renderer.
 
-## Build and verification
+## Local checkout and dependencies (Windows PowerShell)
 
-From the repository root, npm run tauri:web builds this frontend; npm run tauri:dev
-starts the candidate Tauri host; npm run tauri:build creates an unbundled local build.
-The root npm lockfile stays dedicated to the existing Electron baseline.
-The independent app package uses pnpm 10.11.0 and the selected upstream pnpm lock
-resolutions. Do not run npm install inside this app and replace that lockfile.
+Use a new worktree in your existing private clone; keep existing installations and
+user profiles untouched. These commands start in that clone. If receiving a bundle,
+first run git bundle verify, then fetch its task branch instead of fetching origin.
 
-Typical company Windows shell preparation (process-only):
-- Add C:/Users/10633/AppData/Local/Programs/nodejs and
-  C:/Users/10633/.cargo-frowd-tauri/bin to the current process PATH.
-- Set RUSTUP_HOME=C:/Users/10633/.rustup-frowd-tauri.
-- Set CARGO_HOME=C:/Users/10633/.cargo-frowd-tauri.
-- For all native runtime checks, set absolute FROWANG_USER_DATA to a fresh synthetic
-  directory under this worktree/output. The override is debug-only.
-- Development app identifier is com.frowang.frowd.tauri.v1; there is no installer,
-  file association registration, automatic migration of real userData or public release.
+```powershell
+git fetch origin feat/tauri-blackboard-v1
+git worktree add ../frowd-tauri-review -b review/tauri-v1 FETCH_HEAD
+Set-Location ../frowd-tauri-review
+node --version
+npm --version
+rustc --version
+cargo --version
+# Run in a VS Developer PowerShell with C++ build tools + Windows SDK:
+where.exe link.exe
+# Also confirm Microsoft Edge WebView2 Runtime is installed.
+npm ci --ignore-scripts
+npx --yes pnpm@10.11.0 --dir apps/tauri install --frozen-lockfile
+```
 
-Checks:
-- node --test apps/tauri/tests/*.test.mjs: coordinator and save/removal behaviors.
-- npm --prefix apps/tauri run build: vue-tsc and Vite production build.
-- node apps/tauri/node_modules/@playwright/test/cli.js test -c apps/tauri/playwright.config.mjs:
-  real Vue/CM browser interaction using a test-only in-memory native IPC double.
-  It uses existing Microsoft Edge and isolated Playwright profiles. The UI badge and
-  screenshot report distinguish it from a native Tauri/SQLite run.
-- cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked:
-  synthetic database/file native tests. Requires MSVC link.exe; currently blocked.
+Tested company frontend tools: Node 24.22.0, npm 11.19.1, pnpm 10.11.0.
+Rust 1.100.0 MSVC is installed there; native execution moves to the local Windows
+node by user instruction. Do not select a GNU target or add a Node sidecar.
+The root npm lockfile belongs to the existing Electron baseline. The independent
+Tauri app uses pnpm and locked upstream resolutions; do not replace its lock with npm.
 
-The browser host injection requires loopback Vite DEV plus an explicit test query;
-production builds remove it. It never uses browser storage as document authority.
-See VALIDATION_V1.md for actual results and remaining acceptance requirements.
+## Frontend and native checks
+
+From the new repository root:
+
+```powershell
+npm test
+npm run test:tauri
+npm run test:tauri:browser
+npm run tauri:web
+cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
+cargo check --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
+```
+
+The browser suite uses installed Microsoft Edge via Playwright and disposable
+contexts. Its native IPC is an in-memory test double. It cannot establish Rust,
+SQLite or native lifecycle acceptance. The loopback DEV/test-query injection is
+removed by production builds; browser storage is never a document authority.
+
+## Isolated native startup, restart and build
+
+```powershell
+$taskProfile = Join-Path (Get-Location).Path 'output/native-review-profile'
+New-Item -ItemType Directory -Force -Path $taskProfile | Out-Null
+$env:FROWANG_USER_DATA = $taskProfile
+npm run tauri:dev
+# After closing normally, rerun with the SAME taskProfile to check restoration.
+npm run tauri:dev
+# Creates an unbundled binary; does not install or publish:
+npm run tauri:build
+Get-Item apps/tauri/src-tauri/target/release/frowd-tauri.exe | Select-Object Length
+Remove-Item Env:FROWANG_USER_DATA
+```
+
+Use only synthetic text and test files inside output. Never point the override at
+an existing user profile. The override is debug-only; do not run the release binary
+as a profile-isolated lifecycle test. App identifier is com.frowang.frowd.tauri.v1.
+There is no installer, file-association registration or real-data migration.
+
+Local native acceptance checklist (still pending):
+
+- All 13 Rust domain/helper tests pass, including schema3/NULL, failed transactions,
+  undo retention, file BOM/EOL/conflict, search and visible-slot reorder/reopen.
+- Actual Tauri launch: new/rename/switch/shelve/expand; both minus controls; same-title
+  undo prompt; nonempty draft save/delete/cancel; file removal keeps the disk original.
+- Late input and Chinese IME survive switch/reorder/normal close; restart restores
+  docId/title/body/order/shelf/active page and view state from SQLite.
+- Full-text search finds drafts/shelves/latest input and reveals the selected text.
+  Drag ordering retains shelved slots, current page and history.
+- Record native environment, startup errors, screenshots and binary bytes separately
+  from browser evidence. Native package size is not the frontend dist size.
+
+## Search and ordering behavior
+
+Search is literal (Chinese/Unicode exact, ASCII letters case insensitive), capped
+at 256 query characters and 100 matching pages. Each page shows its first body hit
+or a title match. It reads SQLite drafts without disk scans or implicit activation;
+the current live editor text supersedes its persisted search hit. A single pending
+IPC request coalesces rapid queries, rejects stale replies and reports an 8-second
+timeout. Late timed-out results cannot repopulate the list.
+
+Search locations are editor-neutral line/Unicode-character data, recomputed against
+the loaded body before selection. They are not added to the document schema.
+Tab drag reorders visible slots using layoutRevision; shelved slots and current
+page remain in place. Rejected stale drags refresh authoritative metadata.
+
+## Remaining scope
+
+CM/SoloMD is still an editor candidate: visual table partial/cross-cell/rich text
+selection, copy and IME require the parent's separate kernel evaluation. No table
+acceptance is claimed here. Local images/durable draft assets, attachments/import,
+PDF export and mobile lifecycle/build verification remain later implementation.
+Android needs SDK/NDK/JDK and a device/emulator; iOS needs Mac/Xcode. No mobile
+runtime or four-platform completion is claimed. See VALIDATION_V1.md for evidence.
