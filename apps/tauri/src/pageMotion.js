@@ -70,7 +70,7 @@ export function startPageMotion({ element, anchor, header, footer, capture, isCu
   }
   const finished = (async () => {
     if (!element || !anchor || !header || !live()) return false
-    for (const node of [document.scrollingElement, ...element.querySelectorAll('textarea,.cm-scroller')])
+    for (const node of [document.scrollingElement, ...element.querySelectorAll('textarea,.cm-scroller,.pm-scroller')])
       scrollPositions.set(node, { top: node.scrollTop, left: node.scrollLeft })
     window.addEventListener('resize', cancel)
     window.addEventListener('scroll', cancelOnScroll, true)

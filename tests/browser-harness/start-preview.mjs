@@ -12,7 +12,7 @@ export async function startWritingPreview({ port = 5198 } = {}) {
     root, configFile: false, logLevel: 'error',
     cacheDir: resolve(root, `node_modules/.vite-writing-${port || 'test'}`),
     resolve: { alias: { '@': resolve(root, 'src') } },
-    optimizeDeps: { include: ['@milkdown/crepe', '@milkdown/kit/core', '@milkdown/kit/ctx', '@milkdown/kit/utils', '@milkdown/kit/prose/state', '@milkdown/kit/prose/history', '@milkdown/kit/prose/inputrules', '@milkdown/kit/preset/commonmark', 'remark-math', 'katex'] },
+    optimizeDeps: { entries: ['tests/browser-harness/ProbeWritingApp.vue'], include: ['@milkdown/crepe', '@milkdown/kit/core', '@milkdown/kit/ctx', '@milkdown/kit/utils', '@milkdown/kit/prose/state', '@milkdown/kit/prose/history', '@milkdown/kit/prose/inputrules', '@milkdown/kit/preset/commonmark', 'remark-math', 'katex'] },
     server: { host: '127.0.0.1', port, strictPort: Boolean(port), fs: { allow: [root, realpathSync(resolve(root, 'node_modules'))] } },
     plugins: [vue(), { name: 'standalone-writing-preview', configureServer(s) {
       s.middlewares.use(async (req, res, next) => {

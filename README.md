@@ -3,7 +3,8 @@
 ## Tauri 融合候选（开发中）
 
 本轮独立候选位于 [apps/tauri](apps/tauri/README.md)，从固定 SoloMD v5.0.21 派生
-Tauri/CM 接口，并接入 frowd 文档服务。开发入口为
+Tauri 宿主并接入 frowd 文档服务；当前 EditorPort 采用共享 Milkdown/ProseMirror
+文字优先候选，完整 CM 对照保留在 406ab17 历史。开发入口为
 `npm run tauri:web`、`npm run tauri:dev`；
 行为测试与实际限制见 [融合验证记录](apps/tauri/VALIDATION_V1.md)。
 当前仅前端构建和浏览器模拟 IPC 交互已验证，原生 Windows 构建/SQLite 重启与表格

@@ -12,6 +12,7 @@ import * as core from '@milkdown/kit/core'
 import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { closeHistory } from '@milkdown/kit/prose/history'
 import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import * as utils from '@milkdown/kit/utils'
@@ -27,6 +28,8 @@ import { installWritingListViews } from './writingListView.js'
 import { describeWritingDocument, installWritingClipboard } from './writingClipboard.js'
 import { logWritingEvent } from './writingDiagnostics.js'
 import { installWritingLinks } from './writingLinks.js'
+import { configureWritingTables } from './writingTableSelection.js'
+import { markdownRange } from './writingMarkdownLocation.js'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
 import 'katex/dist/katex.min.css'
@@ -34,7 +37,7 @@ import './writingLists.css'
 import './writingTextStyles.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, linkNavigation: Boolean })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -51,6 +54,7 @@ function serializePreservingOriginal(doc, baseline = initialDoc, normalized = in
 function getMarkdown() { return created ? serializePreservingOriginal(view().state.doc) : original }
 function replaceMarkdown(markdown) {
   if (!editor) return
+  view().dispatch(closeHistory(view().state.tr))
   editor.editor.action(utils.replaceAll(markdown))
   original = markdown; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown(); clearTimeout(updateTimer); rememberedViews = null
   emit('update:modelValue', markdown)
@@ -107,7 +111,20 @@ function clearSession() {
   try { setState(EditorState.create({ schema: view().state.schema, plugins: allPlugins })); original = ''; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown() }
   finally { switching = false }
 }
-defineExpose({ getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+function setEditable(value) { editor?.setReadonly(!value) }
+function revealMarkdown(offset, needle = '') {
+  if (!created || !activeSession) return false
+  const v = view(), markdown = getMarkdown()
+  const range = markdownRange(v.state.doc, editor.editor.ctx.get(core.remarkCtx).parse(markdown), markdown, offset, needle)
+  if (!range) return false
+  v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, range.from, range.to)).scrollIntoView())
+  const dom = v.domAtPos(range.from).node
+  const element = dom.nodeType === Node.ELEMENT_NODE ? dom : dom.parentElement
+  element?.scrollIntoView({ block: 'start' })
+  return range.exact
+}
+function focus() { if (created) view().focus() }
+defineExpose({ setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -126,6 +143,7 @@ onMounted(async () => {
     // Replace the generic-transaction-only synchronizer; input rules carry
     // metadata and must still receive correct labels before the DOM renders.
     await editor.editor.remove(syncListOrderPlugin)
+    await configureWritingTables(editor.editor)
     if (disposed) return
     editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils))
     editor.editor.use(imageSchema.extendSchema(previous => ctx => {
@@ -175,6 +193,7 @@ onMounted(async () => {
     v.setProps({ dispatchTransaction(transaction) {
       const owner = activeSession, next = v.state.apply(transaction)
       v.updateState(next)
+      if (owner && !switching && (transaction.selectionSet || transaction.docChanged)) emit('view-change', { ...owner })
       if (!owner || switching || !transaction.docChanged) return
       rememberedViews = null
       const doc = next.doc, baseline = initialDoc, normalized = initialSerialized, raw = original

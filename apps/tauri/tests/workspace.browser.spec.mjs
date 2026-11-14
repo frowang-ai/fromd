@@ -6,11 +6,14 @@ const evidence=fileURLToPath(new URL('../../../output/tauri-browser-evidence/',i
 async function boot(page,options={}){
  await page.addInitScript(installMockHost,options);await page.goto('/?testHost=1');
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
- await expect(page.locator('.cm-content')).toBeVisible();
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toBeVisible();
  await expect(page.locator('.loading-state')).toHaveCount(0);
 }
 async function append(page,text){
- await page.locator('.cm-line').last().click();await page.keyboard.press('Control+End');await page.keyboard.insertText(text);await expect(page.locator('.cm-content')).toContainText(text.trim());
+ const body=page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible');
+ await body.click();await page.keyboard.press('Control+End');await page.keyboard.insertText(text);
+ if(await body.evaluate(el=>el.tagName==='TEXTAREA'))await expect(body).toHaveValue(new RegExp(text.trim()));
+ else await expect(body).toContainText(text.trim());
 }
 async function stored(page,id='a'){return page.evaluate(id=>window.__FROWD_TEST_HOST__.rows.get(id),id)}
 async function menu(page,title){await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:title}).first().click()}
@@ -33,7 +36,7 @@ test('last input survives immediate page switch, rich/source modes share text an
  expect((await stored(page)).markdown).toContain('即时最后输入');
  await page.locator('.tab-title').filter({hasText:'方案讨论'}).click();
  await menu(page,'源码');await append(page,' 源码追加');
- await menu(page,'正文');await page.locator('.cm-content').press('Control+z');
+ await menu(page,'正文');await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').press('Control+z');
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
  expect((await stored(page)).markdown).not.toContain('源码追加');
  expect((await stored(page)).markdown).toContain('即时最后输入');
@@ -50,7 +53,7 @@ test('both minus controls shelve without removing; expanding all preserves activ
 });
 test('floating rename stays in viewport after scrolling and does not change H1',async({page})=>{
  const markdown='# 正文标题不变\n\n'+Array.from({length:160},(_,i)=>'合成长文第 '+i+' 段\n').join('\n');
- await boot(page,{markdown});await page.locator('.cm-scroller').evaluate(el=>el.scrollTop=1800);
+ await boot(page,{markdown});await page.locator('.pm-scroller').evaluate(el=>el.scrollTop=1800);
  const input=page.getByRole('textbox',{name:'当前页面名称',exact:true});await expect(input).toBeVisible();
  await input.fill('独立草稿名');await input.press('Enter');
  await expect(page.locator('.tab.selected')).toContainText('独立草稿名');
@@ -67,7 +70,7 @@ test('IME name composition completes on old doc before switching and never renam
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();
  await page.waitForTimeout(80);
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
- expect(await page.locator('.cm-content').getAttribute('contenteditable')).toBe('true');
+ expect(await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').getAttribute('contenteditable')).toBe('true');
  await input.dispatchEvent('compositionend',{data:'中文合成名称'});
  await expect(page.locator('.tab.selected')).toContainText('公式推导');
  expect((await stored(page)).title).toBe('中文合成名称');
@@ -77,11 +80,11 @@ test('actual editor is frozen during delayed layout IPC and released afterwards'
  await boot(page);await append(page,' 等待期间保护');
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.holds.add('activate_document'));
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();
- await expect.poll(()=>page.locator('.cm-content').getAttribute('contenteditable')).toBe('false');
+ await expect.poll(()=>page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').getAttribute('contenteditable')).toBe('false');
  expect((await stored(page)).markdown).toContain('等待期间保护');
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.release('activate_document'));
  await expect(page.locator('.tab.selected')).toContainText('公式推导');
- await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable','true');
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toHaveAttribute('contenteditable','true');
 });
 test('nonempty draft cancel, cancelled/failed save, delete and fresh-ID undo',async({page})=>{
  await boot(page);await remove(page);
@@ -103,7 +106,7 @@ test('backup error blocks switching, retains editor text and permits retry',asyn
  await append(page,' 保留失败正文');await page.locator('.tab-title').filter({hasText:'公式推导'}).click();
  await expect(page.getByRole('alert')).toContainText('合成写入失败');
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
- await expect(page.locator('.cm-content')).toContainText('保留失败正文');
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toContainText('保留失败正文');
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail=null);
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
  expect((await stored(page)).markdown).toContain('保留失败正文');
@@ -122,7 +125,7 @@ test('outline positions duplicate headings independently and follows the current
  await boot(page,{markdown});await page.getByRole('button',{name:'大纲',exact:true}).click();
  await expect(page.locator('.outline-list button')).toHaveCount(3);
  await page.locator('.outline-list button').last().click();
- await expect.poll(()=>page.locator('.cm-scroller').evaluate(el=>el.scrollTop)).toBeGreaterThan(800);
+ await expect.poll(()=>page.locator('.pm-scroller').evaluate(el=>el.scrollTop)).toBeGreaterThan(800);
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
  await expect(page.locator('.outline-list button')).toHaveText(['第二篇']);
 });
@@ -179,18 +182,18 @@ test('close backup failure keeps the window open and successful retry commits th
  await append(page,' 关闭失败仍保留');
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.requestClose());
  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.closed)).toBe(false);
- await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable','true');
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toHaveAttribute('contenteditable','true');
  await page.evaluate(()=>{window.__FROWD_TEST_HOST__.fail=null;return window.__FROWD_TEST_HOST__.requestClose()});
  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.closed)).toBe(true);
  expect((await stored(page)).markdown).toContain('关闭失败仍保留');
 });
 
 test('candidate formatting shortcut writes through the same document-owned history',async({page})=>{
- await boot(page,{markdown:'中文段落'});await menu(page,'源码');
- await page.locator('.cm-content').click();await page.keyboard.press('Control+a');await page.keyboard.press('Control+b');
- await expect(page.locator('.cm-content')).toContainText('**中文段落**');
+ await boot(page,{markdown:'中文段落'});
+ await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').click();await page.keyboard.press('Control+a');await page.keyboard.press('Control+b');
+ await expect(page.locator('.ProseMirror strong')).toHaveText('中文段落');
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
- expect((await stored(page)).markdown).toBe('**中文段落**');
+ expect((await stored(page)).markdown.trim()).toBe('**中文段落**');
 });
 
 test('target read failure leaves old page/body paired and permits retry',async({page})=>{
@@ -198,11 +201,11 @@ test('target read failure leaves old page/body paired and permits retry',async({
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();
  await expect(page.getByRole('alert')).toContainText('合成写入失败');
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
- await expect(page.locator('.cm-content')).toContainText('合成文稿');
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toContainText('合成文稿');
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail=null);
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();
  await expect(page.locator('.tab.selected')).toContainText('公式推导');
- await expect(page.locator('.cm-content')).toContainText('第二篇');
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toContainText('第二篇');
 });
 
 test('dismissed removal toast reopens only on a new successful same-title removal',async({page})=>{
@@ -272,7 +275,7 @@ test('native tab drag preserves shelved slots/current text and synchronizes side
  expect(order).toEqual(['c','x','a','b']);
  await expect(page.locator('[aria-label="已展开页面"] .page-title')).toHaveText(['▤第三页','▤方案讨论','▤公式推导']);
  await page.screenshot({path:evidence+'tab-reorder.png',fullPage:true});
- await page.locator('.cm-content').press('Control+z');
+ await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').press('Control+z');
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
  expect((await stored(page)).markdown).not.toContain('排序前最后输入');
 });
@@ -295,7 +298,7 @@ test('tab drop waits for title IME completion before freezing and persisting reo
  await input.evaluate(el=>{el.value='排序中文名';el.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true}))});
  await dragBefore(page,'c','a');await page.waitForTimeout(80);
  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reorder_documents??0)).toBe(0);
- await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable','true');
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toHaveAttribute('contenteditable','true');
  await input.dispatchEvent('compositionend',{data:'排序中文名'});
  await expect(page.locator('.tab-title')).toHaveText(['第三页','排序中文名','公式推导']);
  expect((await stored(page)).title).toBe('排序中文名');
@@ -328,15 +331,15 @@ for(const hit of [false,true])test('external current-file read refreshes body/re
  const fresh=hit?'external new needle':'external fresh content';
  await page.evaluate(text=>window.__FROWD_TEST_HOST__.externalTexts.set('a',text),fresh);
  await page.locator('.search-result').click();
- await expect(page.locator('.cm-content')).toHaveText(fresh);
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toHaveText(fresh);
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
  expect((await stored(page)).revision).toBe(previous.revision+1);
  if(!hit)await expect(page.getByRole('alert')).toContainText('内容已变化');
  else await expect.poll(async()=>{const d=await stored(page);return d.viewState?.sourceSelection?.end-d.viewState?.sourceSelection?.start}).toBe(6);
- await page.locator('.cm-content').press('Control+z');
- await expect(page.locator('.cm-content')).toHaveText(fresh);
+ await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').press('Control+z');
+ await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toHaveText(fresh);
  if(!hit)await page.screenshot({path:evidence+'external-current-search-refresh.png',fullPage:true});
  await append(page,' after refresh input');
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
- const after=await stored(page);expect(after.markdown).toBe(fresh+' after refresh input');expect(after.revision).toBe(previous.revision+2);
+ const after=await stored(page);expect(after.markdown.trimEnd()).toBe(fresh+' after refresh input');expect(after.revision).toBe(previous.revision+2);
 });

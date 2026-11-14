@@ -75,7 +75,7 @@
 
         <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
         <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
-          <CodeMirrorPort ref="editor" v-show="current" @change="coordinator.changed($event)" @view-change="scheduleView" />
+          <ProseMirrorPort ref="editor" v-show="current" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
         </div>
@@ -113,7 +113,7 @@
 </template>
 <script setup>
 import {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
-import CodeMirrorPort from './editor/CodeMirrorPort.vue'
+import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {DocumentSearch} from './documents/search.mjs'
 import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
@@ -141,7 +141,7 @@ const api={...documentsApi,shelve:async id=>{
  const snapshot=await documentsApi.shelve(id)
  if(id===state.activeId&&!media.matches){
   const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),capture:async()=> {
-   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,backgroundColor:'#fffefa',allowTaint:false,useCORS:false})
+   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,ignoreElements:element=>element.classList.contains('crepe-drop-cursor'),backgroundColor:'#fffefa',allowTaint:false,useCORS:false})
    return canvas.toDataURL('image/png')
   },isCurrent:()=>state.activeId===id&&!disposed})
   cancelMotion=flight.cancel;await flight.finished;cancelMotion=null

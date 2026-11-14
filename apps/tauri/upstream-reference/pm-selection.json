@@ -1,0 +1,41 @@
+{
+  "basis": "frowd 0.4.6 shared packages/editor; PM route converged after the verified table interaction comparison, not a placeholder replacement",
+  "baseline": "d8a855bc9545f79d4171cb397ced6e67bf642c35",
+  "previousCmCandidate": "406ab17b711a9415bcd397ea88b498a1357375c1",
+  "evidence": {
+    "filename": "frowd-table-pm-text-first-20261115-035021.zip",
+    "bytes": 963813,
+    "sha256": "F3E230A65EA783338D50921EB487E3451CFC300E4470F7F5AB8F1403CD0E9414",
+    "reviewed": [
+      "RESULT.md",
+      "common-nodeview-guard.patch",
+      "text-first-policy.patch",
+      "probe_text_first.mjs",
+      "sample.md"
+    ]
+  },
+  "versions": {
+    "milkdown": "7.22.3",
+    "vue": "3.5.24"
+  },
+  "policy": [
+    "Wrap tableEditing at the same index and key through editorStateOptionsCtx before view creation/allPlugins capture",
+    "Preserve original state/props/paste/keys and fixTables",
+    "Wrap the public stopEvent of the existing TableNodeView, without dependency patches",
+    "No columnResizing plugin added"
+  ],
+  "modules": [
+    "packages/editor/src/writingTableSelectionPolicy.js",
+    "packages/editor/src/writingTableSelection.js",
+    "packages/editor/src/writingMarkdownLocation.js",
+    "apps/tauri/src/editor/ProseMirrorPort.vue"
+  ],
+  "boundary": "One active PM body view, document-owned ephemeral sessions/history; SQLite through existing coordinator/IPC. No PM coordinates added to storage contracts.",
+  "moduleSha256": {
+    "packages/editor/src/writingTableSelectionPolicy.js": "BFCEB49455CA6D909D396727C511E900EBF411BCD48833468034030E7027783F",
+    "packages/editor/src/writingTableSelection.js": "3AB9208B3DE67A36AFDD8D998FF17AB468E2566C5084DFD3CD3D1FB950E188B0",
+    "packages/editor/src/writingMarkdownLocation.js": "B57D408F449279B0D2B934A7BB465226A9FBA70470D4B05C0390ECF5C2E46FD3",
+    "apps/tauri/src/editor/ProseMirrorPort.vue": "EE8561F0D0F73A1BDACFB92E5775D81CF09C5D391AFD9DDC548FD5CCC4BF37CE"
+  },
+  "unmodifiedDependencySha256": "A99D4FCD7F34676544E79FFCCEF61E4CC248D83F1DE5A18484C4C6BDD98B8C63"
+}

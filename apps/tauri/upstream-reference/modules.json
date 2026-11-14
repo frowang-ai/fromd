@@ -172,5 +172,6 @@
     "host": "Tauri configuration/release profile derive from upstream; remove MCP sidecar, broad asset scope, AI/Git/sync and telemetry initialization. Keep only dialog/clipboard-write/opener plugins.",
     "pageMotion": "Reuse frowd pageMotion curved collapse drawing with bounded frontend-only capture and document-region bounds; floating name is excluded.",
     "whitespace": "Remove only diff-check reported blank-line trailing spaces/extra EOF in cm-live-blocks, editor-commands, html-live-render and md-image-url; original source hashes retained separately."
-  }
+  },
+  "currentRole": "The CM candidate at 406ab17 is preserved in Git. Only heading-fold.ts is currently consumed; other selected modules remain comparison references excluded from the PM build."
 }

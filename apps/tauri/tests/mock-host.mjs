@@ -69,7 +69,7 @@ export function installMockHost(options = {}) {
    case 'save_document':if(h.saveChoice==='cancel')return{cancelled:true};if(h.saveChoice==='fail')throw Error('合成文件保存失败');doc.path??='/synthetic/'+doc.title+'.md';doc.savedText=doc.markdown;return{cancelled:false,snapshot:snapshot()};
    case 'open_document':return{cancelled:true};
    case 'checkpoint':return;
-   case 'close_ready':h.closed=true;h.frozenAtClose=document.querySelector('.cm-content')?.getAttribute('contenteditable')==='false';return;
+   case 'close_ready':h.closed=true;h.frozenAtClose=document.querySelector('.ProseMirror')?.getAttribute('contenteditable')==='false';return;
    case 'cancel_close':h.closed=false;return;
    case 'open_document_link':return;
    default:throw Error('Unexpected command '+command);

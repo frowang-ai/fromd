@@ -1,36 +1,59 @@
-# frowd Tauri fusion — draft implementation
+# frowd Tauri fusion — ProseMirror EditorPort candidate
 
-The task branch retains frowd 0.4.6 history and derives its Tauri/Vue/CodeMirror
-candidate from SoloMD v5.0.21, commit 0b30523c70387b046018f857c7bf90bcdc40f54c.
-LICENSE.SOLOMD preserves the upstream MIT license. upstream-reference/modules.json
-records original file hashes. src/upstream/lib contains selected actual upstream
-CM live rendering, tables/math, IME, Markdown, list and language modules.
-The candidate is integrated for evaluation; visual table selection/copy/IME and
-native Windows startup are not accepted yet.
+The platform foundation derives from fixed SoloMD v5.0.21, commit
+0b30523c70387b046018f857c7bf90bcdc40f54c. The active editor now reuses frowd's existing
+Milkdown 7.22.3 / ProseMirror package after the verified text-first table comparison.
+The complete CM candidate remains in Git at 406ab17; there is one active body editor
+and no user-visible kernel switch. This remains a reviewable candidate, not native
+Windows or all-platform acceptance.
+
+LICENSE.SOLOMD and upstream-reference/modules.json preserve platform/CM provenance.
+upstream-reference/pm-selection.json records the exact experiment archive/hash and
+the production registration boundary. dependency-licenses.json records the installed
+PM/shared-editor graph; regenerate with node apps/tauri/scripts/inventory-editor-licenses.mjs.
 
 ## Entry points and ownership
 
-- src/App.vue: approved page/outline workbar, title-only shelf, two minus controls,
-  expand-all grouping, menus, viewport title input, narrow drawer and save decisions.
-- src/editor/CodeMirrorPort.vue: one live EditorView, per-doc session state/history,
-  rendered/source configuration, view capture and actual edit freeze after IME.
-  It emits docId/generation changes and has no document persistence of its own.
-- src/documents/coordinator.mjs: serial transitions, captured final input, confirmed
-  text/revision, coalesced saves, metadata acknowledgements and close handoff.
-- src/documents/host.mjs: fixed Tauri command adapter; no filesystem or shell exposure.
-- crates/document-store and src-tauri/src/documents.rs: the one SQLite authority;
-  stable ids, nullable paths/activeId, schema3, capacity transactions, layout and
-  fresh-id undo, conflict-aware UTF-8/BOM/EOL file save.
-- src-tauri/src/lib.rs: profile selection, native dialogs, commands and close request
-  handshake. Rust closes only after renderer drain and SQLite checkpoint succeed.
-- src/pageMotion.js: existing frowd curved collapse geometry with bounded capture,
-  reduced-motion/resize/visibility cleanup. No reverse animation on restoration.
+- src/App.vue: approved page/outline workbar, title-only shelf, both minus controls,
+  expand-all, menus, floating docId-bound names, narrow drawer and save decisions.
+- src/editor/ProseMirrorPort.vue: one shared PM view plus one source textarea;
+  docId/generation, ready/capture/activate/clear, per-page opaque sessions/history,
+  view restoration, source mode, neutral navigation and controlled link callbacks.
+  Real readonly/inert freeze waits for body/name composition and releases afterward.
+- src/editor/sourceHistory.mjs: bounded ephemeral source undo, intercepting native
+  textarea undo so the reused textarea cannot restore another page's content.
+- packages/editor/src/MarkdownEditor.vue: retained schema, math/code/list/link and
+  source-preservation/session behavior. Source replacement starts a history group.
+- packages/editor/src/writingTableSelection{Policy,}.js: wraps the same keyed table
+  plugin at the same index during state creation, before allPlugins is saved.
+  Original state/props/paste/keys, explicit row/column selection and fixTables remain.
+  Existing TableNodeView is wrapped through its public stopEvent; dependencies
+  are not patched. No columnResizing plugin or replacement table view is added.
+- packages/editor/src/writingMarkdownLocation.js: original Markdown AST/source ranges
+  mapped to PM textblocks. No PM search coordinates are added to document storage.
+- src/documents/coordinator.mjs and host.mjs: unchanged serial ownership, final-input
+  flush, stale acknowledgements, bounded search, versioned ordering and close IPC.
+- crates/document-store and src-tauri: unchanged SQLite authority, schema3, stable
+  ids/nullable paths, file rules, rollback/capacity/undo and close handshake.
 
-No SoloMD tabs/session localStorage store, AI, sync, recipes, telemetry, MCP sidecar
-or updater is initialized. Asset wildcard access is disabled. Current image adapter
-renders embedded raster data only; document-scoped local resource integration remains
-a later unit. File links are revealed; folders are opened; relative links require a
-saved owning document. Shell commands are not exposed to the renderer.
+No SoloMD localStorage drafts, AI/sync/recipes/telemetry, MCP sidecar or updater
+initializes. Shared editor diagnostics are bounded local metadata, not a document
+store. Wildcard asset access remains disabled. Images currently render embedded
+raster data only; file links use the existing document-scoped native API.
+
+## Source and navigation semantics
+
+Unmodified Markdown stays exactly as loaded, including comments, fences and marker
+spelling. Once edited, the existing PM serializer can normalize table padding/
+separator widths, emphasis spelling and final newlines. The synthetic before/after
+sample is in task output/pm-port-evidence/normalization.json. Undo back to the
+unchanged document restores its original raw source.
+
+Rendered text search uses the source AST and actual PM text range. Syntax-only
+matches locate the containing block and retain their exact source range, with a
+hint to use View > Source. Source is still entered through that menu. Outline
+positions distinguish repeated headings. Existing viewState keys and opaque PM
+sessions are reused; stable document identity belongs to the document service.
 
 ## Local checkout and dependencies (Windows PowerShell)
 
@@ -70,6 +93,12 @@ npm run test:tauri:browser
 npm run tauri:web
 cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
 cargo check --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
+```
+
+For the affected existing shared-editor regressions (no OS clipboard writes):
+
+```powershell
+node node_modules/@playwright/test/cli.js test -c playwright.pm-shared.config.mjs
 ```
 
 The browser suite uses installed Microsoft Edge via Playwright and disposable
@@ -136,9 +165,12 @@ page remain in place. Rejected stale drags refresh authoritative metadata.
 
 ## Remaining scope
 
-CM/SoloMD is still an editor candidate: visual table partial/cross-cell/rich text
-selection, copy and IME require the parent's separate kernel evaluation. No table
-acceptance is claimed here. Local images/durable draft assets, attachments/import,
+PM remains a candidate until local native lifecycle/IME/clipboard acceptance.
+Real browser drag/edit/undo and synthetic clipboard serialization checks do not
+establish physical Windows IME or OS clipboard behavior. Existing Crepe has no
+columnResizing plugin; the rejected resize compatibility experiment is not enabled.
+The Node structural checks cover merge/split and paste, not persisted merged-cell
+Markdown roundtrips or every nested/irregular table. Local images/durable draft assets, attachments/import,
 PDF export and mobile lifecycle/build verification remain later implementation.
 Android needs SDK/NDK/JDK and a device/emulator; iOS needs Mac/Xcode. No mobile
 runtime or four-platform completion is claimed. See VALIDATION_V1.md for evidence.
