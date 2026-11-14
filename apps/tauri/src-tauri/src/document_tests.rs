@@ -136,3 +136,59 @@ fn layout_failure_does_not_change_selection_or_shelving() {
     assert!(!snap.documents[0].shelved);
     assert_eq!(snap.active_id.as_deref(), Some(id.as_str()));
 }
+
+#[test]
+fn search_all_drafts_shelves_unicode_and_reopen_without_disk_or_layout_changes() {
+    let dir = tempdir().unwrap();
+    let a;
+    {
+        let mut store = Store::open(dir.path(), 100_000).unwrap();
+        a = store
+            .create("第一行\n😀中文AbC内容", "草稿")
+            .unwrap()
+            .active_id
+            .unwrap();
+        let b = store
+            .create("收起正文", "中文名称")
+            .unwrap()
+            .active_id
+            .unwrap();
+        store.shelve(&b).unwrap();
+        let before = store.snapshot().unwrap();
+        let hits = store.search("中文").unwrap();
+        assert_eq!(hits.len(), 2);
+        assert_eq!(hits[0].id, a);
+        let loc = hits[0].location.as_ref().unwrap();
+        assert_eq!((loc.line, loc.column, loc.length), (2, 1, 2));
+        assert!(hits[1].shelved);
+        assert!(hits[1].location.is_none());
+        assert_eq!(store.search("abc").unwrap().len(), 1);
+        assert!(store.search("%_' OR 1=1").unwrap().is_empty());
+        assert!(store.search(&"a".repeat(257)).is_err());
+        assert_eq!(
+            store.snapshot().unwrap().layout_revision,
+            before.layout_revision
+        );
+        assert_eq!(store.snapshot().unwrap().active_id, before.active_id);
+    }
+    let store = Store::open(dir.path(), 100_000).unwrap();
+    assert_eq!(store.search("AbC").unwrap()[0].id, a);
+}
+#[test]
+fn search_caps_pages_and_does_not_read_associated_disk_files() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(dir.path(), 1_000_000).unwrap();
+    for _ in 0..103 {
+        store.create("needle", "title").unwrap();
+    }
+    assert_eq!(store.search("needle").unwrap().len(), 100);
+    let id = store.snapshot().unwrap().documents[0].id.clone();
+    store
+        .conn
+        .execute(
+            "UPDATE documents SET path=?1 WHERE id=?2",
+            params![dir.path().join("missing.md").to_string_lossy(), id],
+        )
+        .unwrap();
+    assert_eq!(store.search("needle").unwrap().len(), 100);
+}

@@ -840,6 +840,40 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
         })?;
         self.snapshot()
     }
+    /// Search the SQLite drafts, never disk or activated editor sessions.
+    /// At most 100 matching pages; one first-body occurrence or a title-only hit per page.
+    pub fn search(&self, query: &str) -> Result<Vec<search::SearchHit>> {
+        let query = query.trim();
+        if query.chars().count() > 256 {
+            return Err(invalid("搜索词最多 256 个字符。"));
+        }
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.conn.prepare(
+            "SELECT id,title,markdown,revision,shelved FROM documents ORDER BY position,id",
+        )?;
+        let rows = statement.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+                r.get::<_, bool>(4)?,
+            ))
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            let (id, title, markdown, revision, shelved) = row?;
+            if let Some(hit) = search::hit(id, title, &markdown, revision, shelved, query) {
+                results.push(hit);
+                if results.len() == 100 {
+                    break;
+                }
+            }
+        }
+        Ok(results)
+    }
     pub fn checkpoint(&self) -> Result<()> {
         self.conn.execute_batch("PRAGMA wal_checkpoint(FULL);")?;
         Ok(())
@@ -851,3 +885,6 @@ mod tests;
 
 #[path = "filename.rs"]
 pub mod filename;
+
+#[path = "search.rs"]
+pub mod search;

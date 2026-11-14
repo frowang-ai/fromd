@@ -27,8 +27,14 @@
           <button :aria-pressed="sidebarMode === 'outline'" @click="sidebarMode = 'outline'">大纲</button>
         </div><button class="sidebar-hide" aria-label="隐藏工作栏" @click="sidebarOpen = false">‹</button></div>
         <template v-if="sidebarMode === 'pages'">
-          <input v-model="query" type="search" class="page-search" aria-label="搜索页面名称" placeholder="搜索页面名称" />
-          <section class="page-group" aria-label="已展开页面">
+          <input v-model="query" type="search" class="page-search" aria-label="搜索全部页面" placeholder="搜索名称或正文" maxlength="512" />
+          <section v-if="query.trim()" class="search-results" aria-label="全文搜索结果" aria-live="polite">
+            <p class="search-status">{{ state.searchError || (state.searching ? '搜索中…' : '匹配 ' + state.searchResults.length + ' 个页面（最多 100）') }}</p>
+            <button v-for="result in state.searchResults" :key="result.id" class="search-result" :data-result-id="result.id" :disabled="state.busy" @click="selectResult(result)">
+              <span>{{ result.title }}<small v-if="result.shelved"> · 已收起</small></span><small>{{ result.snippet }}</small>
+            </button>
+          </section>
+          <section v-show="!query.trim()" class="page-group" aria-label="已展开页面">
             <div class="group-heading"><span>已展开 {{ opened.length }}</span><button class="expand-all" :disabled="!shelved.length || state.busy" @click="action(() => coordinator.layout('expand'))">全部展开</button></div>
             <div v-for="doc in filteredOpened" :key="doc.id" class="page-row" :class="{ active: doc.id === state.activeId }" :data-page-id="doc.id" @contextmenu.prevent="contextPage = doc.id">
               <button class="page-title" :disabled="state.busy || !state.loaded" @click="selectPage(doc.id)"><span class="page-symbol">▤</span>{{ doc.title }}</button>
@@ -37,7 +43,7 @@
             </div>
             <p v-if="!filteredOpened.length" class="empty-list">{{ query ? '没有匹配页面' : '没有已展开页面' }}</p>
           </section>
-          <section class="page-group shelved-group" aria-label="已收起页面">
+          <section v-show="!query.trim()" class="page-group shelved-group" aria-label="已收起页面">
             <div class="group-heading"><span>已收起 {{ shelved.length }}</span></div>
             <div v-for="doc in filteredShelved" :key="doc.id" class="page-row shelved-row" :data-page-id="doc.id">
               <button class="page-title" :disabled="state.busy || !state.loaded" @click="selectPage(doc.id)"><span class="page-symbol">▤</span>{{ doc.title }}</button>
@@ -108,6 +114,7 @@
 import {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
 import CodeMirrorPort from './editor/CodeMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
+import {DocumentSearch} from './documents/search.mjs'
 import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
 import {scanHeadings} from './upstream/lib/heading-fold'
 import {startPageMotion} from './pageMotion.js'
@@ -149,9 +156,19 @@ const port={
  waitComposition:waitAllComposition,
  activate:async doc=>{await editor.value.activate(doc);mode.value=doc.session?.viewState?.mode||doc.viewState?.mode||'rendered'},
  clear:()=>editor.value?.clear(),
+ revealMatch:location=>editor.value.revealMatch(location),
  freeze:async()=>{await waitAllComposition();editor.value.setFrozen(true);editingLocked.value=true;return()=>{editor.value?.setFrozen(false);editingLocked.value=false}}
 }
 const coordinator=new DocumentCoordinator(api,port,state)
+const search=new DocumentSearch(api,state,()=>coordinator.searchLive())
+let searchTimer
+watch(()=>[query.value,state.markdown,state.loaded,state.documents.map(d=>[d.id,d.title,d.revision,d.shelved].join(':')).join('|')],()=>{
+ clearTimeout(searchTimer)
+ // Invalidate old results immediately; only debounce issuing the next native query.
+ search.request('')
+ if(query.value.trim()&&state.loaded)searchTimer=setTimeout(()=>search.request(query.value),150)
+})
+function selectResult(result){return action(async()=>{await coordinator.activate(result.id,result.location);if(narrow.value)sidebarOpen.value=false})}
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}
@@ -191,5 +208,5 @@ onMounted(async()=>{
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
 })
-onBeforeUnmount(()=>{disposed=true;cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

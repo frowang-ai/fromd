@@ -9,6 +9,7 @@ const call = (command, args = {}) => testHost ? testHost.invoke(command, args) :
 export const browserTestHost = Boolean(testHost);
 export const documentsApi = {
   list: () => call('list_metadata'),
+  search: query => call('search_documents', { query }),
   read: id => call('read_document', { id }),
   create: () => call('create_document', { markdown: '', title: '未命名笔记' }),
   update: (id, markdown, revision) => call('update_document', { id, markdown, revision }),

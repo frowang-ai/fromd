@@ -29,6 +29,19 @@ fn list_metadata(state: State<'_, AppState>) -> Result<Snapshot, String> {
     lock(&state)?.snapshot().map_err(|e| e.to_string())
 }
 #[tauri::command]
+async fn search_documents(
+    query: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<frowd_documents::search::SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = lock(&state)?.search(&query).map_err(|e| e.to_string());
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
 fn read_document(id: String, state: State<'_, AppState>) -> Result<Document, String> {
     lock(&state)?.read(&id).map_err(|e| e.to_string())
 }
@@ -277,6 +290,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_metadata,
+            search_documents,
             read_document,
             create_document,
             update_document,

@@ -85,3 +85,15 @@ for (const empty of [false,true]) test('failed shelved activation preserves back
  assert.equal(state.documents.find(d=>d.id==='b').shelved,true);
  api.read=original;await c.activate('b');assert.equal(state.activeId,'b');assert.equal(rows.get('b').shelved,false);
 });
+
+test('search capture includes unnotified input without activating, reading or persisting other pages',async()=>{
+ const {c,port,api,state,rows}=fixture();await c.boot();
+ api.read=async()=>{throw Error('search must not read')};api.activate=async()=>{throw Error('search must not activate')};
+ port.current.markdown='😀最新尚未保存';const live=await c.searchLive();
+ assert.equal(live.doc.id,'a');assert.equal(live.markdown,'😀最新尚未保存');assert.equal(rows.get('a').markdown,'# a');assert.equal(state.activeId,'a');
+});
+test('search selection revalidates neutral location before activation; removed match keeps owner',async()=>{
+ const {c,api,port,state}=fixture();await c.boot();let revealed;port.revealMatch=async loc=>revealed=loc;
+ await c.activate('b',{needle:'b'});assert.equal(revealed.line,1);assert.equal(revealed.column,2);
+ await assert.rejects(c.activate('a',{needle:'gone'}),/重新搜索/);assert.equal(state.activeId,'b');assert.equal(port.current.id,'b');
+});

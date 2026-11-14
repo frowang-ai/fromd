@@ -19,6 +19,17 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
+   case 'search_documents':{
+    const fold=t=>t.replace(/[A-Z]/g,c=>c.toLowerCase()),query=args.query.trim(),results=[];
+    for(const d of [...rows.values()].sort((a,b)=>a.position-b.position)){
+     const index=fold(d.markdown).indexOf(fold(query));
+     if(index<0&&!fold(d.title).includes(fold(query)))continue;
+     const prefix=d.markdown.slice(0,index),location=index<0?null:{line:prefix.split('\n').length,column:[...prefix.slice(prefix.lastIndexOf('\n')+1)].length,length:[...query].length,needle:query};
+     results.push({id:d.id,title:d.title,shelved:d.shelved,revision:d.revision,location,snippet:d.markdown.slice(Math.max(0,index-30),Math.max(0,index)+160)});
+     if(results.length===100)break;
+    }
+    return results;
+   }
    case 'list_metadata':return snapshot();
    case 'read_document':if(!doc)throw Error('page removed');return {...doc,dirty:doc.markdown!==doc.savedText};
    case 'create_document':{

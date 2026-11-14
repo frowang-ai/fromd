@@ -1,3 +1,4 @@
+import {findText} from './search.mjs';
 
 /** frowd document ownership and persistence. Editor buffers are not a second store. */
 export class DocumentCoordinator {
@@ -41,6 +42,12 @@ export class DocumentCoordinator {
     let snapshot = await this.api.list();
     if (!snapshot.documents.length) snapshot = await this.api.create();
     this.metadata(snapshot, true); await this.loadActive(); this.state.loaded = true;
+  }
+  async searchLive() {
+    await this.port.waitComposition();
+    this.capture();
+    const doc=this.current();
+    return {doc,markdown:doc?this.state.markdown:'',documents:this.state.documents};
   }
   current() { return this.state.documents.find(doc => doc.id === this.state.activeId) ?? null; }
   async loadActive(preloaded = null) {
@@ -149,15 +156,18 @@ export class DocumentCoordinator {
     this.flushing=work;
     try { await work; } finally { if(this.flushing===work)this.flushing=null; }
   }
-  activate(id) {
+  activate(id, location = null) {
     return this.run(async () => {
       if (!this.state.documents.some(doc => doc.id === id)) throw Error('页面已移除。');
       await this.flush();
       // Reading can fail without changing activeId or expanding a shelved target.
       const read=await this.api.read(id);
+      const match=location?findText(read.markdown,location.needle):null;
+      if(location&&!match)throw Error('内容已变化，请重新搜索。');
       const snapshot=await this.api.activate(id);
       this.metadata(snapshot, true);
       await this.loadActive(read);
+      if(match)await this.port.revealMatch?.(match);
     });
   }
   create() {

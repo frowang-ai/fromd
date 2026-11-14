@@ -117,9 +117,18 @@ async function setMode(value){
  view.dispatch({effects:modeSlot.reconfigure(mode==='source'?[]:rich())});emit('view-change')
 }
 function reveal(offset){if(!view)return;const position=Math.min(offset,view.state.doc.length);view.dispatch({selection:{anchor:position},effects:EditorView.scrollIntoView(position,{y:'start',yMargin:50})});view.focus()}
+async function revealMatch(location){
+ await new Promise(resolve=>requestAnimationFrame(resolve));
+ if(!view||!owner)return;
+ const line=view.state.doc.line(Math.min(location.line,view.state.doc.lines));
+ const start=line.from+[...line.text].slice(0,location.column).join('').length;
+ const end=Math.min(view.state.doc.length,start+[...view.state.doc.sliceString(start)].slice(0,location.length).join('').length);
+ view.dispatch({selection:{anchor:start,head:end},effects:EditorView.scrollIntoView(start,{y:'start',yMargin:50})});
+ view.focus();
+}
 function clear(){owner=null;if(view)view.setState(EditorState.create({extensions:[...configuration(),theme]}))}
 function focus(){view?.focus()}
-defineExpose({ready,waitComposition,capture,activate,setFrozen,setMode,reveal,clear,focus})
+defineExpose({ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 onMounted(()=>{
  view=new EditorView({state:EditorState.create({extensions:[...configuration(),theme]}),parent:root.value})
  readyResolve();loadRenderDeps().then(()=>{if(!disposed)window.dispatchEvent(new Event('solomd:cm-relayout'))})

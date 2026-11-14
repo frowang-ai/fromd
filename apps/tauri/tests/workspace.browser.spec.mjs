@@ -143,10 +143,10 @@ test('opening and changing modes without edits preserves original Markdown exact
 });
 
 test('title search includes shelved pages without switching until a result is chosen',async({page})=>{
- await boot(page);await page.getByRole('searchbox',{name:'搜索页面名称'}).fill('阅读');
- await expect(page.locator('.shelved-row .page-title')).toHaveCount(1);
+ await boot(page);await page.getByRole('searchbox',{name:'搜索全部页面'}).fill('阅读');
+ await expect(page.locator('.search-result')).toHaveCount(1);
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
- await page.locator('.shelved-row .page-title').click();
+ await page.locator('.search-result').click();
  await expect(page.locator('.tab.selected')).toContainText('阅读摘录');
  expect((await stored(page,'c')).shelved).toBe(false);
 });
@@ -217,4 +217,32 @@ test('dismissed removal toast reopens only on a new successful same-title remova
  await expect(page.locator('.removal-notice')).toHaveCount(0);
  await remove(page,'公式推导');await page.getByRole('button',{name:'直接删除',exact:true}).click();
  await expect(page.locator('.removal-notice')).toBeVisible();
+});
+
+test('full-text search covers drafts and shelves, includes unacknowledged input, and reveals by docId',async({page})=>{
+ await boot(page);
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.holds.add('update_document'));
+ await append(page,' 尚未落盘独特词');
+ const search=page.getByRole('searchbox',{name:'搜索全部页面'});await search.fill('尚未落盘独特词');
+ await expect(page.locator('.search-result')).toHaveCount(1);
+ expect((await stored(page)).markdown).not.toContain('尚未落盘独特词');
+ const calls=await page.evaluate(()=>window.__FROWD_TEST_HOST__.calls.filter(c=>c.command==='activate_document'));expect(calls).toHaveLength(0);
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.release('update_document'));
+ await search.fill('收起页合成');await expect(page.locator('.search-result')).toHaveCount(1);
+ await page.screenshot({path:evidence+'full-text-search.png',fullPage:true});
+ await page.locator('.search-result').click();await expect(page.locator('.tab.selected')).toContainText('阅读摘录');
+ const selection=await page.locator('.cm-content').evaluate(()=>window.getSelection()?.toString());
+ // CM draws its own selection; the persisted source range records the selected match.
+ await expect.poll(async()=> (await stored(page,'c')).viewState?.sourceSelection?.end-(await stored(page,'c')).viewState?.sourceSelection?.start).toBe(5);
+});
+test('search ignores late responses/errors and clears stale results while next query waits',async({page})=>{
+ await boot(page);
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.holds.add('search_documents'));
+ const search=page.getByRole('searchbox',{name:'搜索全部页面'});await search.fill('不会匹配');
+ await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.search_documents??0)).toBe(1);
+ await search.fill('阅读');await page.waitForTimeout(200);
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.release('search_documents'));
+ await expect(page.locator('.search-result')).toHaveCount(1);await expect(page.locator('.search-result')).toContainText('阅读摘录');
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail='search_documents');await search.fill('错误');
+ await expect(page.locator('.search-status')).toContainText('合成写入失败');await expect(page.locator('.search-result')).toHaveCount(0);
 });
