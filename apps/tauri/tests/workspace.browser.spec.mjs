@@ -204,3 +204,17 @@ test('target read failure leaves old page/body paired and permits retry',async({
  await expect(page.locator('.tab.selected')).toContainText('公式推导');
  await expect(page.locator('.cm-content')).toContainText('第二篇');
 });
+
+test('dismissed removal toast reopens only on a new successful same-title removal',async({page})=>{
+ await boot(page);const input=page.getByRole('textbox',{name:'当前页面名称',exact:true});
+ await input.fill('公式推导');await input.press('Enter');
+ await page.getByText('文件',{exact:true}).click();await page.getByRole('button',{name:'移除当前页面',exact:true}).click();
+ await page.getByRole('button',{name:'直接删除',exact:true}).click();
+ await expect(page.locator('.removal-notice')).toBeVisible();
+ await page.getByRole('button',{name:'关闭移除提示'}).click();
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.saveChoice='cancel');
+ await page.getByText('文件',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'Ctrl+S'}).first().click();
+ await expect(page.locator('.removal-notice')).toHaveCount(0);
+ await remove(page,'公式推导');await page.getByRole('button',{name:'直接删除',exact:true}).click();
+ await expect(page.locator('.removal-notice')).toBeVisible();
+});

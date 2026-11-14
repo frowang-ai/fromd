@@ -5,7 +5,7 @@ export class DocumentCoordinator {
     this.api = api; this.port = port; this.state = state; this.autosaveMs = autosaveMs;
     this.buffers = new Map(); this.saves = new Map(); this.names = new Map(); this.nameSaves = new Map();
     this.sessions = new Map(); this.timers = new Map(); this.tail = Promise.resolve(); this.generation = 0; this.disposed = false;
-    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', undoRemoval: null });
+    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', undoRemoval: null, removalSequence: 0 });
   }
   metadata(snapshot, selection = false) {
     this.state.documents = snapshot.documents.map(doc => {
@@ -153,15 +153,9 @@ export class DocumentCoordinator {
     return this.run(async () => {
       if (!this.state.documents.some(doc => doc.id === id)) throw Error('页面已移除。');
       await this.flush();
-      const previousId=this.state.activeId;
+      // Reading can fail without changing activeId or expanding a shelved target.
+      const read=await this.api.read(id);
       const snapshot=await this.api.activate(id);
-      let read;
-      try { read=await this.api.read(id); }
-      catch(error) {
-        // Do not label the old editor body with a target whose read failed.
-        if(previousId)await this.api.activate(previousId).catch(()=>{});
-        throw error;
-      }
       this.metadata(snapshot, true);
       await this.loadActive(read);
     });
@@ -209,6 +203,7 @@ export class DocumentCoordinator {
       }
       const previousId = this.state.activeId;
       this.metadata(await this.api.remove(id, decision === 'save' ? 'saved' : 'discard'), true);
+      this.state.removalSequence++;
       this.buffers.delete(id); this.sessions.delete(id); this.names.delete(id);
       clearTimeout(this.timers.get('name:' + id)); this.timers.delete('name:' + id);
       if (previousId !== this.state.activeId) await this.loadActive();

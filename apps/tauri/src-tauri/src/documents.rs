@@ -848,3 +848,6 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
 #[cfg(test)]
 #[path = "document_tests.rs"]
 mod tests;
+
+#[path = "filename.rs"]
+pub mod filename;

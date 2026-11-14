@@ -69,3 +69,19 @@ test('failed target read restores selection without showing the old body under t
  assert.equal(state.activeId,'a');assert.equal(port.current.id,'a');assert.equal(port.current.markdown,'# a');
  api.read=original;await c.activate('b');assert.equal(port.current.id,'b');assert.equal(rows.get('b').markdown,'# b');
 });
+
+for (const empty of [false,true]) test('failed shelved activation preserves backend layout and owner; retry succeeds (empty='+empty+')',async()=>{
+ const {c,api,state,port,rows}=fixture();
+ rows.get('b').shelved=true;
+ if(empty){rows.get('a').shelved=true;api.list=async()=>({documents:[...rows.values()],activeId:null})}
+ await c.boot();const original=api.read;
+ if(!empty){port.current.markdown+=' final';c.nameChanged('a','owned name')}
+ const activate=api.activate;let commits=0;api.activate=async id=>{commits++;return activate(id)};
+ api.read=async id=>{if(id==='b')throw Error('unreadable');return original(id)};
+ await assert.rejects(c.activate('b'),/unreadable/);
+ assert.equal(commits,0);assert.equal(rows.get('b').shelved,true);
+ assert.equal(state.activeId,empty?null:'a');assert.equal(port.current?.id??null,empty?null:'a');
+ if(!empty){assert.match(port.current.markdown,/final$/);assert.equal(rows.get('a').title,'owned name')}
+ assert.equal(state.documents.find(d=>d.id==='b').shelved,true);
+ api.read=original;await c.activate('b');assert.equal(state.activeId,'b');assert.equal(rows.get('b').shelved,false);
+});

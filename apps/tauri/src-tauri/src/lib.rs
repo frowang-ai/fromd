@@ -1,3 +1,4 @@
+use frowd_documents::filename::suggested_name;
 mod document_links;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
@@ -151,36 +152,6 @@ async fn open_document(app: tauri::AppHandle) -> Result<FileResult, String> {
     })
     .await
     .map_err(|e| e.to_string())?
-}
-fn suggested_name(title: &str) -> String {
-    let mut name: String = title
-        .chars()
-        .map(|c| {
-            if c.is_control() || "<>:\"/\\|?*".contains(c) {
-                '_'
-            } else {
-                c
-            }
-        })
-        .take(120)
-        .collect();
-    name = name.trim().trim_end_matches(['.', ' ']).to_owned();
-    if name.is_empty() {
-        name = "未命名笔记".into();
-    }
-    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
-    if [
-        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
-    ]
-    .contains(&stem.as_str())
-    {
-        name.insert(0, '_');
-    }
-    if !name.to_ascii_lowercase().ends_with(".md") {
-        name.push_str(".md");
-    }
-    name
 }
 #[tauri::command]
 async fn save_document(
