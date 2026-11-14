@@ -6,12 +6,13 @@ Branch feat/tauri-blackboard-v1 retains the d8a855b (0.4.6) baseline and all
 
 ## Current checks (company Windows)
 
-- Root npm test: 74/74. These are existing Node domain tests, not Tauri runtime.
-- npm run test:tauri: 29/29.
-- npm run test:tauri:browser: 24/24. Actual Vue/CM UI, Edge 157 / Playwright 1.63.0,
+- Root npm test: previous bc4ba9f result 74/74, not repeated for this app-only fix.
+  These existing Node domain tests do not establish Tauri runtime behavior.
+- Tauri Node suite: 37/37 (node --test apps/tauri/tests/*.test.mjs).
+- Full Tauri browser suite: 27/27. Actual Vue/CM UI, Edge 157 / Playwright 1.63.0,
   synthetic documents and test-only in-memory native IPC. No unhandled page errors.
 - npm run tauri:web: vue-tsc and Vite production build passed.
-- Frontend dist: 128 files, 5,814,496 bytes uncompressed. This is not native package size.
+- Frontend dist: 128 files, 5,815,493 bytes uncompressed. This is not native package size.
   Large entry/diagram chunk and mixed static/dynamic import warnings remain.
 - Production output does not contain the browser host injection identifier or test query.
 - Rustfmt completed for changed Rust sources. This is parsing/formatting only.
@@ -22,6 +23,36 @@ Branch feat/tauri-blackboard-v1 retains the d8a855b (0.4.6) baseline and all
   development proceeds and native verification moves to the local node.
 - No real notes/profiles/clipboard, user installers, public releases, extra agents,
   security policy changes, Windows/Paseo restart or real-data migration.
+
+## Search stability follow-up after bc4ba9f
+
+Four new assertions failed before the fix: Q2 kept before/after Q1 timeout remained
+searching=true; a side-effecting read refreshed the current file in the host while
+the editor retained old text; a different target's refreshed revision was stale.
+
+The search deadline now ends the latest valid query and drops queued work. The
+uncancellable native request retains its single slot, and new queries immediately
+show a finite error until it settles. No fake cancellation or accumulating invokes.
+Expired results stay discarded; there is no automatic queued restart. After
+settlement, the error-only retry button explicitly runs the current query again.
+If the native invoke never settles, search remains unavailable with an error;
+it does not claim to recover or keep spinning. Empty/oversize query states remain finite.
+
+After read/check_external, target metadata is adopted before checking an old hit.
+A refreshed current file first adopts its authoritative body/revision and drops
+the old editor session/history; a missing hit is reported only after reconciliation.
+A different target's missing hit leaves active owner/input/name/selection and its
+shelved state intact. Dirty current-file input follows the domain conflict rules.
+A retained hit also uses the refreshed revision, and the next edit saves correctly.
+
+Eight new Node cases cover those orderings, empty/oversize cancellation, current
+hit/miss refresh, late owner events, another target and dirty local-file conflicts.
+Three new Edge cases use an actual 8-second deadline and a synthetic side-effecting
+read host; current external hit/miss refresh also checks real CM undo isolation and
+the next saved revision. The mock's revision validation now matches the Store rule.
+The initial browser version assertion was corrected to await the actual file save,
+rather than observing the pre-save row. Final full Node/browser suites pass.
+No Rust or physical external-file lifecycle validation is inferred from the mock.
 
 ## Review fixes, reproduced before implementation
 
@@ -65,7 +96,7 @@ viewport docId-bound naming; narrow drawer; save/delete/cancel and close handsha
 SQLite is the only persistence authority. No SoloMD localStorage drafts, AI/sync,
 telemetry, MCP sidecar or updater starts. Wildcard asset access remains disabled.
 
-The 24 browser cases also cover byte-preserving mode changes, duplicate outline
+The 27 browser cases also cover byte-preserving mode changes, duplicate outline
 headings, close failure/retry, captured final input and per-doc history, floating
 rename, synthetic IME ownership, empty desktop/expand-all, file-backed title/removal,
 same-title undo, one-way collapse/direct restore and candidate formatting shortcuts.
@@ -74,7 +105,8 @@ Mock IPC cannot prove native file writes/dialogs, Rust transactions or restart.
 ## Actual browser screenshots
 
 Task output/tauri-browser-evidence contains workspace.png, floating-name-scrolled.png,
-narrow-workspace.png, collapse-frame.png, full-text-search.png and tab-reorder.png.
+narrow-workspace.png, collapse-frame.png, full-text-search.png, tab-reorder.png, search-timeout-retry.png and
+external-current-search-refresh.png.
 All show the actual Vue/CM implementation with synthetic data and the mock-IPC badge;
 the parent's HTML prototype is not runtime evidence.
 
@@ -93,5 +125,6 @@ data is the current image boundary; print CSS merely excludes the name dock/chro
 Android SDK/NDK/JDK/device and iOS Mac/Xcode validation remain open. No four-platform
 completion is claimed.
 
-GitHub's current bounded company access failed to connect to github.com:443 after
-21 seconds. A verified prerequisite bundle and concise evidence ZIP are the fallback.
+The parent pushed bc4ba9f and created Draft PR #13 against feat/page-navigation.
+This follow-up stays on the same task branch and does not create a new PR.
+The current push or verified-bundle transport result is recorded in the task output report.

@@ -21,14 +21,17 @@ export function matchDocument(doc,markdown,query){
  */
 export class DocumentSearch {
  constructor(api,state,live,{timeoutMs=8000}={}){
-  this.api=api;this.state=state;this.live=live;this.timeoutMs=timeoutMs;this.version=0;this.flight=null;this.queued=null;
+  this.api=api;this.state=state;this.live=live;this.timeoutMs=timeoutMs;this.version=0;this.flight=null;this.queued=null;this.requested=null;
   Object.assign(state,{searchResults:[],searchError:'',searching:false});
  }
  request(raw){
+  if(this.disposed)return;
   const query=raw.trim(),version=++this.version;
-  this.queued=null;Object.assign(this.state,{searchResults:[],searchError:'',searching:false});
+  this.queued=null;this.requested=null;Object.assign(this.state,{searchResults:[],searchError:'',searching:false});
   if(!query)return;
   if([...query].length>256){this.state.searchError='搜索词最多 256 个字符。';return}
+  this.requested={query,version};
+  if(this.flight?.expired){this.state.searchError='上次搜索尚未结束，请等待后重试。';return}
   this.queued={query,version};this.state.searching=true;
   this.pump();
  }
@@ -37,7 +40,16 @@ export class DocumentSearch {
   const {query,version}=this.queued;this.queued=null;
   const flight={expired:false};this.flight=flight;
   const current=()=>!this.disposed&&version===this.version;
-  const timer=setTimeout(()=>{flight.expired=true;if(current()){this.state.searching=false;this.state.searchError='搜索超时，请稍后重新搜索。'}},this.timeoutMs);
+  const timer=setTimeout(()=>{
+   flight.expired=true;
+   // invoke cannot be cancelled: keep its slot, but terminate every waiting query.
+   // Never silently restart queued work or accumulate a second hung native call.
+   this.queued=null;
+   if(!this.disposed&&this.requested?.version===this.version){
+    this.state.searching=false;this.state.searchError='搜索超时，上次请求尚未结束。请等待后重试。';
+   }
+  },this.timeoutMs);
+  flight.timer=timer;
   Promise.resolve().then(()=>this.api.search(query)).then(async results=>{
    if(!current()||flight.expired)return;
    // Capture the latest editor content after IPC, including unacknowledged input.
@@ -50,5 +62,5 @@ export class DocumentSearch {
   }).catch(error=>{if(current()&&!flight.expired)this.state.searchError=String(error?.message??error)})
    .finally(()=>{clearTimeout(timer);this.flight=null;if(current())this.state.searching=false;this.pump()});
  }
- dispose(){this.disposed=true;this.version++;this.queued=null}
+ dispose(){this.disposed=true;this.version++;this.queued=null;this.requested=null;clearTimeout(this.flight?.timer)}
 }

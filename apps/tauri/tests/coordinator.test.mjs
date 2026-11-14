@@ -97,3 +97,55 @@ test('search selection revalidates neutral location before activation; removed m
  await c.activate('b',{needle:'b'});assert.equal(revealed.line,1);assert.equal(revealed.column,2);
  await assert.rejects(c.activate('a',{needle:'gone'}),/重新搜索/);assert.equal(state.activeId,'b');assert.equal(port.current.id,'b');
 });
+
+// This host models read/check_external side effects; it does not perform native file IO.
+function externalRead(f){
+ const pending=new Map(),read=f.api.read,update=f.api.update;
+ f.api.read=async id=>{
+  const doc=f.rows.get(id);
+  if(doc.path&&pending.has(id)){
+   if(doc.dirty)doc.conflict=true;
+   else {Object.assign(doc,{markdown:pending.get(id),revision:doc.revision+1,preview:pending.get(id),dirty:false});pending.delete(id)}
+  }
+  return read(id);
+ };
+ f.api.update=async(id,body,revision)=>{
+  if(revision!==f.rows.get(id).revision+1)throw Error('revision conflict');
+  const result=await update(id,body,revision);f.rows.get(id).dirty=true;return result;
+ };
+ return pending;
+}
+for(const needleStillPresent of [false,true])test('current file read side effect reconciles revision/body/history before search validation (hit='+needleStillPresent+')',async()=>{
+ const f=fixture();Object.assign(f.rows.get('a'),{path:'/synthetic/file.md',markdown:'old needle',dirty:false});
+ const external=externalRead(f);await f.c.boot();f.port.current.state={history:'old editor'};const old=f.c.capture();
+ const body=needleStillPresent?'new external needle':'new external content';external.set('a',body);
+ let reveal;f.port.revealMatch=async loc=>reveal=loc;
+ if(needleStillPresent)await f.c.activate('a',{needle:'needle'});
+ else await assert.rejects(f.c.activate('a',{needle:'needle'}),/重新搜索/);
+ assert.equal(f.state.activeId,'a');assert.equal(f.port.current.id,'a');
+ assert.equal(f.state.markdown,body);assert.equal(f.port.current.markdown,body);
+ assert.equal(f.state.documents.find(d=>d.id==='a').revision,1);assert.equal(f.c.buffers.get('a').revision,1);
+ assert.notEqual(f.port.current.state,old.state);assert.notEqual(f.port.current.session,old);
+ f.c.changed({...old,markdown:'LATE OLD BODY'});assert.equal(f.state.markdown,body);
+ if(needleStillPresent)assert.equal(reveal.column,13);
+ f.port.current.markdown+=' new local input';await f.c.flush();
+ assert.equal(f.rows.get('a').revision,2);assert.equal(f.rows.get('a').markdown,body+' new local input');
+ await f.c.activate('b');await f.c.activate('a');assert.equal(f.port.current.markdown,body+' new local input');
+});
+test('stale result for a different externally updated file preserves active draft input/name/selection and target shelf',async()=>{
+ const f=fixture();Object.assign(f.rows.get('b'),{path:'/synthetic/other.md',markdown:'old needle',dirty:false,shelved:true});
+ const external=externalRead(f);await f.c.boot();const owner=f.port.current;
+ owner.markdown+=' unnotified input';owner.viewState.sourceSelection={start:2,end:4};f.c.nameChanged('a','own draft name');
+ external.set('b','external without match');
+ await assert.rejects(f.c.activate('b',{needle:'needle'}),/重新搜索/);
+ assert.equal(f.state.activeId,'a');assert.equal(f.port.current,owner);assert.match(f.rows.get('a').markdown,/unnotified input$/);
+ assert.equal(f.rows.get('a').title,'own draft name');assert.deepEqual(owner.viewState.sourceSelection,{start:2,end:4});
+ assert.equal(f.rows.get('b').shelved,true);assert.equal(f.state.documents.find(d=>d.id==='b').revision,1);
+});
+test('current dirty file keeps the flushed last input when external read reports a conflict',async()=>{
+ const f=fixture();Object.assign(f.rows.get('a'),{path:'/synthetic/file.md',markdown:'old needle',dirty:false});
+ const external=externalRead(f);await f.c.boot();f.port.current.markdown+=' local last input';external.set('a','external without match');
+ await f.c.activate('a',{needle:'needle'});
+ assert.equal(f.port.current.markdown,'old needle local last input');
+ assert.equal(f.rows.get('a').markdown,'old needle local last input');assert.equal(f.state.documents.find(d=>d.id==='a').conflict,true);
+});

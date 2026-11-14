@@ -39,3 +39,35 @@ test('current search errors clear results and oversize/empty queries issue no IP
  s.request('');assert.equal(state.searchError,'');s.request('valid');await tick();
  assert.match(state.searchError,/unavailable/);assert.deepEqual(state.searchResults,[]);s.dispose();
 });
+
+for(const queuedBeforeTimeout of [true,false])test('kept Q2 terminates when uncancellable Q1 hangs (queuedBeforeTimeout='+queuedBeforeTimeout+')',async()=>{
+ const state={},gate=deferred(),calls=[];
+ const s=new DocumentSearch({search:q=>{calls.push(q);return q==='Q1'?gate.promise:Promise.resolve([matchDocument(b,'Q2','Q2')])}},state,async()=>({doc:null,documents:[b]}),{timeoutMs:15});
+ try {
+  s.request('Q1');await tick();
+  if(queuedBeforeTimeout)s.request('Q2');
+  await new Promise(r=>setTimeout(r,35));
+  if(!queuedBeforeTimeout)s.request('Q2');
+  assert.equal(state.searching,false);assert.match(state.searchError,/超时|重试/);
+  assert.deepEqual(calls,['Q1']);assert.deepEqual(state.searchResults,[]);
+  s.request('Q3');assert.equal(state.searching,false);assert.match(state.searchError,/重试/);
+  assert.deepEqual(calls,['Q1']);
+  gate.resolve([matchDocument(b,'Q1','Q1')]);await tick();await tick();
+  assert.equal(state.searching,false);assert.deepEqual(state.searchResults,[]);assert.deepEqual(calls,['Q1']);
+  // No queued request silently restarts. Explicit retry becomes usable on settlement.
+  s.request('Q2');await tick();assert.deepEqual(calls,['Q1','Q2']);
+  assert.equal(state.searching,false);assert.equal(state.searchError,'');assert.equal(state.searchResults[0].id,'b');
+ } finally {s.dispose();gate.resolve([])}
+});
+
+for(const invalid of ['', 'a'.repeat(257)])test('superseding a queued query with '+(invalid?'oversize':'empty')+' input retains a finite state across timeout',async()=>{
+ const state={},gate=deferred();let calls=0;
+ const s=new DocumentSearch({search:()=>{calls++;return gate.promise}},state,async()=>({doc:null,documents:[]}),{timeoutMs:15});
+ try {
+  s.request('Q1');await tick();s.request('Q2');s.request(invalid);
+  await new Promise(r=>setTimeout(r,35));assert.equal(state.searching,false);
+  if(invalid)assert.match(state.searchError,/256/);else assert.equal(state.searchError,'');
+  gate.reject(Error('late error'));await tick();assert.equal(state.searching,false);assert.equal(calls,1);
+  if(invalid)assert.match(state.searchError,/256/);else assert.equal(state.searchError,'');
+ } finally{s.dispose();gate.resolve([])}
+});

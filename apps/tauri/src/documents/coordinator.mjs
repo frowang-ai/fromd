@@ -163,11 +163,20 @@ export class DocumentCoordinator {
       await this.flush();
       // Reading can fail without changing activeId or expanding a shelved target.
       const read=await this.api.read(id);
+      // read/check_external can commit a new clean file body and revision. Adopt
+      // that authority even if an old search hit is no longer present.
+      const previous=this.buffers.get(id);
+      const refreshed=previous&&(previous.persisted!==read.markdown||previous.revision!==read.revision);
+      if(refreshed)this.sessions.delete(id);
+      const {markdown,...metadata}=read;
+      this.state.documents=this.state.documents.map(doc=>doc.id===id?{...doc,...metadata}:doc);
+      const refreshedCurrent=id===this.state.activeId&&refreshed;
+      if(refreshedCurrent)await this.loadActive(read);
       const match=location?findText(read.markdown,location.needle):null;
       if(location&&!match)throw Error('内容已变化，请重新搜索。');
       const snapshot=await this.api.activate(id);
       this.metadata(snapshot, true);
-      await this.loadActive(read);
+      if(!refreshedCurrent)await this.loadActive(read);
       if(match)await this.port.revealMatch?.(match);
     });
   }

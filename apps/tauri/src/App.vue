@@ -30,6 +30,7 @@
           <input v-model="query" type="search" class="page-search" aria-label="搜索全部页面" placeholder="搜索名称或正文" maxlength="512" />
           <section v-if="query.trim()" class="search-results" aria-label="全文搜索结果" aria-live="polite">
             <p class="search-status">{{ state.searchError || (state.searching ? '搜索中…' : '匹配 ' + state.searchResults.length + ' 个页面（最多 100）') }}</p>
+            <button v-if="state.searchError" class="search-retry" :disabled="state.busy" @click="search.request(query)">重试搜索</button>
             <button v-for="result in state.searchResults" :key="result.id" class="search-result" :data-result-id="result.id" :disabled="state.busy" @click="selectResult(result)">
               <span>{{ result.title }}<small v-if="result.shelved"> · 已收起</small></span><small>{{ result.snippet }}</small>
             </button>

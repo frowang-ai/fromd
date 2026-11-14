@@ -7,7 +7,7 @@ export function installMockHost(options = {}) {
  {id:'c',title:'阅读摘录',markdown:'收起页合成内容',shelved:true}
  ]).map((d,position)=>[d.id,{path:null,revision:0,position,dirty:false,conflict:false,viewState:null,...d,savedText:d.path?d.markdown:'',preview:d.markdown.slice(0,1200)}]));
  let activeId=options.activeId??'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
- const h={rows,calls:[],holds:new Set(),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
+ const h={rows,externalTexts:new Map(),calls:[],holds:new Set(),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
  const snapshot=()=>({documents:[...rows.values()].sort((a,b)=>a.position-b.position).map(({markdown,savedText,...d})=>({...d,dirty:markdown!==savedText})),activeId,layoutRevision,undoRemoval:removed?.doc.title??null});
  h.release=command=>{h.holds.delete(command);h.gates.get(command)?.();h.gates.delete(command)};
  h.onClose=fn=>{callbacks.push(fn);return()=>callbacks=callbacks.filter(c=>c!==fn)};
@@ -37,11 +37,19 @@ export function installMockHost(options = {}) {
     layoutRevision++;return snapshot();
    }
    case 'list_metadata':return snapshot();
-   case 'read_document':if(!doc)throw Error('page removed');return {...doc,dirty:doc.markdown!==doc.savedText};
+   case 'read_document':{
+    if(!doc)throw Error('page removed');
+    // Synthetic check_external: refresh a clean file on read, retain dirty local edits.
+    if(doc.path&&h.externalTexts.has(doc.id)){
+     if(doc.markdown!==doc.savedText)doc.conflict=true;
+     else {doc.markdown=h.externalTexts.get(doc.id);doc.savedText=doc.markdown;doc.preview=doc.markdown.slice(0,1200);doc.revision++;h.externalTexts.delete(doc.id)}
+    }
+    return {...doc,dirty:doc.markdown!==doc.savedText};
+   }
    case 'create_document':{
     const id='new-'+counter++;rows.set(id,{id,title:args.title,path:null,markdown:args.markdown,revision:0,position:rows.size,shelved:false,viewState:null,savedText:'',conflict:false,preview:''});activeId=id;layoutRevision++;return snapshot();
    }
-   case 'update_document':if(!doc)throw Error('page removed');if(args.revision<doc.revision||args.revision===doc.revision&&args.markdown!==doc.markdown)throw Error('revision conflict');Object.assign(doc,{markdown:args.markdown,revision:args.revision,preview:args.markdown.slice(0,1200)});return snapshot();
+   case 'update_document':if(!doc)throw Error('page removed');if(args.revision<doc.revision||args.revision>doc.revision+1||args.revision===doc.revision&&args.markdown!==doc.markdown)throw Error('revision conflict');Object.assign(doc,{markdown:args.markdown,revision:args.revision,preview:args.markdown.slice(0,1200)});return snapshot();
    case 'rename_document':if(!doc||doc.path)throw Error('file name locked');doc.title=args.title.trim()||'未命名笔记';return snapshot();
    case 'set_view_state':if(!doc)throw Error('page removed');doc.viewState=args.viewState;return snapshot();
    case 'activate_document':if(!doc)throw Error('page removed');doc.shelved=false;activeId=doc.id;layoutRevision++;return snapshot();

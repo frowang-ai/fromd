@@ -106,6 +106,9 @@ Local native acceptance checklist (still pending):
 - Late input and Chinese IME survive switch/reorder/normal close; restart restores
   docId/title/body/order/shelf/active page and view state from SQLite.
 - Full-text search finds drafts/shelves/latest input and reveals the selected text.
+  On the current clean synthetic file, make an external edit then click an old search
+  result, with/without the needle remaining. Confirm new body/revision, old-history
+  invalidation and successful next save; verify dirty local input remains intact.
   Drag ordering retains shelved slots, current page and history.
 - Record native environment, startup errors, screenshots and binary bytes separately
   from browser evidence. Native package size is not the frontend dist size.
@@ -117,10 +120,17 @@ at 256 query characters and 100 matching pages. Each page shows its first body h
 or a title match. It reads SQLite drafts without disk scans or implicit activation;
 the current live editor text supersedes its persisted search hit. A single pending
 IPC request coalesces rapid queries, rejects stale replies and reports an 8-second
-timeout. Late timed-out results cannot repopulate the list.
+timeout. Once an uncancellable request times out, queued queries are discarded and
+new queries end immediately with a finite error. No extra hanging invokes accumulate.
+Late results are discarded; after the old request settles, use the search error
+retry button to explicitly run the current query again.
 
 Search locations are editor-neutral line/Unicode-character data, recomputed against
-the loaded body before selection. They are not added to the document schema.
+the loaded body before selection. A read that refreshes a clean current file first
+adopts its new body/revision and invalidates old editor history, even when the old
+hit has disappeared. A different target never replaces the active draft on a miss;
+dirty local file input remains protected by the Store conflict rules. These
+locations are not added to the document schema.
 Tab drag reorders visible slots using layoutRevision; shelved slots and current
 page remain in place. Rejected stale drags refresh authoritative metadata.
 

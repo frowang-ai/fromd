@@ -300,3 +300,43 @@ test('tab drop waits for title IME completion before freezing and persisting reo
  await expect(page.locator('.tab-title')).toHaveText(['第三页','排序中文名','公式推导']);
  expect((await stored(page)).title).toBe('排序中文名');
 });
+
+test('queued search timeout ends Q2, rejects retries while invoke hangs, then allows explicit retry',async({page})=>{
+ await boot(page);await page.evaluate(()=>window.__FROWD_TEST_HOST__.holds.add('search_documents'));
+ const search=page.getByRole('searchbox',{name:'搜索全部页面'});await search.fill('Q1');
+ await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.search_documents??0)).toBe(1);
+ await search.fill('阅读');
+ await expect(page.locator('.search-status')).toContainText('超时',{timeout:10000});
+ await page.getByRole('button',{name:'重试搜索',exact:true}).click();
+ await expect(page.locator('.search-status')).toContainText('尚未结束');
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.search_documents)).toBe(1);
+ await page.screenshot({path:evidence+'search-timeout-retry.png',fullPage:true});
+ await page.evaluate(async()=>{window.__FROWD_TEST_HOST__.release('search_documents');await new Promise(r=>setTimeout(r,0))});
+ await expect(page.locator('.search-result')).toHaveCount(0);
+ await page.getByRole('button',{name:'重试搜索',exact:true}).click();
+ await expect(page.locator('.search-result')).toContainText('阅读摘录');
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.search_documents)).toBe(2);
+});
+for(const hit of [false,true])test('external current-file read refreshes body/revision/history before old search result validation (hit='+hit+')',async({page})=>{
+ const documents=[{id:'a',title:'方案讨论',path:'/synthetic/current.md',markdown:'old needle',shelved:false},{id:'b',title:'公式推导',markdown:'other page',shelved:false}];
+ await boot(page,{documents});await append(page,' old history edit');
+ await page.keyboard.press('Control+s');
+ await expect.poll(async()=>(await stored(page)).savedText).toContain('old history edit');
+ const previous=await stored(page);
+ const search=page.getByRole('searchbox',{name:'搜索全部页面'});await search.fill('needle');
+ await expect(page.locator('.search-result')).toHaveCount(1);
+ const fresh=hit?'external new needle':'external fresh content';
+ await page.evaluate(text=>window.__FROWD_TEST_HOST__.externalTexts.set('a',text),fresh);
+ await page.locator('.search-result').click();
+ await expect(page.locator('.cm-content')).toHaveText(fresh);
+ await expect(page.locator('.tab.selected')).toContainText('方案讨论');
+ expect((await stored(page)).revision).toBe(previous.revision+1);
+ if(!hit)await expect(page.getByRole('alert')).toContainText('内容已变化');
+ else await expect.poll(async()=>{const d=await stored(page);return d.viewState?.sourceSelection?.end-d.viewState?.sourceSelection?.start}).toBe(6);
+ await page.locator('.cm-content').press('Control+z');
+ await expect(page.locator('.cm-content')).toHaveText(fresh);
+ if(!hit)await page.screenshot({path:evidence+'external-current-search-refresh.png',fullPage:true});
+ await append(page,' after refresh input');
+ await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
+ const after=await stored(page);expect(after.markdown).toBe(fresh+' after refresh input');expect(after.revision).toBe(previous.revision+2);
+});
