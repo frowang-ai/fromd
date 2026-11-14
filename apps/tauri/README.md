@@ -49,6 +49,11 @@ separator widths, emphasis spelling and final newlines. The synthetic before/aft
 sample is in task output/pm-port-evidence/normalization.json. Undo back to the
 unchanged document restores its original raw source.
 
+Source mode keeps the prior rendered PM session/history while the textarea owns
+current source; returning to body applies its net edit as one history group, so
+Undo removes that source batch while preserving earlier body edits, including
+after page switches. Authoritative external refresh still invalidates old history.
+
 Rendered text search uses the source AST and actual PM text range. Syntax-only
 matches locate the containing block and retain their exact source range, with a
 hint to use View > Source. Source is still entered through that menu. Outline

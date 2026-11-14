@@ -119,3 +119,26 @@ No final native editor, full-table, unit-1 or four-platform acceptance is claime
 
 The follow-up stays on feat/tauri-blackboard-v1 and existing Draft PR #13.
 Current commit/base, transport result and artifact hashes are in the task output report.
+
+## Narrow source-history audit follow-up (00d11e6 baseline)
+
+Only new history cases plus directly related tests were run: 6/6 passed.
+The 54/15/46/74 results above remain the preceding unit's results, not reruns.
+Production implementation and dependencies are unchanged; the review inference
+that cached.pm is older than current source did not reproduce an implicit rollback.
+
+- T0 = "初始T0\\n"; body D gives T1 = "初始T0 正文D\\n"; source S gives
+  T2 = "初始T0 正文D 源码S\\n". With or without a page switch during source T2:
+  return to body remains T2 without Undo, then Undo -> T1 and Redo -> T2.
+- B independently edits/undoes/redoes B0/B1 without changing A's text or revision.
+  Stable pre-Undo checkpoints cover the delayed event/autosave window.
+- Two consecutive source edits S1/S2, one source Undo, then switch/return:
+  the body Undo/Redo applies only the net S1 batch once. A further explicit body
+  Undo can remove earlier D to reach T0; redo traverses T1 then S1, without S2.
+- Existing immediate-last-input/source-history contract and both external-read
+  refresh/history-invalidation cases also pass.
+
+The new tests use real keyboard/menu actions and read-only EditorPort/mock-row
+observations of docId, displayed/source text, revision and update ownership.
+They do not inject expected PM selection/history. Original per-page PM history is
+preserved intentionally; this is browser/mock IPC evidence, not native acceptance.
