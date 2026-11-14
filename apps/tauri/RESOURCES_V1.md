@@ -78,3 +78,37 @@ An import that registers successfully but whose body backup fails leaves its
 insertion visible/dirty for retry; it does not pretend that SQLite saved the body.
 The 512 MiB/2048-object cap counts retained/orphan files too. No sophisticated GC
 or implicit user-data cleanup is introduced.
+
+## Cross-document clipboard reuse (fa95f40 follow-up)
+
+An explicit resource paste may reuse an immutable object already registered and
+bound anywhere in the SAME profile, including retained removed-document bindings.
+This is a clipboard business operation, not an arbitrary-path permission API:
+reuse_resources(targetId, references[{reference,image}], purpose="clipboard-paste").
+The native command requires the explicit purpose; the domain validates the target,
+canonical hash/extension, registry plus an existing source binding, a confined
+regular file and matching SHA256, and raster decoding for image intent. It validates
+the whole batch before one SQLite binding transaction, creates no extra object
+files and leaves the existing docId image/reveal checks intact. A reference from
+another profile with no qualifying local object fails with a reimport instruction.
+
+The shared editor's optional host capability inspects actual PM clipboard image/
+link nodes. Its HTML parser preserves data-editor-image-src; a blob URL or per-doc
+display URL without a durable original reference is rejected. Plain Markdown uses
+the same editor parser. Source pastes inspect the proposed full Markdown AST,
+including reference-style definitions that resolve earlier labels. Only affected
+or newly resolved semantic references qualify. Code blocks/inline code, raw HTML
+source and ordinary path strings do not become ownership grants.
+
+The port prepares the paste after IME completes and editing is frozen. It then
+registers references and commits that exact PM slice/source edit as one history
+operation. State/selection/docId/generation are rechecked before insertion. Failed
+registration leaves target text and selection unchanged; timed-out or late native
+replies never insert. Reuse and file import share one bounded outstanding resource
+flight. Successful binding followed by body-backup failure keeps the visible edit
+for retry. Undo keeps bindings; remove-undo transfers them to its fresh docId.
+
+The explicit image policy remains PNG/JPEG/GIF/WebP. Auto/image import of SVG or a
+spoofed image is NOT silently downgraded to an attachment. SVG is available through
+the explicit Insert attachment entry; rejected-image errors now explain that choice.
+This is an intentional product policy, not a missing automatic fallback.

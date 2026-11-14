@@ -133,7 +133,7 @@ There is no installer, file-association registration or real-data migration.
 
 Local native acceptance checklist (still pending):
 
-- All 27 Rust domain/helper tests pass, including schema3/NULL, failed transactions,
+- All 31 Rust domain/helper tests pass, including schema3/NULL, failed transactions,
   undo retention, file BOM/EOL/conflict, search and visible-slot reorder/reopen.
 - Actual Tauri launch: new/rename/switch/shelve/expand; both minus controls; same-title
   undo prompt; nonempty draft save/delete/cancel; file removal keeps the disk original.
@@ -242,7 +242,7 @@ Use this profile only; no existing notes/migration/installer is needed. Verify:
 - Save As into two temporary directories. Open the copied Markdown in a new
   isolated profile and confirm its relative raster works. Check identical resource
   reuse, different-content collision refusal and no original-file deletion.
-- Run the 14 new Rust asset tests (27 total domain/helper tests): batch validation,
+- Run the 18 Rust asset tests (31 total domain/helper tests): batch validation,
   registration/commit rollback, retained quotas/undo ownership, additive schema3
   migration, canonical/junction bounds, raster decoding, export conflict/self-alias,
   BOM/EOL and accurate post-write DB-failure reporting.
@@ -251,3 +251,13 @@ Use this profile only; no existing notes/migration/installer is needed. Verify:
   establish none of these native checks.
 - Record native binary bytes separately; company frontend dist bytes are not the
   native executable size. PDF/Office/mobile remain outside this unit.
+
+Cross-document clipboard follow-up: actual PM HTML slices and source Markdown
+resource references reuse already registered immutable objects via explicit
+clipboard-paste IPC before insertion. Copying between pathless pages preserves
+image/link ownership, Undo/Redo and remove-undo without duplicate files. Code/
+ordinary strings do not grant ownership; unknown or temporary display references
+fail without changing the target selection/text. Source reference definitions are
+handled too. See RESOURCES_V1.md for the exact source qualification and SVG policy.
+For local targeted native checks:
+cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked clipboard_reuse

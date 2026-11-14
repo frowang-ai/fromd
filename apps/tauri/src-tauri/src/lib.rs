@@ -301,6 +301,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             resource_host::import_resources,
             resource_host::choose_resources,
+            resource_host::reuse_resources,
             list_metadata,
             search_documents,
             read_document,

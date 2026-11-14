@@ -30,6 +30,7 @@ import { describeWritingDocument, installWritingClipboard } from './writingClipb
 import { logWritingEvent } from './writingDiagnostics.js'
 import { installWritingLinks } from './writingLinks.js'
 import { configureWritingTables } from './writingTableSelection.js'
+import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
 import { markdownRange } from './writingMarkdownLocation.js'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
@@ -38,7 +39,7 @@ import './writingLists.css'
 import './writingTextStyles.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change', 'resource-files'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -138,8 +139,26 @@ function insertResources(items) {
   v.dispatch(closeHistory(v.state.tr).replaceSelection(new Slice(Fragment.fromArray(nodes),0,0)).scrollIntoView())
   v.dispatch(closeHistory(v.state.tr))
 }
+function resourceMarkdownReferences(markdown,range,before) {
+  const remark=editor.editor.ctx.get(core.remarkCtx),tree=remark.parse(markdown)
+  return before===undefined?markdownResources(tree,range):markdownPasteResources(remark.parse(before),tree,range)
+}
+function prepareResourcePaste(payload) {
+  if (!created || !activeSession) throw Error('编辑会话不可用。')
+  if (payload.error) throw Error(payload.error)
+  const v=view(),literal=v.state.selection.$from.parent.type.spec.code || v.state.selection.$from.marks().some(mark=>mark.type.spec.code)
+  return {state:v.state,slice:payload.slice,text:payload.text,literal,references:literal?[]:sliceResources(payload.slice)}
+}
+function commitResourcePaste(prepared) {
+  const v=view()
+  if(v.state!==prepared.state)throw Error('正文或选区已变化，请重新粘贴。')
+  let tr=closeHistory(v.state.tr)
+  tr=prepared.literal?tr.insertText(prepared.text):tr.replaceSelection(prepared.slice)
+  v.dispatch(tr.scrollIntoView().setMeta('paste',true).setMeta('uiEvent','paste'))
+  v.dispatch(closeHistory(v.state.tr))
+}
 function focus() { if (created) view().focus() }
-defineExpose({ insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -229,6 +248,27 @@ onMounted(async () => {
       normalize: markdown => editor.editor.action(ctx => normalizeWritingMarkdown(markdown, text => ctx.get(core.remarkCtx).parse(text))),
     })
     if (props.resourceImport) {
+      const previousPaste=v.props.handlePaste
+      v.setProps({handlePaste(editorView,event,slice) {
+        if(!activeSession || !editorView.editable || switching)return previousPaste?.(editorView,event,slice)||false
+        const selection=editorView.state.selection
+        if(selection.$from.parent.type.spec.code || selection.$from.marks().some(mark=>mark.type.spec.code))return previousPaste?.(editorView,event,slice)||false
+        const text=event.clipboardData?.getData('text/plain')||'',html=event.clipboardData?.getData('text/html')
+        let candidate=slice,references,error
+        try {
+          // HTML uses the actual PM clipboard slice. Plain Markdown follows the
+          // same parser as the body, without changing the active editor state.
+          if(!html && /(?:\.frowd-assets\/|blob:|frowd-resource[.:])/i.test(text)){
+            const parsed=editor.editor.ctx.get(core.parserCtx)(text)
+            if(parsed)candidate=Slice.maxOpen(parsed.content)
+          }
+          references=sliceResources(candidate)
+        } catch(cause){error=cause.message}
+        if(!error&&!references?.length)return previousPaste?.(editorView,event,slice)||false
+        event.preventDefault()
+        emit('resource-paste',{...activeSession,payload:{mode:'rendered',slice:candidate,text,error}})
+        return true
+      }})
       const handlers = v.props.handleDOMEvents || {}
       v.setProps({handleDOMEvents:{...handlers,paste(editorView,event) {
         const files = Array.from(event.clipboardData?.files || [])

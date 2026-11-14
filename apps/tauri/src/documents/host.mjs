@@ -9,6 +9,7 @@ const testHost = import.meta.env.DEV && location.hostname === '127.0.0.1' &&
 const call = (command, args = {}) => testHost ? testHost.invoke(command, args) : invoke(command, args);
 export const browserTestHost = Boolean(testHost);
 export const documentsApi = {
+  reuseResources:(id,references,purpose)=>call('reuse_resources',{id,references,purpose}),
   list: () => call('list_metadata'),
   importResources: async(id,files,kind)=>{
     const {metadata,payload}=await resourcePacket(files,kind);

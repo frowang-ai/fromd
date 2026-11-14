@@ -1,7 +1,7 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="emit('view-change')">
-   <MarkdownEditor ref="engine" link-navigation resource-import @resource-files="resourceFiles" :resolve-image="resolveImage" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
+   <MarkdownEditor ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
@@ -14,7 +14,7 @@ import {sourceOffset} from '@frowang/editor/location'
 import {resourceImageUrl} from '../documents/host.mjs'
 import {resourceMarkdown} from '../documents/resources.mjs'
 import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
-const emit=defineEmits(['change','view-change','navigation-hint','resource-files'])
+const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
 const resolveImage=src=>/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)?src:resourceImageUrl(renderDocId,src)
@@ -119,9 +119,35 @@ function resourceFiles(event){
 }
 function sourcePaste(event){
  const files=Array.from(event.clipboardData?.files||[])
- if(!files.length)return
+ if(files.length){event.preventDefault();if(owner&&!frozen.value)emit('resource-files',{...owner,files});return}
+ const text=event.clipboardData?.getData('text/plain')||''
+ if(!/(?:\.frowd-assets\/|blob:|frowd-resource[.:])/i.test(text))return
  event.preventDefault()
- if(owner&&!frozen.value)emit('resource-files',{...owner,files})
+ if(owner&&!frozen.value)emit('resource-paste',{...owner,payload:{mode:'source',text}})
+}
+function resourcePaste(event){
+ if(!owner||frozen.value||event.id!==owner.id||event.generation!==owner.generation)return
+ emit('resource-paste',{...owner,payload:event.payload})
+}
+function prepareResourcePaste(payload){
+ if(!owner||!frozen.value||payload.mode!==mode.value)throw Error('粘贴页面或模式已变化，请重试。')
+ if(mode.value==='rendered'){const prepared=engine.value.prepareResourcePaste(payload);return {owner:{...owner},mode:mode.value,prepared,references:prepared.references}}
+ const before=markdown(),range=sourceSelection(),text=payload.text
+ const next=before.slice(0,range.start)+text+before.slice(range.end)
+ const references=engine.value.resourceMarkdownReferences(next,{from:range.start,to:range.start+text.length},before)
+ return {owner:{...owner},mode:mode.value,before,range,text,next,references}
+}
+async function commitResourcePaste(prepared){
+ if(!owner||!frozen.value||prepared.owner.id!==owner.id||prepared.owner.generation!==owner.generation||prepared.mode!==mode.value)throw Error('粘贴归属已变化，请重试。')
+ if(mode.value==='rendered')engine.value.commitResourcePaste(prepared.prepared)
+ else {
+  const range=sourceSelection()
+  if(markdown()!==prepared.before||range.start!==prepared.range.start||range.end!==prepared.range.end)throw Error('正文或选区已变化，请重新粘贴。')
+  history=recordSource(history,prepared.next,range);sourceText.value=prepared.next;source.value.value=prepared.next
+  sourceRange={start:range.start+prepared.text.length,end:range.start+prepared.text.length}
+  source.value.setSelectionRange(sourceRange.start,sourceRange.end)
+  emit('change',{...owner,markdown:prepared.next})
+ }
 }
 async function insertResources(items){
  if(!owner||!frozen.value||composing)throw Error('资源插入需要已冻结的文档会话。')
@@ -146,7 +172,7 @@ function end(event){
 }
 onMounted(()=>{root.value.addEventListener('compositionstart',start);root.value.addEventListener('compositionend',end);ready().then(editable).catch(()=>{})})
 onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('compositionstart',start);root.value?.removeEventListener('compositionend',end)})
-defineExpose({insertResources,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
+defineExpose({prepareResourcePaste,commitResourcePaste,insertResources,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 </script>
 <style>
 .pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:46px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}

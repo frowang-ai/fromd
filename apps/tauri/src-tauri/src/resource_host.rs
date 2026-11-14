@@ -53,6 +53,27 @@ pub(super) async fn import_resources(
     .map_err(|e| e.to_string())?
 }
 #[tauri::command]
+pub(super) async fn reuse_resources(
+    id: String,
+    references: Vec<frowd_documents::ResourceReference>,
+    purpose: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    // This is an explicit paste operation, not a general path/asset grant.
+    if purpose != "clipboard-paste" {
+        return Err("资源复用仅允许显式粘贴，请重新导入。".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = lock(&state)?
+            .reuse_resources(&id, &references)
+            .map_err(|e| e.to_string());
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
 pub(super) async fn choose_resources(
     id: String,
     kind: String,

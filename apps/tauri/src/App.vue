@@ -77,7 +77,7 @@
 
         <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
         <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
-          <ProseMirrorPort ref="editor" v-show="current" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <ProseMirrorPort ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
         </div>
@@ -157,6 +157,8 @@ async function waitAllComposition(){
 }
 const port={
  ready:async()=>{await nextTick();await editor.value.ready()},
+ prepareResourcePaste:payload=>editor.value.prepareResourcePaste(payload),
+ commitResourcePaste:prepared=>editor.value.commitResourcePaste(prepared),
  insertResources:items=>editor.value.insertResources(items),
  capture:()=>editor.value?.capture(),
  waitComposition:waitAllComposition,
@@ -198,6 +200,7 @@ function dropTab(event,id){
 }
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
+function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
 function insertResource(event,kind='auto'){const owner=event||editor.value?.capture();if(owner)return action(()=>coordinator.importResources({id:owner.id,generation:owner.generation},event?.files||null,kind))}
 function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}
 function collapse(id){contextPage.value=null;return action(()=>coordinator.layout('shelve',id))}

@@ -520,3 +520,197 @@ fn repeated_attachment_and_image_destination_still_validates_the_image_use() {
     assert!(store.save_file(&id, Some(&out.join("note.md"))).is_err());
     assert!(!out.join("note.md").exists());
 }
+
+fn reference(item: &ResourceInfo, image: bool) -> ResourceReference {
+    ResourceReference {
+        reference: item.reference.clone(),
+        image,
+    }
+}
+#[test]
+fn clipboard_reuse_keeps_objects_without_copy_and_survives_source_removal_export_and_fresh_undo() {
+    let (dir, mut store, a) = setup();
+    let bytes = png();
+    let image = import(&mut store, &a, &bytes, "a.png", true);
+    let attachment = import(&mut store, &a, b"attachment", "a.txt", false);
+    let b = store.create("B", "target").unwrap().active_id.unwrap();
+    store
+        .reuse_resources(
+            &b,
+            &[reference(&image, true), reference(&attachment, false)],
+        )
+        .unwrap();
+    assert_eq!(
+        fs::read_dir(store.object_root().unwrap()).unwrap().count(),
+        2
+    );
+    assert_eq!(store.read_stored(&b).unwrap().revision, 0);
+    put(
+        &mut store,
+        &b,
+        &format!(
+            "![image]({})\n\n[attachment]({})",
+            image.reference, attachment.reference
+        ),
+    );
+    store.remove(&a, "discard").unwrap();
+    assert_eq!(store.resource_image(&b, &image.reference).unwrap().0, bytes);
+    let out = dir.path().join("export");
+    fs::create_dir(&out).unwrap();
+    store.save_file(&b, Some(&out.join("target.md"))).unwrap();
+    assert_eq!(fs::read(out.join(&image.reference)).unwrap(), bytes);
+    assert_eq!(
+        fs::read(out.join(&attachment.reference)).unwrap(),
+        b"attachment"
+    );
+    store.remove(&b, "discard").unwrap();
+    let restored = store.undo_remove().unwrap().active_id.unwrap();
+    assert_ne!(restored, b);
+    assert_eq!(
+        store.resource_image(&restored, &image.reference).unwrap().0,
+        bytes
+    );
+    drop(store);
+    let store = Store::open(&dir.path().join("profile"), MAX_SESSION_BYTES).unwrap();
+    assert_eq!(
+        store.resource_image(&restored, &image.reference).unwrap().0,
+        bytes
+    );
+}
+#[test]
+fn clipboard_reuse_batch_rejects_missing_wrong_extension_tamper_and_unqualified_objects_atomically()
+{
+    for scenario in ["unknown", "extension", "missing", "tamper", "unbound"] {
+        let (_dir, mut store, a) = setup();
+        let good = import(&mut store, &a, b"good", "good.txt", false);
+        let bad = import(&mut store, &a, &png(), "bad.png", true);
+        let b = store.create("B text", "target").unwrap().active_id.unwrap();
+        let mut requested = reference(&bad, true);
+        match scenario {
+            "unknown" => requested.reference = format!("{}{}.png", PREFIX, "b".repeat(64)),
+            "extension" => requested.reference = requested.reference.replace(".png", ".jpg"),
+            "missing" => fs::remove_file(
+                store
+                    .managed_attachment(&a, &bad.reference)
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap(),
+            "tamper" => fs::write(
+                store
+                    .managed_attachment(&a, &bad.reference)
+                    .unwrap()
+                    .unwrap(),
+                "tampered",
+            )
+            .unwrap(),
+            "unbound" => {
+                store
+                    .conn
+                    .execute(
+                        "DELETE FROM resource_bindings WHERE hash=?1",
+                        params![bad.id],
+                    )
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            store
+                .reuse_resources(&b, &[reference(&good, false), requested])
+                .is_err(),
+            "{}",
+            scenario
+        );
+        let count: i64 = store
+            .conn
+            .query_row(
+                "SELECT count(*) FROM resource_bindings WHERE docId=?1",
+                params![b],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(store.read_stored(&b).unwrap().markdown, "B text");
+        assert_eq!(store.read_stored(&b).unwrap().revision, 0);
+    }
+}
+#[test]
+fn clipboard_reuse_commit_failure_rolls_back_all_new_bindings() {
+    let (_dir, mut store, a) = setup();
+    let one = import(&mut store, &a, b"one", "one.txt", false);
+    let two = import(&mut store, &a, b"two", "two.txt", false);
+    let b = store.create("B", "target").unwrap().active_id.unwrap();
+    store.conn.execute_batch("PRAGMA foreign_keys=ON;CREATE TABLE reuse_parent(id INTEGER PRIMARY KEY);CREATE TABLE reuse_deferred(id INTEGER REFERENCES reuse_parent(id) DEFERRABLE INITIALLY DEFERRED);CREATE TRIGGER fail_reuse_commit AFTER INSERT ON resource_bindings BEGIN INSERT INTO reuse_deferred VALUES(42);END;").unwrap();
+    assert!(store
+        .reuse_resources(&b, &[reference(&one, false), reference(&two, false)])
+        .is_err());
+    assert_eq!(
+        store
+            .conn
+            .query_row::<i64, _, _>(
+                "SELECT count(*) FROM resource_bindings WHERE docId=?1",
+                params![b],
+                |r| r.get(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert!(store
+        .managed_attachment(&a, &one.reference)
+        .unwrap()
+        .is_some());
+    assert!(store
+        .managed_attachment(&a, &two.reference)
+        .unwrap()
+        .is_some());
+}
+#[test]
+fn clipboard_reuse_rejects_paths_and_svg_image_intent_without_silent_attachment_downgrade() {
+    let (_dir, mut store, a) = setup();
+    let svg = import(&mut store, &a, b"<svg/>", "shape.svg", false);
+    let b = store.create("B", "target").unwrap().active_id.unwrap();
+    store
+        .reuse_resources(&b, &[reference(&svg, false)])
+        .unwrap();
+    let error = store
+        .reuse_resources(&b, &[reference(&svg, true)])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("插入附件"));
+    for path in [
+        "../private.png",
+        "C:/private.png",
+        "blob:temporary",
+        ".frowd-assets/../../private",
+    ] {
+        assert!(store
+            .reuse_resources(
+                &b,
+                &[ResourceReference {
+                    reference: path.into(),
+                    image: false
+                }]
+            )
+            .is_err());
+    }
+    // File presence without registry/ownership never qualifies a foreign profile object.
+    let unregistered = format!("{}{}.txt", PREFIX, "c".repeat(64));
+    fs::write(
+        store
+            .object_root()
+            .unwrap()
+            .join(unregistered.trim_start_matches(PREFIX)),
+        "unregistered",
+    )
+    .unwrap();
+    assert!(store
+        .reuse_resources(
+            &b,
+            &[ResourceReference {
+                reference: unregistered,
+                image: false
+            }]
+        )
+        .is_err());
+}

@@ -213,19 +213,35 @@ export class DocumentCoordinator {
       }
     });
   }
+  async resourceRequest(work, timeoutMs, message) {
+    if(this.resourceFlight)throw Error('上次资源导入尚未结束，请等待后重试。');
+    let timeout;
+    const flight=Promise.resolve().then(work);
+    this.resourceFlight=flight;
+    flight.finally(()=>{if(this.resourceFlight===flight)this.resourceFlight=null}).catch(()=>{});
+    const deadline=new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error(message)),timeoutMs)});
+    try{return await Promise.race([flight,deadline])}finally{clearTimeout(timeout)}
+  }
+  pasteResources(owner,payload) {
+    return this.run(async()=>{
+      if(!owner||owner.id!==this.state.activeId||owner.generation!==this.generation)throw Error('页面已切换，本次资源未粘贴。');
+      await this.flush();
+      const prepared=await this.port.prepareResourcePaste(payload);
+      if(prepared.references.length)await this.resourceRequest(
+        ()=>this.api.reuseResources(owner.id,prepared.references,'clipboard-paste'),
+        this.resourceTimeoutMs,'资源复用超时，正文未粘贴；迟到登记保留，请稍后重试。');
+      if(owner.id!==this.state.activeId||owner.generation!==this.generation)throw Error('粘贴归属已变化，请重试。');
+      await this.port.commitResourcePaste(prepared);
+      await this.flush();
+    });
+  }
   importResources(owner, files = null, kind = 'auto') {
     return this.run(async () => {
       if(!owner||owner.id!==this.state.activeId||owner.generation!==this.generation)throw Error('页面已切换，本次资源未插入。');
-      if(this.resourceFlight)throw Error('上次资源导入尚未结束，请等待后重试。');
       await this.flush();
       const id=owner.id,generation=owner.generation;
-      let timeout;
-      const flight=Promise.resolve().then(()=>files?this.api.importResources(id,files,kind):this.api.chooseResources(id,kind));
-      this.resourceFlight=flight;
-      flight.finally(()=>{if(this.resourceFlight===flight)this.resourceFlight=null}).catch(()=>{});
-      const deadline=new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('资源导入超时，正文未插入；迟到资源只保留登记，请稍后重试。')),files?this.resourceTimeoutMs:this.pickerTimeoutMs)});
-      let result;
-      try{result=await Promise.race([flight,deadline])}finally{clearTimeout(timeout)}
+      const result=await this.resourceRequest(()=>files?this.api.importResources(id,files,kind):this.api.chooseResources(id,kind),
+        files?this.resourceTimeoutMs:this.pickerTimeoutMs,'资源导入超时，正文未插入；迟到资源只保留登记，请稍后重试。');
       if(result.cancelled)return result;
       if(id!==this.state.activeId||generation!==this.generation)throw Error('资源归属已变化，本次未插入正文。');
       await this.port.insertResources(result.resources);

@@ -22,6 +22,11 @@ pub struct ResourceInput {
     pub size: usize,
     pub image: bool,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceReference {
+    pub reference: String,
+    pub image: bool,
+}
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceInfo {
@@ -99,7 +104,7 @@ fn kind(bytes: &[u8], name: &str, required: bool) -> Result<(String, String)> {
     }
     if required {
         return Err(invalid(
-            "图片只支持真实 PNG/JPEG/GIF/WebP，不支持 SVG 或伪造格式。",
+            "图片只支持真实 PNG/JPEG/GIF/WebP；SVG 可通过“插入附件”添加，伪造或损坏图片请重新导入。",
         ));
     }
     let ext = name
@@ -247,6 +252,75 @@ impl Store {
     }
     pub fn managed_attachment(&self, id: &str, reference: &str) -> Result<Option<PathBuf>> {
         self.owned_object(id, reference)
+    }
+    /// Explicit clipboard reuse: only immutable objects already bound somewhere
+    /// in this profile qualify (retained removed-document bindings also qualify).
+    pub fn reuse_resources(&mut self, id: &str, references: &[ResourceReference]) -> Result<()> {
+        self.ensure_exists(id)?;
+        if references.is_empty() || references.len() > MAX_EXPORT {
+            return Err(invalid("一次粘贴最多复用 256 个资源。"));
+        }
+        let root = self.object_root()?;
+        let mut hashes = HashSet::new();
+        let mut requested = HashMap::<&str, bool>::new();
+        for item in references {
+            if item.reference.len() > 128 {
+                return Err(invalid("受管引用过长，请重新导入。"));
+            }
+            requested
+                .entry(&item.reference)
+                .and_modify(|image| *image |= item.image)
+                .or_insert(item.image);
+        }
+        for (reference, image) in requested {
+            let file = reference
+                .strip_prefix(PREFIX)
+                .ok_or_else(|| invalid("受管引用无效，请重新导入资源。"))?;
+            let (hash, ext) = file
+                .rsplit_once('.')
+                .ok_or_else(|| invalid("受管引用无效，请重新导入资源。"))?;
+            if hash.len() != 64
+                || !hash
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+                || !safe_ext(ext)
+                || ext != ext.to_ascii_lowercase()
+            {
+                return Err(invalid("受管引用无效，请重新导入资源。"));
+            }
+            let eligible:bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM resource_objects o JOIN resource_bindings b ON o.hash=b.hash WHERE o.hash=?1 AND o.extension=?2)",params![hash,ext],|r|r.get(0))?;
+            if !eligible {
+                return Err(invalid(
+                    "资源未在本资料目录登记或来自其他 profile，请重新导入图片或附件。",
+                ));
+            }
+            let path = root.join(file);
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|_| invalid("受管资源文件不可用，请重新导入图片或附件。"))?;
+            if metadata.file_type().is_symlink() || !fs::canonicalize(&path)?.starts_with(&root) {
+                return Err(invalid("资源越界，请重新导入。"));
+            }
+            let bytes = bounded_read(&path, MAX_ATTACHMENT_BYTES)?;
+            if hash_bytes(&bytes) != hash {
+                return Err(invalid("受管资源完整性校验失败，请重新导入。"));
+            }
+            if image {
+                let (actual, _) = kind(&bytes, "image", true)?;
+                if actual != ext {
+                    return Err(invalid("资源扩展名与图片真实格式不一致，请重新导入。"));
+                }
+            }
+            hashes.insert(hash.to_owned());
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        for hash in hashes {
+            tx.execute(
+                "INSERT OR IGNORE INTO resource_bindings(docId,hash) VALUES(?1,?2)",
+                params![id, hash],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
     pub fn import_resources(
         &mut self,

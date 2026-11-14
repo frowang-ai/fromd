@@ -195,3 +195,44 @@ output/native-resources-profile. Native custom-protocol CORS/WebView2 rendering,
 file dialogs, real system paste, physical IME, close/reopen persistence and executable
 bytes remain pending there. This stage stays Draft; PDF/Office/mobile/resize and
 final unit-1/platform acceptance are outside this result.
+
+## Cross-document resource reuse follow-up (fa95f40 baseline)
+
+First-failure browser reproduction used A's actual PM copy serializer and full
+source selection, then pasted into pathless B. Both routes persisted references
+without B bindings before the fix. Synthetic textarea paste emulates its default
+setRangeText/input only when the application leaves that event unhandled; after
+the fix the owned paste path handles it. No system clipboard or fabricated B
+binding is used.
+
+New behavior: explicit clipboard-paste IPC atomically binds verified same-profile
+objects before insertion, without copying files or relaxing image/reveal docId
+checks. PM slices and source AST image/link roles determine references. Source
+reference-style definitions are resolved; code/plain-string examples are ignored.
+Unknown resources fail as a batch with target text/selection intact. Temporary/
+per-doc image display URLs cannot enter persistent Markdown.
+
+Company verification for this follow-up:
+- 32/32 affected Node cases (reuse/resources/coordinator/handoff), including 7 new
+  reuse cases and bounded hang/late-result tests.
+- 20/20 resource browser cases (12 new reuse + existing 8 imports).
+- 3/3 directly affected existing shared paste/math/link browser cases.
+- Final vue-tsc/Vite frontend build passes; existing large-chunk warning remains.
+- rustfmt/diff checks pass; no Rust/native behavior execution is claimed.
+
+Browser coverage includes actual source and HTML copy; plain Markdown to body;
+cross-doc image/link rendering; Undo/Redo; A removal then B use; B fresh-id removal
+undo; unknown mixed batch preserving selection; code examples; blob/display URL
+rejection; delayed binding plus queued switch; source IME and close drain;
+post-insert backup failure/retry; and source definitions resolving prior labels.
+
+Four new Rust tests (31 total domain/helper tests now) are pending local execution:
+object reuse without duplication, source removal/target Save As/fresh-undo/reopen;
+unknown/extension/missing/tampered/unbound batch failure; deferred-commit rollback;
+and path rejection plus explicit SVG attachment/image-intent policy. These require
+actual local MSVC execution, file export, protocol and SQLite restart validation.
+Run the targeted tests with:
+cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked clipboard_reuse
+
+No unrelated full Electron/workbench suites were rerun. Native OS clipboard/IME,
+file dialogs/protocol and physical restart remain separate local acceptance.

@@ -897,4 +897,6 @@ pub mod search;
 
 #[path = "assets.rs"]
 mod assets;
-pub use assets::{ResourceInfo, ResourceInput, MAX_ATTACHMENT_BYTES, MAX_IMPORT_BYTES};
+pub use assets::{
+    ResourceInfo, ResourceInput, ResourceReference, MAX_ATTACHMENT_BYTES, MAX_IMPORT_BYTES,
+};

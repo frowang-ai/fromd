@@ -21,6 +21,15 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
+   case 'reuse_resources':{
+    if(!doc||args.purpose!=='clipboard-paste'||!args.references.length||args.references.length>256)throw Error('资源粘贴授权无效')
+    for(const item of args.references){
+     if(!/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(item.reference)||!h.objects.has(item.reference)||![...h.bindings.values()].some(set=>set.has(item.reference)))throw Error('资源不在本资料目录登记或不可用，请重新导入图片或附件。')
+    }
+    if(!h.bindings.has(doc.id))h.bindings.set(doc.id,new Set())
+    for(const item of args.references)h.bindings.get(doc.id).add(item.reference)
+    return
+   }
    case 'import_resources':{
     if(!doc)throw Error('page removed')
     const result=[];let offset=0
