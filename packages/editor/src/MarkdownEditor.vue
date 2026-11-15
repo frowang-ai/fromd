@@ -13,6 +13,7 @@ import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { Fragment, Slice } from '@milkdown/kit/prose/model'
+import { dropPoint } from '@milkdown/kit/prose/transform'
 import { closeHistory } from '@milkdown/kit/prose/history'
 import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
@@ -126,10 +127,15 @@ function revealMarkdown(offset, needle = '') {
   element?.scrollIntoView({ block: 'start' })
   return range.exact
 }
+function resourceDropPosition(clientX,clientY) {
+ if(!created||!activeSession)return null
+ const hit=view().posAtCoords({left:clientX,top:clientY})
+ return Number.isInteger(hit?.pos)?hit.pos:null
+}
 // Host registers immutable references first. One transaction preserves history.
-function insertResources(items) {
+function insertResources(items,position=null) {
   if (!created || !activeSession || view().composing) throw Error('资源插入时编辑会话不可用。')
-  const v = view(), {schema} = v.state, nodes = []
+ const v = view(), {schema} = v.state, nodes = []
   for (const item of items) {
     if (!/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(item.reference)) throw Error('资源引用无效。')
     if (nodes.length) nodes.push(schema.text(' '))
@@ -137,8 +143,15 @@ function insertResources(items) {
     else nodes.push(schema.text(item.name || '附件', [schema.marks.link.create({href:item.reference,title:null})]))
   }
   if (!nodes.length) return
+ const slice=new Slice(Fragment.fromArray(nodes),0,0)
+ if(position!==null){
+  if(!Number.isInteger(position)||position<0||position>v.state.doc.content.size)throw Error('拖入位置已失效，请重新拖入。')
+  const insertion=dropPoint(v.state.doc,position,slice)
+  if(insertion===null)throw Error('拖入位置不支持插入资源，请重新拖入。')
+  v.dispatch(v.state.tr.setSelection(TextSelection.near(v.state.doc.resolve(insertion),1)))
+ }
   v.dispatch(closeHistory(v.state.tr))
-  const plan=clipboard.prepare(v,{clipboardData:null},new Slice(Fragment.fromArray(nodes),0,0),{authorized:true})
+ const plan=clipboard.prepare(v,{clipboardData:null},slice,{authorized:true})
   clipboard.commit(v,plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
 }
@@ -213,7 +226,7 @@ function commitResourcePaste(prepared) {
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
-defineExpose({ findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({

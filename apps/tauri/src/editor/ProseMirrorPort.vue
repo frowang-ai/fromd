@@ -1,5 +1,5 @@
 <template>
- <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区">
+ <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="emit('view-change')">
    <MarkdownEditor ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
@@ -117,6 +117,27 @@ function resourceFiles(event){
  if(!owner||frozen.value||event.id!==owner.id||event.generation!==owner.generation)return
  emit('resource-files',{...owner,files:event.files})
 }
+function resourceDropPosition(clientX,clientY){return engine.value?.resourceDropPosition(clientX,clientY)??null}
+function droppedFiles(event){return Array.from(event.dataTransfer?.files||[])}
+function droppedDirectory(event){return Array.from(event.dataTransfer?.items||[]).some(item=>item.kind==='file'&&item.webkitGetAsEntry?.()?.isDirectory)||droppedFiles(event).some(file=>file.webkitRelativePath)
+}
+function resourceDragOver(event){
+ const files=droppedFiles(event)
+ if(!files.length)return
+ event.preventDefault()
+ if(event.dataTransfer)event.dataTransfer.dropEffect='copy'
+}
+function resourceDrop(event){
+ const files=droppedFiles(event)
+ if(!files.length)return
+ event.preventDefault();event.stopPropagation()
+ if(!owner||frozen.value){emit('navigation-hint','当前文档正忙，请等待当前操作完成后再拖入资源。');return}
+ if(droppedDirectory(event)){emit('navigation-hint','暂不支持拖入目录，请选择单个或多个文件。');return}
+ if(mode.value==='source'){emit('navigation-hint','源码模式暂不支持按坐标拖入，请切换到正文模式。');return}
+ const position=engine.value?.resourceDropPosition(event.clientX,event.clientY)
+ if(!Number.isInteger(position)){emit('navigation-hint','无法确定拖入位置，请拖到正文内容区域后重试。');return}
+ emit('resource-files',{...owner,files,dropPosition:position})
+}
 function sourcePaste(event){
  const files=Array.from(event.clipboardData?.files||[])
  if(files.length){event.preventDefault();if(owner&&!frozen.value)emit('resource-files',{...owner,files});return}
@@ -149,10 +170,10 @@ async function commitResourcePaste(prepared){
   emit('change',{...owner,markdown:prepared.next})
  }
 }
-async function insertResources(items){
+async function insertResources(items,position=null){
  if(!owner||!frozen.value||composing)throw Error('资源插入需要已冻结的文档会话。')
  const markup=resourceMarkdown(items)
- if(mode.value==='rendered')engine.value.insertResources(items)
+ if(mode.value==='rendered')engine.value.insertResources(items,position)
  else {
   const range=sourceSelection(),text=markdown()
   const next=text.slice(0,range.start)+markup+text.slice(range.end)
@@ -181,7 +202,7 @@ function end(event){
 }
 onMounted(()=>{root.value.addEventListener('compositionstart',start);root.value.addEventListener('compositionend',end);ready().then(editable).catch(()=>{})})
 onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('compositionstart',start);root.value?.removeEventListener('compositionend',end)})
-defineExpose({currentOwner,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
+defineExpose({currentOwner,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 </script>
 <style>
 .pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:46px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}

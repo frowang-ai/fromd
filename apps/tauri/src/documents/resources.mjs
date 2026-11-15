@@ -12,6 +12,7 @@ export async function resourcePacket(files,kind='auto'){
  let total=0
  const metadata=Array.from(files,file=>{
   const image=kind==='image'||kind==='auto'&&(/^image\//i.test(file.type)||/\.(png|jpe?g|gif|webp|svg)$/i.test(file.name))
+  if(image&&/\.svg$/i.test(file.name))throw Error('SVG 图片不支持直接作为图片导入，请使用“插入附件”。')
   if(!Number.isSafeInteger(file.size)||file.size<0||file.size>(image?MAX_IMAGE_BYTES:MAX_ATTACHMENT_BYTES))throw Error(image?'图片最多 10 MiB。':'附件最多 25 MiB。')
   total+=file.size
   return {name:[...file.name].slice(0,120).join(''),size:file.size,image}

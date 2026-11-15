@@ -282,7 +282,11 @@ function replaceAll(){action(async()=>{if(!findState.owner||findState.owner.canc
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
-function insertResource(event,kind='auto'){const owner=event||editor.value?.capture();if(owner)return action(()=>coordinator.importResources({id:owner.id,generation:owner.generation},event?.files||null,kind))}
+function insertResource(event,kind='auto'){
+ if(state.busy||editingLocked.value){state.error='当前文档正忙，请等待当前操作完成后再拖入资源。';return}
+ const owner=event||editor.value?.capture()
+ if(owner)return action(()=>coordinator.importResources({id:owner.id,generation:owner.generation},event?.files||null,kind,event?.dropPosition??null))
+}
 function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}
 function collapse(id){contextPage.value=null;return action(()=>coordinator.layout('shelve',id))}
 function contextLayout(name){const id=contextPage.value;return action(()=>coordinator.layout(name,id))}
