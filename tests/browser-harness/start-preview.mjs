@@ -18,9 +18,10 @@ export async function startWritingPreview({ port = 5198 } = {}) {
       s.middlewares.use(async (req, res, next) => {
         const pathname = new URL(req.url, 'http://localhost').pathname
         if (pathname === '/__notes-export/pdf') return exportPdf(req, res)
-        if (pathname !== '/' && pathname !== '/__editor') return next()
+        if (pathname !== '/' && pathname !== '/__editor' && pathname !== '/__search') return next()
+        const component = pathname === '/__search' ? 'SearchProbe' : 'ProbeWritingApp'
         res.setHeader('Content-Type', 'text/html; charset=utf-8')
-        res.end(await s.transformIndexHtml(req.url, `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>未命名笔记</title></head><body><div id="app"></div><script type="module">import {createApp} from 'vue';import App from '/tests/browser-harness/ProbeWritingApp.vue';createApp(App).mount('#app');</script></body></html>`))
+        res.end(await s.transformIndexHtml(req.url, `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>未命名笔记</title></head><body><div id="app"></div><script type="module">import {createApp} from 'vue';import App from '/tests/browser-harness/${component}.vue';createApp(App).mount('#app');</script></body></html>`))
       })
     } }],
   })

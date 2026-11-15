@@ -17,7 +17,7 @@ function shape(rect, target, p) {
     return { left: center - width / 2, right: center + width / 2, y: lerp(top, bottom, q) }
   }
 }
-function drawSheet(ctx, image, rect, target, p, viewport, dpr) {
+function drawSheet(ctx, image, rect, target, p, viewport, dpr, sheetColor) {
   const at = shape(rect, target, p), rows = Math.min(640, Math.ceil(rect.height / 1.4))
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, viewport.width, viewport.height)
@@ -28,7 +28,7 @@ function drawSheet(ctx, image, rect, target, p, viewport, dpr) {
   outline.closePath()
   ctx.save()
   ctx.shadowColor = 'rgba(43,63,44,.14)'; ctx.shadowBlur = 18 * (1 - p); ctx.shadowOffsetY = 5
-  ctx.fillStyle = '#fffefa'; ctx.fill(outline); ctx.restore()
+  ctx.fillStyle = sheetColor; ctx.fill(outline); ctx.restore()
   ctx.save(); ctx.clip(outline)
   const sourceRow = rect.height / rows, sx = image.naturalWidth / viewport.width, sy = image.naturalHeight / viewport.height
   for (let i = 0; i < rows; i++) {
@@ -78,6 +78,9 @@ export function startPageMotion({ element, anchor, header, footer, capture, reve
     media.addEventListener('change', cancel)
     try {
       const viewport = { width: innerWidth, height: innerHeight }
+      const styles = getComputedStyle(element)
+      const sheetColor = styles.getPropertyValue('--frowd-background').trim() || '#fffefa'
+      const backdropColor = styles.getPropertyValue('--frowd-surface').trim() || '#f0f3ed'
       const top = Math.max(0, Math.min(viewport.height, header.getBoundingClientRect().bottom))
       const footerTop = footer?.getBoundingClientRect().top
       const bottom = footerTop > top ? Math.min(viewport.height, footerTop - 4) : viewport.height
@@ -99,7 +102,7 @@ export function startPageMotion({ element, anchor, header, footer, capture, reve
       Object.assign(canvas.style, { position: 'fixed', inset: '0', width: `${viewport.width}px`, height: `${viewport.height}px`, zIndex: '41', pointerEvents: 'none' })
       const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable')
       backdrop = document.createElement('div'); backdrop.setAttribute('aria-hidden', 'true'); backdrop.className = 'page-flight-backdrop'
-      Object.assign(backdrop.style, { position: 'fixed', left: '0', right: '0', top: `${top}px`, bottom: `${viewport.height - bottom}px`, background: '#f0f3ed', zIndex: '40', pointerEvents: 'none' })
+      Object.assign(backdrop.style, { position: 'fixed', left: '0', right: '0', top: `${top}px`, bottom: `${viewport.height - bottom}px`, background: backdropColor, zIndex: '40', pointerEvents: 'none' })
       previousVisibility = element.style.visibility
       element.style.visibility = 'hidden'; visibilityChanged = true
       document.body.append(backdrop, canvas)
@@ -115,7 +118,7 @@ export function startPageMotion({ element, anchor, header, footer, capture, reve
             start ??= time
             const elapsed = Math.min(1, (time - start) / (reverse ? 400 : 450)), p = reverse ? 1 - elapsed : elapsed
             canvas.dataset.progress = p.toFixed(3)
-            drawSheet(ctx, image, rect, target, p, viewport, dpr)
+            drawSheet(ctx, image, rect, target, p, viewport, dpr, sheetColor)
             if (elapsed < 1) frame = requestAnimationFrame(step)
             else { controller.signal.removeEventListener('abort', abort); resolve() }
           } catch (error) { controller.signal.removeEventListener('abort', abort); reject(error) }

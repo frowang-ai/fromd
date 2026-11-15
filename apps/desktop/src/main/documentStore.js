@@ -2,6 +2,8 @@ import { readFile, open, rename, unlink, realpath, stat } from 'node:fs/promises
 import { dirname, basename, resolve, join } from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { RecoveryDatabase } from './recoveryDatabase.js'
+import { searchDocumentText } from './documentSearch.js'
+import { importImages, readDocumentImage, copyDocumentImages } from './imageAssets.js'
 
 const MAX_BYTES = 10 * 1024 * 1024
 const MAX_SESSION_BYTES = 100 * 1024 * 1024
@@ -102,7 +104,27 @@ export class DocumentStore {
     const markdown = await this.body(id)
     return { ...this.metadata(doc), markdown, warning: this.warning }
   }
+  async search(query) {
+    if (typeof query !== 'string' || query.length > 1024) throw new Error('搜索内容过长，最多支持 1024 个字符。')
+    query = query.trim()
+    if (!query) return []
+    const changes = [...this.pending].map(([id, change]) => ({
+      id, fields: { ...this.metadata(this.get(id)), ...change.fields },
+    }))
+    const results = this.recoveryWritable
+      ? await this.database.request('search', { query, changes, deletions: [...this.deleted] })
+      : changes.map(({ id, fields }) => searchDocumentText({ id, ...fields }, query)).filter(Boolean)
+    const liveIds = new Set(this.documents.map(doc => doc.id))
+    return results.filter(hit => liveIds.has(hit.id))
+  }
   snapshot() { return this.listMetadata() }
+  async importImages(id, images) {
+    this.get(id)
+    return importImages(this.directory, images)
+  }
+  async readImage(id, source) {
+    return readDocumentImage(this.directory, this.get(id), source)
+  }
   async checkExternal(doc) {
     if (!doc.path) return
     try {
@@ -269,6 +291,7 @@ export class DocumentStore {
     const normalized = markdown.replace(/\r\n?/g, '\n').replace(/\n/g, doc.eol)
     const bytes = Buffer.from((doc.bom ? '\ufeff' : '') + normalized)
     if (bytes.length > MAX_BYTES) throw new Error('保存后的文件超过 10 MB（包括换行和 BOM），请精简或拆分。原文件未修改。')
+    await copyDocumentImages(this.directory, doc, markdown, path)
     await atomicWrite(path, bytes)
     const fields = { path, title: basename(path), baseline: digest(bytes), savedHash: doc.contentHash, conflict: false }
     Object.assign(doc, fields); this.mark(doc, fields)
