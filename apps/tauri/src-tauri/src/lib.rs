@@ -1,5 +1,6 @@
 use frowd_documents::filename::suggested_name;
 mod document_links;
+mod file_import_host;
 mod resource_host;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
@@ -16,6 +17,7 @@ use tauri_plugin_dialog::DialogExt;
 
 struct AppState {
     store: Mutex<Store>,
+    file_import: Mutex<Option<frowd_documents::file_import::FileImport>>,
     closing: AtomicBool,
     close_confirmed: AtomicBool,
 }
@@ -282,6 +284,7 @@ pub fn run() {
             let store = Store::open(&profile(app)?, MAX_SESSION_BYTES)?;
             app.manage(AppState {
                 store: Mutex::new(store),
+                file_import: Mutex::new(None),
                 closing: AtomicBool::new(false),
                 close_confirmed: AtomicBool::new(false),
             });
@@ -299,6 +302,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            file_import_host::choose_document_import,
+            file_import_host::prepare_document_import_resources,
+            file_import_host::commit_document_import,
             resource_host::import_resources,
             resource_host::choose_resources,
             resource_host::reuse_resources,

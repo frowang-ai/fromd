@@ -272,3 +272,9 @@ The actual editor stays readonly/inert through native waits and insertion. No
 plugin reorder or vendor clipping/insertCells copy is used.
 Focused regression: resource-cell-paste.browser.spec.mjs and paste-route.test.mjs.
 Native checks remain pending; see VALIDATION_V1.md for exact company results.
+
+UTF-8 TXT / HTML import is available from File > 导入 TXT / HTML… and creates a
+pathless draft without modifying or associating the original source. HTML uses
+inert shared conversion and scoped local resources, with an explicit per-page
+conversion report. Exact rules, limits, failure boundaries and isolated native
+steps are in [FILE_IMPORT_V1.md](FILE_IMPORT_V1.md). Native execution remains pending.

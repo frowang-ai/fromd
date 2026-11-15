@@ -6,6 +6,7 @@
         <details ref="fileMenu"><summary>文件</summary><div class="menu-popup">
           <button @click="action(() => coordinator.create())">新建页面 <kbd>Ctrl+N</kbd></button>
           <button @click="action(() => coordinator.open())">打开… <kbd>Ctrl+O</kbd></button>
+          <button :disabled="state.busy || !state.loaded" @click="action(() => coordinator.importFile())">导入 TXT / HTML…</button>
           <button :disabled="!current" @click="action(() => coordinator.save())">保存 <kbd>Ctrl+S</kbd></button>
           <button :disabled="!current" @click="action(() => coordinator.save(state.activeId, true))">另存为… <kbd>Ctrl+Shift+S</kbd></button>
           <button :disabled="!current || state.busy" @click="insertResource(null, 'image')">插入图片…</button>
@@ -76,6 +77,7 @@
         </div>
 
         <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
+        <div v-if="state.importReport?.id === state.activeId" class="error-notice import-report" role="status" aria-label="导入说明"><span>{{ state.importReport.text }}</span><button aria-label="关闭导入说明" @click="state.importReport = null">×</button></div>
         <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
           <ProseMirrorPort ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
@@ -156,6 +158,7 @@ async function waitAllComposition(){
  await editor.value?.waitComposition()
 }
 const port={
+ prepareFileImport:source=>editor.value.prepareFileImport(source),
  ready:async()=>{await nextTick();await editor.value.ready()},
  prepareResourcePaste:payload=>editor.value.prepareResourcePaste(payload),
  commitResourcePaste:prepared=>editor.value.commitResourcePaste(prepared),

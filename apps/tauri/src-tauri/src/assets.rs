@@ -114,7 +114,7 @@ fn kind(bytes: &[u8], name: &str, required: bool) -> Result<(String, String)> {
         .unwrap_or_else(|| "bin".into());
     Ok((ext, "application/octet-stream".into()))
 }
-fn bounded_read(path: &Path, max: usize) -> Result<Vec<u8>> {
+pub(super) fn bounded_read(path: &Path, max: usize) -> Result<Vec<u8>> {
     let info = fs::metadata(path)?;
     if !info.is_file() || info.len() > max as u64 {
         return Err(invalid("资源不是普通文件或超过单文件上限。"));
@@ -136,7 +136,7 @@ fn budget(bytes: u64, count: usize) -> Result<()> {
     }
     Ok(())
 }
-fn relative(reference: &str) -> Result<PathBuf> {
+pub(super) fn relative(reference: &str) -> Result<PathBuf> {
     if reference.len() > 4096 || reference.chars().any(|c| c.is_control()) {
         return Err(invalid("资源引用无效。"));
     }
@@ -322,14 +322,12 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
-    pub fn import_resources(
-        &mut self,
-        id: &str,
+    fn resource_plans(
+        &self,
         inputs: &[ResourceInput],
         payload: &[u8],
-    ) -> Result<Vec<ResourceInfo>> {
-        self.ensure_exists(id)?;
-        if inputs.is_empty() || inputs.len() > 8 || payload.len() > MAX_IMPORT_BYTES {
+    ) -> Result<Vec<(ResourceInfo, usize, usize)>> {
+        if inputs.len() > 8 || payload.len() > MAX_IMPORT_BYTES {
             return Err(invalid("每批最多 8 个资源、合计 50 MiB。"));
         }
         let mut offset = 0usize;
@@ -380,6 +378,52 @@ impl Store {
         if offset != payload.len() {
             return Err(invalid("资源数据尾部长度不一致。"));
         }
+        Ok(plans)
+    }
+    pub(super) fn planned_resources(
+        &self,
+        inputs: &[ResourceInput],
+        payload: &[u8],
+    ) -> Result<Vec<ResourceInfo>> {
+        Ok(self
+            .resource_plans(inputs, payload)?
+            .into_iter()
+            .map(|(info, _, _)| info)
+            .collect())
+    }
+    pub fn import_resources(
+        &mut self,
+        id: &str,
+        inputs: &[ResourceInput],
+        payload: &[u8],
+    ) -> Result<Vec<ResourceInfo>> {
+        if inputs.is_empty() {
+            return Err(invalid("每批至少一个资源。"));
+        }
+        self.import_resource_batch(id, inputs, payload, None)
+    }
+    pub(super) fn import_resource_batch(
+        &mut self,
+        id: &str,
+        inputs: &[ResourceInput],
+        payload: &[u8],
+        draft: Option<&Stored>,
+    ) -> Result<Vec<ResourceInfo>> {
+        if draft.is_none() {
+            self.ensure_exists(id)?;
+        }
+        let plans = self.resource_plans(inputs, payload)?;
+        if plans.is_empty() {
+            let tx = self.conn.unchecked_transaction()?;
+            if let Some(doc) = draft {
+                insert(&tx, doc)?;
+                set_active(&tx, Some(id))?;
+                bump(&tx)?;
+                capacity(&tx, self.max_bytes)?;
+            }
+            tx.commit()?;
+            return Ok(vec![]);
+        }
         let root = self.object_root()?;
         let mut used = 0u64;
         let mut count = 0usize;
@@ -404,6 +448,12 @@ impl Store {
         let mut created = Vec::new();
         let result = (|| -> Result<()> {
             let tx = self.conn.unchecked_transaction()?;
+            if let Some(doc) = draft {
+                insert(&tx, doc)?;
+                set_active(&tx, Some(id))?;
+                bump(&tx)?;
+                capacity(&tx, self.max_bytes)?;
+            }
             for (info, start, end) in &plans {
                 let file = info.reference.trim_start_matches(PREFIX);
                 let path = root.join(file);

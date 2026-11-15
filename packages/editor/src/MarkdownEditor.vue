@@ -31,6 +31,7 @@ import { logWritingEvent } from './writingDiagnostics.js'
 import { installWritingLinks } from './writingLinks.js'
 import { configureWritingTables } from './writingTableSelection.js'
 import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
+import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
 import { markdownRange } from './writingMarkdownLocation.js'
 import '@milkdown/crepe/theme/common/style.css'
 import '@milkdown/crepe/theme/classic.css'
@@ -141,6 +142,11 @@ function insertResources(items) {
   clipboard.commit(v,plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
 }
+function prepareFileImport(source) {
+  if(!created)throw Error('编辑器尚未就绪。')
+  const ctx=editor.editor.ctx
+  return prepareImportedFile(source,{schema:view().state.schema,remark:ctx.get(core.remarkCtx),parse:ctx.get(core.parserCtx),serialize:ctx.get(core.serializerCtx)})
+}
 function resourceMarkdownReferences(markdown,range,before) {
   const remark=editor.editor.ctx.get(core.remarkCtx),tree=remark.parse(markdown)
   return before===undefined?markdownResources(tree,range):markdownPasteResources(remark.parse(before),tree,range)
@@ -163,7 +169,7 @@ function commitResourcePaste(prepared) {
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
-defineExpose({ resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({

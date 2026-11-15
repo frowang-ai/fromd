@@ -8,6 +8,7 @@ export function installMockHost(options = {}) {
  ]).map((d,position)=>[d.id,{path:null,revision:0,position,dirty:false,conflict:false,viewState:null,...d,savedText:d.path?d.markdown:'',preview:d.markdown.slice(0,1200)}]));
  let activeId=options.activeId??'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
  const h={rows,externalTexts:new Map(),calls:[],holds:new Set(),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
+ h.importChoice=null;h.importSources=new Map();h.pendingImport=null;
  h.objects=new Map(options.objects||[]);h.bindings=new Map((options.bindings||[]).map(([id,refs])=>[id,new Set(refs)]));h.resourceChoice=null;
  h.resourceUrl=(id,reference)=>{const object=h.objects.get(reference);return h.bindings.get(id)?.has(reference)&&object?'data:'+object.mime+';base64,'+object.base64:null};
  const snapshot=()=>({documents:[...rows.values()].sort((a,b)=>a.position-b.position).map(({markdown,savedText,...d})=>({...d,dirty:markdown!==savedText})),activeId,layoutRevision,undoRemoval:removed?.doc.title??null});
@@ -21,6 +22,39 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
+
+   case 'choose_document_import':{
+    const choice=h.importChoice;if(!choice)return {cancelled:true};
+    const bytes=new Uint8Array(choice.bytes),bom=bytes[0]===239&&bytes[1]===187&&bytes[2]===191;
+    if(bytes.length>10*1024*1024)throw Error('导入最多 10 MiB UTF-8 文本。');
+    let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{throw Error('文件不是 UTF-8 编码。请先以 UTF-8 保存再导入。')}
+    if(text.includes('\0'))throw Error('导入内容含 NUL。');
+    const source={token:'imported-'+counter++,title:choice.name.replace(/\.(txt|html?)$/i,''),kind:/\.txt$/i.test(choice.name)?'text':'html',content:text.replace(/\r\n?/g,'\n'),bom,eol:text.includes('\r\n')?'\r\n':'\n'};
+    h.pendingImport={source,assets:null};return {cancelled:false,source:structuredClone(source)};
+   }
+   case 'prepare_document_import_resources':{
+    const pending=h.pendingImport;if(!pending||pending.source.token!==args.token)throw Error('导入来源已过期');
+    pending.assets=null;if(args.references.length>8)throw Error('最多 8 个资源');
+    const assets=[];
+    for(const ref of args.references){
+     const path=decodeURIComponent(ref.reference.split(/[?#]/)[0]);
+     if(path.startsWith('/')||path.includes(':')||path.split(/[\\/]/).includes('..'))throw Error('导入资源越界');
+     const bytes=h.importSources.get(path);if(!bytes)throw Error('导入资源缺失：'+ref.reference);
+     if(ref.image&&!(bytes[0]===137&&bytes[1]===80&&bytes[2]===78&&bytes[3]===71))throw Error('图片只支持真实 PNG/JPEG/GIF/WebP');
+     const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array(bytes)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+     const ext=ref.image?'png':path.split('.').pop().replace(/[^a-z0-9]/ig,'').slice(0,8)||'bin',reference='.frowd-assets/'+hash+'.'+ext;
+     let binary='';for(const b of bytes)binary+=String.fromCharCode(b);
+     assets.push({reference,image:ref.image,name:path,base64:btoa(binary),mime:ref.image?'image/png':'application/octet-stream'});
+    }
+    pending.assets=assets;return structuredClone(assets);
+   }
+   case 'commit_document_import':{
+    if(rows.has(args.token)){if(rows.get(args.token).markdown!==args.markdown)throw Error('导入回执不一致');return snapshot()}
+    const pending=h.pendingImport;if(!pending||pending.source.token!==args.token||!pending.assets)throw Error('导入来源未准备');
+    const id=args.token;const d={id,title:pending.source.title,path:null,markdown:args.markdown,revision:0,position:rows.size,shelved:false,viewState:null,savedText:'',conflict:false,preview:args.markdown.slice(0,1200),bom:pending.source.bom,eol:pending.source.eol};
+    const refs=new Set();for(const asset of pending.assets){h.objects.set(asset.reference,asset);refs.add(asset.reference)}h.bindings.set(id,refs);
+    rows.set(id,d);activeId=id;layoutRevision++;h.pendingImport=null;if(h.importLostAck){h.importLostAck=false;throw Error('合成回执丢失')}return snapshot();
+   }
    case 'reuse_resources':{
     if(!doc||args.purpose!=='clipboard-paste'||!args.references.length||args.references.length>256)throw Error('资源粘贴授权无效')
     for(const item of args.references){

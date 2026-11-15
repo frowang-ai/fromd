@@ -9,6 +9,9 @@ const testHost = import.meta.env.DEV && location.hostname === '127.0.0.1' &&
 const call = (command, args = {}) => testHost ? testHost.invoke(command, args) : invoke(command, args);
 export const browserTestHost = Boolean(testHost);
 export const documentsApi = {
+  chooseImport:()=>call('choose_document_import'),
+  prepareImportResources:(token,references)=>call('prepare_document_import_resources',{token,references}),
+  commitImport:(token,markdown)=>call('commit_document_import',{token,markdown}),
   reuseResources:(id,references,purpose)=>call('reuse_resources',{id,references,purpose}),
   list: () => call('list_metadata'),
   importResources: async(id,files,kind)=>{

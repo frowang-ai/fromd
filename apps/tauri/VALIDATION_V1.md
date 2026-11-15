@@ -347,3 +347,16 @@ Rust is unchanged. The existing 31 domain/helper tests, SQLite/object protocol,
 native export/restart, WebView2 and physical clipboard/IME remain pending local
 execution using README's isolated synthetic profile instructions. Browser mock IPC
 and a frontend dist are not native acceptance or a native binary size measurement.
+
+## UTF-8 TXT / HTML import (84a3852 baseline)
+
+Implemented menu/coordinator/EditorPort/native picker-source/resource-stage/atomic
+commit flow. See FILE_IMPORT_V1.md for exact source rules, bounded ownership and
+limitations. Company: Node34/34 (new import10 + affected24), import browser14/14,
+existing resource browser20/20 and shared table/math/HTML/list browser4/4. Final
+vue-tsc/Vite build and rustfmt parsing pass, existing chunk warning remains.
+Browser native host is a double; no real file picker/SQLite/native restart result
+is claimed. Seven new Rust tests (38 total domain/helper) await the local node.
+They cover strict UTF-8/BOM/EOL, limits/tokens, controlled local resource ownership,
+source-independent reopen/SaveAs, missing/escape/corrupt image rejection, atomic
+DB/file rollback/capacity and idempotent confirmation after reopen.

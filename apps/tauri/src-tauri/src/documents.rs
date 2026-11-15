@@ -270,7 +270,7 @@ fn file_body(path: &Path) -> Result<(Vec<u8>, String, bool, String)> {
     if !info.is_file() || info.len() > MAX_DOCUMENT_BYTES as u64 {
         return Err(invalid("首版支持 10 MB 以内的文本文件。"));
     }
-    let bytes = fs::read(path)?;
+    let bytes = assets::bounded_read(path, MAX_DOCUMENT_BYTES)?;
     if bytes.len() > MAX_DOCUMENT_BYTES {
         return Err(invalid("文件超过 10 MB。"));
     }
@@ -900,3 +900,6 @@ mod assets;
 pub use assets::{
     ResourceInfo, ResourceInput, ResourceReference, MAX_ATTACHMENT_BYTES, MAX_IMPORT_BYTES,
 };
+
+#[path = "file_import.rs"]
+pub mod file_import;

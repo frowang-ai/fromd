@@ -18,3 +18,5 @@
 .tab{position:relative}.tab.drop-before::before,.tab.drop-after::after{content:"";position:absolute;top:4px;bottom:4px;width:2px;background:#6f977a;pointer-events:none}.tab.drop-before::before{left:-1px}.tab.drop-after::after{right:-1px}
 
 .search-retry{font-size:11px;color:#52704d;margin:0 7px 8px;padding:5px 9px;border:1px solid #d9e3d1;border-radius:4px}
+
+.import-report{position:static;flex-shrink:0;margin:8px 20px 0;max-height:25dvh;overflow:auto}

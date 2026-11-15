@@ -6,7 +6,7 @@ export class DocumentCoordinator {
     this.api = api; this.port = port; this.state = state; this.autosaveMs = autosaveMs; this.resourceTimeoutMs=resourceTimeoutMs;this.pickerTimeoutMs=pickerTimeoutMs;
     this.buffers = new Map(); this.saves = new Map(); this.names = new Map(); this.nameSaves = new Map();
     this.sessions = new Map(); this.timers = new Map(); this.tail = Promise.resolve(); this.generation = 0; this.disposed = false;
-    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', undoRemoval: null, removalSequence: 0, layoutRevision: 0 });
+    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', importReport: null, undoRemoval: null, removalSequence: 0, layoutRevision: 0 });
   }
   metadata(snapshot, selection = false) {
     this.state.documents = snapshot.documents.map(doc => {
@@ -255,6 +255,35 @@ export class DocumentCoordinator {
       const result = await this.api.save(id, saveAs);
       if (result.snapshot) this.metadata(result.snapshot);
       return result;
+    });
+  }
+  importFile() {
+    return this.run(async()=>{
+      await this.flush();
+      const result=await this.resourceRequest(()=>this.api.chooseImport(),this.pickerTimeoutMs,'文件选择/读取超时，未创建页面；请等待原请求结束后重试。');
+      if(result.cancelled)return result;
+      const source=result.source,plan=await this.port.prepareFileImport(source);
+      const resources=await this.resourceRequest(()=>this.api.prepareImportResources(source.token,plan.references),this.resourceTimeoutMs,'导入资源校验超时，未创建页面；迟到结果不会自动导入。');
+      const markdown=plan.finish(resources);
+      // Do not abandon the final atomic create: a late commit must never create
+      // a hidden page after reporting failure or allow an overlapping close.
+      let snapshot,ackWarning='';
+      try { snapshot=await this.api.commitImport(source.token,markdown); }
+      catch(error) {
+        // The source token is also the reserved docId. Reconcile an uncertain
+        // final acknowledgement rather than creating a second/hidden draft.
+        const current=await this.api.list();
+        if(!current.documents.some(doc=>doc.id===source.token))throw error;
+        const confirmed=await this.api.read(source.token);
+        if(confirmed.path!==null||confirmed.markdown!==markdown)throw Error('导入页已创建但内容不一致，请查看页面列表，勿重复导入。');
+        snapshot=current;ackWarning='导入已保存，提交回执异常已核对：'+String(error?.message??error);
+      }
+      this.metadata(snapshot,true);
+      const doc=this.current();
+      await this.loadActive({...doc,markdown});
+      const warnings=[...plan.warnings,ackWarning].filter(Boolean);
+      this.state.error='';this.state.importReport=warnings.length?{id:doc.id,text:warnings.join(' ')}:null;
+      return {cancelled:false,id:doc.id,warnings};
     });
   }
   open() {
