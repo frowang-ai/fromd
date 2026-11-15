@@ -10,11 +10,11 @@ const root = resolve(fileURLToPath(new URL('../', import.meta.url)))
 const body = page => page.getByRole('textbox', { name: 'Markdown 正文', exact: true })
 const source = page => page.locator('.document-pane:visible textarea')
 
-async function fixture() {
+async function fixture(firstMarkdown = '# A\n\nalpha alpha') {
   const directory = await mkdtemp(join(tmpdir(), 'frowd-search-')), profile = join(directory, 'profile')
   const store = new DocumentStore(profile); await store.restore()
   const first = store.activeId
-  await store.rename(first, 'A'); await store.update(first, '# A\n\nalpha alpha', 1)
+  await store.rename(first, 'A'); await store.update(first, firstMarkdown, 1)
   const second = (await store.newDocument('# B\n\n' + '长文内容。'.repeat(400) + '\n\n检索落点在这里。', 'B')).activeId
   await store.shelve(second)
   const third = (await store.newDocument('# C\n\n独立正文\n\n[普通链接](https://example.com/hidden-key)', 'C')).activeId
@@ -74,6 +74,25 @@ test('隐藏链接URL命中切到源码并选择准确范围', async () => {
     await expect(source(page)).toBeVisible(); await editorReady(page)
     await expect.poll(() => source(page).evaluate(input => input.value.slice(input.selectionStart, input.selectionEnd))).toBe('hidden-key')
     await expect(source(page)).toHaveValue(/\[普通链接\]\(https:\/\/example.com\/hidden-key\)/)
+  } finally { await cleanup(app, fixtureData.directory) }
+})
+
+test('全文搜索接管页内查找，旧查询不会恢复高亮或改写命中选区', async () => {
+  const fixtureData = await fixture('# A\n\nalpha alpha beta'); let app
+  try {
+    const launched = await launch(fixtureData.profile); app = launched.app; const page = launched.page
+    await menuCommand(page, 'find')
+    await page.getByRole('searchbox', { name: '查找正文' }).fill('alpha')
+    await expect(page.getByRole('search').getByRole('status')).toHaveText('1 / 2')
+    await searchPages(page, 'beta')
+    await expect(page.getByRole('button', { name: '打开 A', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '打开 A', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toBe('beta')
+    // Cover the old FindBar's delayed refresh after the shelf closes.
+    await page.waitForTimeout(250)
+    await expect(page.getByRole('searchbox', { name: '查找正文' })).toHaveCount(0)
+    await expect(page.locator('.writing-search-current')).toHaveText('beta')
+    expect(await page.evaluate(() => getSelection()?.toString())).toBe('beta')
   } finally { await cleanup(app, fixtureData.directory) }
 })
 
