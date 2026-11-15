@@ -142,7 +142,7 @@ const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('ren
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
 const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
 const dropTarget=ref(null),dropAfter=ref(false)
-const findState=reactive({open:false,query:'',replacement:'',count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,mode:'rendered'})
+const findState=reactive({open:false,query:'',replacement:'',count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,pending:null,mode:'rendered'})
 let findSerial=0
 let dragging=null
 let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
@@ -216,11 +216,49 @@ function dropTab(event,id){
  if(ids.every((value,i)=>value===drag.ids[i]))return
  action(()=>coordinator.reorder(ids,drag.revision))
 }
-function invalidateFindTarget(){if(findState.owner&&typeof findState.owner==='object'&&!findState.owner.pinned)findState.owner.cancelled=true;if(!findState.owner?.pinned)findState.owner=null}
-function closeFind(){findSerial++;invalidateFindTarget();findState.open=false;findState.query='';findState.replacement='';findState.count=0;findState.limited=false;findState.index=0;editor.value?.focus()}
-function currentFindTarget(query){const owner=editor.value?.currentOwner?.();return owner?{id:owner.id,generation:owner.generation,mode:owner.viewState?.mode||mode.value,query}:null}
-async function refreshFind(index=findState.index){const serial=++findSerial;invalidateFindTarget();if(!findState.open||!findState.query||!current.value){findState.count=0;findState.limited=false;return}await editor.value?.ready();const target=currentFindTarget(findState.query);if(!target)return;target.serial=serial;try{const result=await coordinator.findReplace(findState.query,index,target);if(serial!==findSerial||target.cancelled||target.id!==state.activeId)return;findState.owner=target;findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)}catch(error){if(serial===findSerial)coordinator.report(error)}}
-function openFind(){closeMenus();findState.open=true;findState.owner=null;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
+function invalidateFindTarget(){
+ const targets=[findState.pending,findState.owner].filter(target=>target&&typeof target==='object'&&!target.pinned)
+ for(const target of targets)target.cancelled=true
+ if(!findState.owner?.pinned)findState.owner=null
+ findState.pending=null
+}
+function closeFind(){
+ findSerial++
+ invalidateFindTarget()
+ findState.open=false;findState.query='';findState.replacement='';findState.count=0;findState.limited=false;findState.index=0
+ editor.value?.focus()
+}
+function currentFindTarget(query){
+ const owner=editor.value?.currentOwner?.()
+ return owner?{id:owner.id,generation:owner.generation,mode:owner.viewState?.mode||mode.value,query}:null
+}
+function findTargetLive(target){
+ const attached=findState.pending?.serial===target?.serial||findState.owner?.serial===target?.serial
+ return Boolean(target&&!target.cancelled&&target.serial===findSerial&&findState.open&&findState.query===target.query&&attached&&target.id===state.activeId)
+}
+async function refreshFind(index=findState.index){
+ const serial=++findSerial
+ invalidateFindTarget()
+ const query=findState.query
+ if(!findState.open||!query||!current.value){findState.count=0;findState.limited=false;return}
+ const target=currentFindTarget(query)
+ if(!target){findState.count=0;findState.limited=false;return}
+ target.serial=serial;target.cancelled=false;target.pinned=false
+ findState.pending=target
+ try{
+  await editor.value?.ready()
+  if(!findTargetLive(target))return
+  const result=await coordinator.findReplace(query,index,target)
+  if(!findTargetLive(target)||result.cancelled)return
+  findState.pending=null;findState.owner=target
+  findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)
+ }catch(error){
+  if(findTargetLive(target)&&!target.cancelled)coordinator.report(error)
+ }finally{
+  if(findState.pending?.serial===target.serial)findState.pending=null
+ }
+}
+function openFind(){closeMenus();findState.open=true;findState.owner=null;findState.pending=null;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
 function findInputChanged(){if(!findState.composing){findState.index=0;refreshFind(0)}else invalidateFindTarget()}
 function findCompositionEnd(){findState.composing=false;findInputChanged()}
 function findStep(direction){if(!findState.count)return;refreshFind((findState.index+direction+findState.count)%findState.count)}

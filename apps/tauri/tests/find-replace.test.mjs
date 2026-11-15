@@ -27,3 +27,40 @@ test('queued replace rejects a target whose page changed before execution', asyn
   assert.equal(rows.get('b').markdown, 'b')
   coordinator.dispose()
 })
+
+test('cancelled queued read-only find is a no-op without reporting an error', async () => {
+  const rows = new Map([
+    ['a', {id: 'a', title: 'A', path: null, markdown: 'needle a', revision: 0, shelved: false}],
+  ])
+  let releaseWait
+  const wait = new Promise(resolve => { releaseWait = resolve })
+  let executed = 0
+  const state = {}, api = {
+    list: async () => ({documents: [...rows.values()], activeId: 'a', layoutRevision: 0}),
+    read: async id => rows.get(id),
+    update: async () => ({documents: [...rows.values()], activeId: 'a', layoutRevision: 0}),
+    view: async () => ({}),
+  }
+  const port = {
+    current: null,
+    ready: async () => {},
+    waitComposition: async () => wait,
+    freeze: async () => () => {},
+    capture: () => port.current,
+    activate: async doc => { port.current = {id: doc.id, generation: doc.generation, markdown: doc.markdown, viewState: {mode: 'rendered'}} },
+    clear: () => {},
+    findReplace: async () => { executed++; return {count: 1, index: 0, limited: false, mode: 'rendered'} },
+  }
+  const coordinator = new DocumentCoordinator(api, port, state, {autosaveMs: 1})
+  await coordinator.boot()
+  const target = {id: 'a', generation: port.current.generation, mode: 'rendered', query: 'needle', cancelled: false}
+  const request = coordinator.findReplace('needle', 0, target)
+  await new Promise(resolve => setImmediate(resolve))
+  target.cancelled = true
+  releaseWait()
+  const result = await request
+  assert.equal(result.cancelled, true)
+  assert.equal(executed, 0)
+  assert.equal(state.error, '')
+  coordinator.dispose()
+})

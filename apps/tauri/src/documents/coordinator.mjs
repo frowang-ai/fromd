@@ -263,7 +263,17 @@ export class DocumentCoordinator {
     return owner;
   }
   findReplace(query, index = 0, target) {
-    return this.run(async () => { await this.port.waitComposition(); this.findTarget(target, query); const result = await this.port.findReplace(query, index); this.findTarget(target, query); return result; });
+    return this.run(async () => {
+      const cancelled = () => ({ cancelled: true, count: 0, index: -1, limited: false, mode: target?.mode ?? this.port.currentOwner?.()?.viewState?.mode ?? 'rendered' });
+      if (target?.cancelled) return cancelled();
+      await this.port.waitComposition();
+      if (target?.cancelled) return cancelled();
+      this.findTarget(target, query);
+      const result = await this.port.findReplace(query, index);
+      if (target?.cancelled) return cancelled();
+      this.findTarget(target, query);
+      return result;
+    });
   }
   replaceFind(query, replacement, index = 0, all = false, target) {
     return this.run(async () => { this.findTarget(target, query); await this.flush(); this.findTarget(target, query); const result = await this.port.replaceFind(query, replacement, index, all); this.findTarget(target, query); await this.flush(); return result; });
