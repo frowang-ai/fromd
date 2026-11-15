@@ -172,15 +172,17 @@ function findMatch(query, index = 0) {
   return { count: matches.length, limited: matches.length >= FIND_LIMIT, index: selected ? matches.indexOf(selected) : -1, match: selected }
 }
 function nextMatchIndex(matches, from) { const next = matches.findIndex(match => match.from >= from); return next < 0 ? 0 : next }
-function replacementSize(text, query, replacement, count) { if (text.length + (replacement.length - query.length) * count > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
+function utf8Bytes(text) { return new TextEncoder().encode(text).byteLength }
+function replacementSize(text, query, replacement, count) { if (utf8Bytes(text) + (utf8Bytes(replacement) - utf8Bytes(query)) * count > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
+function ensureSerializedCapacity(doc) { const markdown = editor.editor.ctx.get(core.serializerCtx)(doc); if (utf8Bytes(markdown) > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
 function replaceFind(query, replacement, index = 0, all = false) {
   const matches = findTextMatches(query); if (!matches.length) return { count: 0, replaced: 0, index: -1, limited: false }
   if (all && matches.length >= FIND_LIMIT) throw Error('匹配数量达到 10000 上限，未执行全部替换。')
   const v = view()
-  replacementSize(v.state.doc.textContent, query, replacement, matches.length)
-  if (all) { v.dispatch(closeHistory(v.state.tr)); let tr = v.state.tr; for (const match of [...matches].reverse()) tr = tr.replaceWith(match.from, match.to, replacement ? v.state.schema.text(replacement, match.marks) : null); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); return { count: matches.length, replaced: matches.length, index: -1, limited: false } }
+  replacementSize(v.state.doc.textContent, query, replacement, all ? matches.length : 1)
+  if (all) { let tr = v.state.tr; for (const match of [...matches].reverse()) tr = tr.replaceWith(match.from, match.to, replacement ? v.state.schema.text(replacement, match.marks) : null); ensureSerializedCapacity(tr.doc); v.dispatch(closeHistory(v.state.tr)); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); return { count: matches.length, replaced: matches.length, index: -1, limited: false } }
   const selected = matches[((index % matches.length) + matches.length) % matches.length]
-  v.dispatch(closeHistory(v.state.tr)); v.dispatch(v.state.tr.replaceWith(selected.from, selected.to, replacement ? v.state.schema.text(replacement, selected.marks) : null).scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr))
+  const tr = v.state.tr.replaceWith(selected.from, selected.to, replacement ? v.state.schema.text(replacement, selected.marks) : null); ensureSerializedCapacity(tr.doc); v.dispatch(closeHistory(v.state.tr)); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr))
   const next = findTextMatches(query), nextIndex = nextMatchIndex(next, selected.from + replacement.length)
   return { count: next.length, replaced: 1, limited: next.length >= FIND_LIMIT, index: nextIndex }
 }

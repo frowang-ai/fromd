@@ -259,7 +259,7 @@ export class DocumentCoordinator {
   }
   findTarget(target, query) {
     const owner = this.port.capture();
-    if (!target || !query || target.query !== query || !owner || owner.id !== target.id || owner.generation !== target.generation || owner.viewState?.mode !== target.mode) throw Error('查找结果已失效，请重新查找。');
+    if (!target || target.cancelled || !query || target.query !== query || !owner || owner.id !== target.id || owner.generation !== target.generation || (owner.viewState?.mode && owner.viewState.mode !== target.mode)) { throw Error('查找结果已失效，请重新查找。'); }
     return owner;
   }
   findReplace(query, index = 0, target) {

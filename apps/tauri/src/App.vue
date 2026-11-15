@@ -85,7 +85,7 @@
           <input ref="findInput" v-model="findState.query" aria-label="查找文字" placeholder="查找" @input="findInputChanged" @compositionstart="findState.composing = true" @compositionend="findCompositionEnd" @keydown.enter="findEnter" />
           <span class="find-count">{{ findState.query ? (findState.count ? (findState.index + 1) + '/' + findState.count + (findState.limited ? '+' : '') : '无匹配') : '输入查找文字' }}</span>
           <button :disabled="!findState.count" aria-label="上一处" @click="findStep(-1)">↑</button><button :disabled="!findState.count" aria-label="下一处" @click="findStep(1)">↓</button>
-          <input v-model="findState.replacement" aria-label="替换为" placeholder="替换为" @keydown.enter="replaceEnter" />
+          <input v-model="findState.replacement" aria-label="替换为" placeholder="替换为" @compositionstart="findState.replacementComposing = true" @compositionend="findState.replacementComposing = false" @keydown.enter="replaceEnter" />
           <button :disabled="!findState.count || state.busy" @click="replaceOne">替换</button><button :disabled="!findState.count || findState.limited || state.busy" @click="replaceAll">全部替换</button>
           <button aria-label="关闭查找替换" @click="closeFind">×</button>
         </div>
@@ -142,7 +142,7 @@ const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('ren
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
 const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
 const dropTarget=ref(null),dropAfter=ref(false)
-const findState=reactive({open:false,query:'',replacement:'',count:0,index:0,limited:false,composing:false,owner:null,mode:'rendered'})
+const findState=reactive({open:false,query:'',replacement:'',count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,mode:'rendered'})
 let findSerial=0
 let dragging=null
 let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
@@ -216,17 +216,18 @@ function dropTab(event,id){
  if(ids.every((value,i)=>value===drag.ids[i]))return
  action(()=>coordinator.reorder(ids,drag.revision))
 }
-function closeFind(){findSerial++;findState.open=false;findState.query='';findState.replacement='';findState.count=0;findState.limited=false;findState.index=0;findState.owner=null;editor.value?.focus()}
-function currentFindTarget(query){const captured=editor.value?.capture();return captured?{id:captured.id,generation:captured.generation,mode:captured.viewState?.mode||mode.value,query}:null}
-async function refreshFind(index=findState.index){const serial=++findSerial;if(!findState.open||!findState.query||!current.value){findState.count=0;findState.limited=false;findState.owner=null;return}const target=currentFindTarget(findState.query);if(!target)return;try{const result=await coordinator.findReplace(findState.query,index,target);if(serial!==findSerial||target.id!==state.activeId)return;findState.owner=target;findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)}catch(error){if(serial===findSerial)coordinator.report(error)}}
-function openFind(){closeMenus();findState.open=true;findState.owner=state.activeId;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
-function findInputChanged(){if(!findState.composing){findState.index=0;refreshFind(0)}}
+function invalidateFindTarget(){if(findState.owner&&typeof findState.owner==='object'&&!findState.owner.pinned)findState.owner.cancelled=true;if(!findState.owner?.pinned)findState.owner=null}
+function closeFind(){findSerial++;invalidateFindTarget();findState.open=false;findState.query='';findState.replacement='';findState.count=0;findState.limited=false;findState.index=0;editor.value?.focus()}
+function currentFindTarget(query){const owner=editor.value?.currentOwner?.();return owner?{id:owner.id,generation:owner.generation,mode:owner.viewState?.mode||mode.value,query}:null}
+async function refreshFind(index=findState.index){const serial=++findSerial;invalidateFindTarget();if(!findState.open||!findState.query||!current.value){findState.count=0;findState.limited=false;return}await editor.value?.ready();const target=currentFindTarget(findState.query);if(!target)return;target.serial=serial;try{const result=await coordinator.findReplace(findState.query,index,target);if(serial!==findSerial||target.cancelled||target.id!==state.activeId)return;findState.owner=target;findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)}catch(error){if(serial===findSerial)coordinator.report(error)}}
+function openFind(){closeMenus();findState.open=true;findState.owner=null;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
+function findInputChanged(){if(!findState.composing){findState.index=0;refreshFind(0)}else invalidateFindTarget()}
 function findCompositionEnd(){findState.composing=false;findInputChanged()}
 function findStep(direction){if(!findState.count)return;refreshFind((findState.index+direction+findState.count)%findState.count)}
 function findEnter(event){if(event.isComposing||findState.composing||event.keyCode===229||state.busy)return;event.preventDefault();findStep(1)}
-function replaceEnter(event){if(event.isComposing||findState.composing||event.keyCode===229||state.busy)return;event.preventDefault();replaceOne()}
-function replaceOne(){const target=findState.owner;action(async()=>{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false,target);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)})}
-function replaceAll(){const target=findState.owner;action(async()=>{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true,target);findState.index=0;await refreshFind(0)})}
+function replaceEnter(event){if(event.isComposing||findState.composing||findState.replacementComposing||globalComposing||event.keyCode===229||state.busy)return;event.preventDefault();replaceOne()}
+function replaceOne(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false,target);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)}finally{target.pinned=false}})}
+function replaceAll(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true,target);findState.index=0;await refreshFind(0)}finally{target.pinned=false}})}
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
