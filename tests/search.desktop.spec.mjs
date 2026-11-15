@@ -88,8 +88,7 @@ test('全文搜索接管页内查找，旧查询不会恢复高亮或改写命�
     await expect(page.getByRole('button', { name: '打开 A', exact: true })).toBeVisible()
     await page.getByRole('button', { name: '打开 A', exact: true }).click()
     await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toBe('beta')
-    // Cover the old FindBar's delayed refresh after the shelf closes.
-    await page.waitForTimeout(250)
+    // Unmounting the old FindBar cancels its pending refresh.
     await expect(page.getByRole('searchbox', { name: '查找正文' })).toHaveCount(0)
     await expect(page.locator('.writing-search-current')).toHaveText('beta')
     expect(await page.evaluate(() => getSelection()?.toString())).toBe('beta')

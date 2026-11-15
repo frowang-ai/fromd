@@ -9,6 +9,6 @@ export function searchDocumentText(document, query) {
   return {
     id: document.id, revision: document.revision, offset,
     length: match?.[0].length ?? 0, matchIn: match ? 'body' : 'title',
-    snippet: `${start ? '…' : ''}${text.slice(start, end).replace(/\s+/g, ' ')}${end < text.length ? '…' : ''}`,
+    snippet: `${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`,
   }
 }

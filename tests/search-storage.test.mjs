@@ -48,4 +48,6 @@ test('全文检索字面量与Unicode偏移正确，标题命中可用', () => {
   assert.equal(hit.length, 5)
   assert.equal(searchDocumentText(doc, '标题').matchIn, 'title')
   assert.equal(searchDocumentText(doc, '不存在'), null)
+  const spaced = searchDocumentText({ ...doc, markdown: '前文 a  b 后文' }, 'a  b')
+  assert.ok(spaced.snippet.includes('a  b'))
 })

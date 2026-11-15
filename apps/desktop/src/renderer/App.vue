@@ -74,6 +74,7 @@ const preferences = ref(initialReading.preferences), readingError = ref(initialR
 const readingMode = ref(null), readingPanel = ref(null), analysis = ref({ headings: [], wordCount: 0, characterCount: 0 })
 const darkMedia = window.matchMedia('(prefers-color-scheme: dark)'), systemDark = ref(darkMedia.matches)
 const readingTheme = computed(() => resolvedReadingTheme(preferences.value, systemDark.value))
+watchEffect(() => { document.documentElement.style.colorScheme = readingTheme.value })
 const findOpen = ref(false), replaceMode = ref(false), findBar = ref(null)
 let analysisTimer
 function systemThemeChanged(event) { systemDark.value = event.matches }
@@ -100,9 +101,9 @@ async function openReading(mode) {
 }
 async function goToHeading(heading) {
   if (!commandReady.value || !current.value) return
-  const id = activeId.value, generation = current.value.generation
+  const id = activeId.value, generation = current.value.generation, selection = selectionVersion
   await waitComposition()
-  if (activeId.value !== id || current.value?.generation !== generation || !commandReady.value) return
+  if (activeId.value !== id || current.value?.generation !== generation || selectionVersion !== selection || !commandReady.value) return
   const pane = sessions.get(id)
   captureDisplayed()
   analysis.value = analyzeMarkdown(pane.getMarkdown())
@@ -165,14 +166,24 @@ function dropImages(event) {
 }
 async function insertImageFiles(files, dropPoint) {
   if (!commandReady.value || !current.value) return
-  const id = activeId.value
+  const id = activeId.value, doc = current.value, generation = doc.generation, pane = sessions.get(id)
   await run(async () => {
+    if (files.length > 20) throw new Error('每次最多插入 20 张图片。')
+    if (files.some(file => !file.size || file.size > 10 * 1024 * 1024)) throw new Error('图片需为 10 MB 以内的文件。')
+    if (files.reduce((sum, file) => sum + file.size, 0) > 50 * 1024 * 1024) throw new Error('本次图片总量超过 50 MB，请分批插入。')
+    const selection = selectionVersion
+    const assertTarget = () => {
+      if (!isLive(doc) || doc.generation !== generation || activeId.value !== id || displayedId.value !== id ||
+        selectionVersion !== selection || sessions.get(id) !== pane) throw new Error('当前页面已切换，请在目标页面重新插入图片。')
+    }
+    assertTarget()
     const images = await Promise.all(files.map(async file => ({ mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) })))
+    assertTarget()
     const sources = await api.importImages(id, images)
-    const pane = sessions.get(id)
+    assertTarget()
     pane.insertImages(sources, dropPoint)
     change(id, pane.getMarkdown())
-    await backup(findDocument(id))
+    await backup(doc)
   })
 }
 watchEffect(() => {
@@ -515,7 +526,7 @@ async function toggleShelf() {
   if (busy.value || operationPending.value || !loaded.value) return
   if (shelfOpen.value) { hideShelf(); return }
   operationPending.value = true
-  try { await waitComposition(); rememberView(); readingMode.value = null; shelfOpen.value = true }
+  try { await waitComposition(); rememberView(); readingMode.value = null; findOpen.value = false; shelfOpen.value = true }
   finally { operationPending.value = false }
 }
 function hideShelf() { shelfOpen.value = false; void nextTick(() => pagesButton.value?.focus({ preventScroll: true })) }
