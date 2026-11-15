@@ -13,7 +13,7 @@ import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { Fragment, Slice } from '@milkdown/kit/prose/model'
-import { dropPoint } from '@milkdown/kit/prose/transform'
+import { insertPoint } from '@milkdown/kit/prose/transform'
 import { closeHistory } from '@milkdown/kit/prose/history'
 import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
@@ -129,13 +129,19 @@ function revealMarkdown(offset, needle = '') {
 }
 function resourceDropPosition(clientX,clientY) {
  if(!created||!activeSession)return null
- const hit=view().posAtCoords({left:clientX,top:clientY})
+ const v=view(),hit=v.posAtCoords({left:clientX,top:clientY}),element=document.elementFromPoint(clientX,clientY),block=element?.closest?.('p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,td,th')
+ if(block&&v.dom.contains(block)){
+  const domPos=v.posAtDOM(block,0),rect=block.getBoundingClientRect()
+  for(let pos=domPos;pos>=0&&pos>domPos-64;pos--){const node=v.state.doc.nodeAt(pos);if(node?.isBlock)return clientY>=rect.top+rect.height/2?pos+node.nodeSize:pos}
+ }
  return Number.isInteger(hit?.pos)?hit.pos:null
 }
+function resourceDropState(){return view()?.state??null}
 // Host registers immutable references first. One transaction preserves history.
-function insertResources(items,position=null) {
+function insertResources(items,position=null,expectedState=null) {
   if (!created || !activeSession || view().composing) throw Error('资源插入时编辑会话不可用。')
  const v = view(), {schema} = v.state, nodes = []
+ if(expectedState&&v.state!==expectedState)throw Error('拖入期间正文已变化，请重新拖入。')
   for (const item of items) {
     if (!/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(item.reference)) throw Error('资源引用无效。')
     if (nodes.length) nodes.push(schema.text(' '))
@@ -146,9 +152,10 @@ function insertResources(items,position=null) {
  const slice=new Slice(Fragment.fromArray(nodes),0,0)
  if(position!==null){
   if(!Number.isInteger(position)||position<0||position>v.state.doc.content.size)throw Error('拖入位置已失效，请重新拖入。')
-  const insertion=dropPoint(v.state.doc,position,slice)
+  const block=schema.nodes.paragraph.create(null,slice.content),dropSlice=new Slice(Fragment.from(block),0,0),insertion=insertPoint(v.state.doc,position,schema.nodes.paragraph)
   if(insertion===null)throw Error('拖入位置不支持插入资源，请重新拖入。')
-  v.dispatch(v.state.tr.setSelection(TextSelection.near(v.state.doc.resolve(insertion),1)))
+  const tr=v.state.tr.replaceWith(insertion,insertion,dropSlice.content).scrollIntoView().setMeta('uiEvent','drop')
+  v.dispatch(closeHistory(v.state.tr));v.dispatch(tr);v.dispatch(closeHistory(v.state.tr));return
  }
   v.dispatch(closeHistory(v.state.tr))
  const plan=clipboard.prepare(v,{clipboardData:null},slice,{authorized:true})
@@ -226,7 +233,7 @@ function commitResourcePaste(prepared) {
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
-defineExpose({ findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({

@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
     <header class="app-header">
       <div class="brand"><img src="./assets/icon.png" alt="" /><span>frowd</span></div>
       <nav class="app-menu" aria-label="应用菜单">
@@ -177,7 +177,7 @@ const port={
  ready:async()=>{await nextTick();await editor.value.ready()},
  prepareResourcePaste:payload=>editor.value.prepareResourcePaste(payload),
  commitResourcePaste:prepared=>editor.value.commitResourcePaste(prepared),
- insertResources:items=>editor.value.insertResources(items),
+ insertResources:(items,position,dropState,dropMode)=>editor.value.insertResources(items,position,dropState,dropMode),
  capture:()=>editor.value?.capture(),
  waitComposition:waitAllComposition,
  activate:async doc=>{await editor.value.activate(doc);mode.value=doc.session?.viewState?.mode||doc.viewState?.mode||'rendered'},
@@ -282,10 +282,28 @@ function replaceAll(){action(async()=>{if(!findState.owner||findState.owner.canc
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
+function externalFileGesture(event){return Array.from(event.dataTransfer?.types||[]).some(type=>type.toLowerCase()==='files')}
+function insideEditorTarget(event){return Boolean(event.target?.closest?.('.pm-port'))}
+function guardExternalFileDrag(event){
+ if(!externalFileGesture(event))return
+ const editor=insideEditorTarget(event)
+ if(editor&&!state.busy&&!editingLocked.value&&mode.value==='rendered')return
+ event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='none'
+}
+function guardExternalFileDrop(event){
+ if(!externalFileGesture(event))return
+ const editor=insideEditorTarget(event)
+ if(editor&&!state.busy&&!editingLocked.value&&mode.value==='rendered')return
+ event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='none'
+ if(editor)return
+ if(!current.value)state.error='当前没有可接收资源的页面。'
+ else if(state.busy||editingLocked.value)state.error='当前文档正忙，请等待当前操作完成后再拖入资源。'
+ else state.error='请将图片或附件拖到正文编辑区。'
+}
 function insertResource(event,kind='auto'){
  if(state.busy||editingLocked.value){state.error='当前文档正忙，请等待当前操作完成后再拖入资源。';return}
  const owner=event||editor.value?.capture()
- if(owner)return action(()=>coordinator.importResources({id:owner.id,generation:owner.generation},event?.files||null,kind,event?.dropPosition??null))
+ if(owner)return action(()=>coordinator.importResources({id:owner.id,generation:owner.generation,mode:event?.mode},event?.files||null,kind,event?.dropPosition??null,event?.dropState,event?.mode))
 }
 function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}
 function collapse(id){contextPage.value=null;return action(()=>coordinator.layout('shelve',id))}

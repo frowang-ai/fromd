@@ -134,9 +134,9 @@ function resourceDrop(event){
  if(!owner||frozen.value){emit('navigation-hint','当前文档正忙，请等待当前操作完成后再拖入资源。');return}
  if(droppedDirectory(event)){emit('navigation-hint','暂不支持拖入目录，请选择单个或多个文件。');return}
  if(mode.value==='source'){emit('navigation-hint','源码模式暂不支持按坐标拖入，请切换到正文模式。');return}
- const position=engine.value?.resourceDropPosition(event.clientX,event.clientY)
+ const position=engine.value?.resourceDropPosition(event.clientX,event.clientY),dropState=engine.value?.resourceDropState?.()
  if(!Number.isInteger(position)){emit('navigation-hint','无法确定拖入位置，请拖到正文内容区域后重试。');return}
- emit('resource-files',{...owner,files,dropPosition:position})
+ emit('resource-files',{...owner,mode:mode.value,files,dropPosition:position,dropState})
 }
 function sourcePaste(event){
  const files=Array.from(event.clipboardData?.files||[])
@@ -170,10 +170,11 @@ async function commitResourcePaste(prepared){
   emit('change',{...owner,markdown:prepared.next})
  }
 }
-async function insertResources(items,position=null){
+async function insertResources(items,position=null,dropState=null,dropMode=null){
  if(!owner||!frozen.value||composing)throw Error('资源插入需要已冻结的文档会话。')
+ if(dropMode&&dropMode!==mode.value)throw Error('拖入期间编辑模式已变化，请重新拖入。')
  const markup=resourceMarkdown(items)
- if(mode.value==='rendered')engine.value.insertResources(items,position)
+ if(mode.value==='rendered')engine.value.insertResources(items,position,dropState)
  else {
   const range=sourceSelection(),text=markdown()
   const next=text.slice(0,range.start)+markup+text.slice(range.end)

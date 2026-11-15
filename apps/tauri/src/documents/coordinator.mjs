@@ -235,7 +235,7 @@ export class DocumentCoordinator {
       await this.flush();
     });
   }
-  importResources(owner, files = null, kind = 'auto', position = null) {
+  importResources(owner, files = null, kind = 'auto', position = null, dropState = null, dropMode = null) {
     return this.run(async () => {
       if(!owner||owner.id!==this.state.activeId||owner.generation!==this.generation)throw Error('页面已切换，本次资源未插入。');
       await this.flush();
@@ -244,7 +244,7 @@ export class DocumentCoordinator {
         files?this.resourceTimeoutMs:this.pickerTimeoutMs,'资源导入超时，正文未插入；迟到资源只保留登记，请稍后重试。');
       if(result.cancelled)return result;
       if(id!==this.state.activeId||generation!==this.generation)throw Error('资源归属已变化，本次未插入正文。');
-      await this.port.insertResources(result.resources, position);
+      await this.port.insertResources(result.resources, position, dropState, dropMode);
       await this.flush();
       return result;
     });

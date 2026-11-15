@@ -21,17 +21,17 @@ async function dropFiles(page,target,files,{x=null,y=null,directory=false,textOn
  },{files,x,y,directory,textOnly})
 }
 async function dropAtFirstParagraph(page,file){
- const target=body(page);await page.locator('.pm-scroller').evaluate(el=>el.scrollTop=0);const rect=await target.locator('p').first().boundingBox()
- await dropFiles(page,target,[file],{x:(rect?.x??0)+18,y:(rect?.y??0)+(rect?.height??20)/2})
+ const target=body(page);await page.locator('.pm-scroller').evaluate(el=>el.scrollTop=0);const rect=await target.locator('p').first().boundingBox(),x=(rect?.x??0)+18,y=(rect?.y??0)+(rect?.height??20)/2,position=await page.evaluate(({x,y})=>document.querySelector('.pm-port').__vueParentComponent.exposed.resourceDropPosition(x,y),{x,y})
+ await dropFiles(page,target,[file],{x,y});return position
 }
 async function dropAtLastParagraph(page,file){
  const target=body(page);await page.locator('.pm-scroller').evaluate(el=>el.scrollTop=0);const rect=await target.locator('p').last().boundingBox()
- const x=(rect?.x??0)+18,y=(rect?.y??0)+(rect?.height??20)/2,position=await page.evaluate(({x,y})=>document.querySelector('.pm-port').__vueParentComponent.exposed.resourceDropPosition(x,y),{x,y})
+ const x=(rect?.x??0)+18,y=(rect?.y??0)+(rect?.height??20)*.75,position=await page.evaluate(({x,y})=>document.querySelector('.pm-port').__vueParentComponent.exposed.resourceDropPosition(x,y),{x,y})
  await dropFiles(page,target,[file],{x,y});return position
 }
 
 test('rendered image drop uses coordinate position and durable resource insertion',async({page})=>{
- await boot(page);const editor=body(page);await editor.click();await editor.press('Control+Home');const position=await dropAtLastParagraph(page,{name:'drop.png',type:'image/png',bytes:png});expect(Number.isInteger(position)).toBe(true);await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.import_resources||0)).toBe(1);await expect(editor.locator('img[data-editor-image-src]')).toHaveCount(1);await expect.poll(async()=> (await row(page)).markdown).toMatch(/!\[drop\.png\]\(\.frowd-assets\/[a-f0-9]{64}\.png\)/)
+ await boot(page);const editor=body(page);await editor.click();await editor.press('Control+End');const position=await dropAtFirstParagraph(page,{name:'drop.png',type:'image/png',bytes:png});expect(Number.isInteger(position)).toBe(true);await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.import_resources||0)).toBe(1);await expect(editor.locator('img[data-editor-image-src]')).toHaveCount(1);await expect.poll(async()=> (await row(page)).markdown).toMatch(/!\[drop\.png\]\(\.frowd-assets\/[a-f0-9]{64}\.png\)/);const afterMarkdown=(await row(page)).markdown;expect(afterMarkdown.indexOf('![drop.png]')).toBeLessThan(afterMarkdown.indexOf('Alpha'))
  const after=await page.evaluate(()=>document.querySelector('.pm-port').__vueParentComponent.exposed.capture().viewState.selection);expect(Number.isInteger(after.anchor)).toBe(true)
  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.import_resources||0)).toBe(1)
 })
