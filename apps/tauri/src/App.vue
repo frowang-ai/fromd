@@ -283,7 +283,7 @@ function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
 function externalFileGesture(event){return Array.from(event.dataTransfer?.types||[]).some(type=>type.toLowerCase()==='files')}
-function insideEditorTarget(event){return Boolean(event.target?.closest?.('.pm-port'))}
+function insideEditorTarget(event){return Boolean(event.target?.closest?.('.ProseMirror, .markdown-source'))}
 function guardExternalFileDrag(event){
  if(!externalFileGesture(event))return
  const editor=insideEditorTarget(event)
