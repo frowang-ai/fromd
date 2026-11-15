@@ -148,6 +148,44 @@ test('全文搜索迟到回执不会覆盖新查询', async () => {
   } finally { await cleanup(app, fixtureData.directory) }
 })
 
+test('快速更改查询或大小写时，替换等待新匹配而不沿用旧序号', async () => {
+  const fixtureData = await fixture('# A\n\nA a A a b b'); let app
+  try {
+    const launched = await launch(fixtureData.profile); app = launched.app; const page = launched.page
+    await menuCommand(page, 'replace')
+    const query = page.getByRole('searchbox', { name: '查找正文' })
+    const status = page.getByRole('search').getByRole('status')
+    const replace = page.getByRole('button', { name: '替换当前', exact: true })
+    await query.fill('a')
+    await page.getByRole('textbox', { name: '替换为' }).fill('done')
+    // The heading A also matches; select the second result before changing query.
+    await expect(status).toHaveText('1 / 5')
+    await page.getByRole('button', { name: '下一个匹配', exact: true }).click()
+    await expect(status).toHaveText('2 / 5')
+    await query.evaluate(input => {
+      input.value = 'b'; input.dispatchEvent(new Event('input', { bubbles: true }))
+      // Enter bypasses a disabled button, so it must also respect pending results.
+      document.querySelector('[aria-label="替换为"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await expect(status).toHaveText('1 / 2')
+    await expect(body(page)).toContainText('A a A a b b')
+    await replace.click()
+    await expect(body(page)).toContainText('A a A a done b')
+
+    await query.fill('a'); await expect(status).toHaveText('1 / 5')
+    await page.getByRole('button', { name: '下一个匹配', exact: true }).click()
+    await expect(status).toHaveText('2 / 5')
+    await page.getByRole('button', { name: '区分大小写', exact: true }).evaluate(button => {
+      button.click()
+      document.querySelector('[aria-label="替换为"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    await expect(status).toHaveText('1 / 2')
+    await expect(body(page)).toContainText('A a A a done b')
+    await replace.click()
+    await expect(body(page)).toContainText('A done A a done b')
+  } finally { await cleanup(app, fixtureData.directory) }
+})
+
 test('组合输入期间等待的替换在切页意图出现后取消', async () => {
   const fixtureData = await fixture(); let app
   try {

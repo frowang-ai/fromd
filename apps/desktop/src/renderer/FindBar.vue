@@ -42,11 +42,11 @@ function move(direction) { replaced.value = null; clearTimeout(timer); search(re
 function enterFind(event) { if (!event.isComposing) { event.preventDefault(); move(event.shiftKey ? -1 : 1) } }
 function enterReplace(event) { if (!event.isComposing) { event.preventDefault(); void replace(false) } }
 async function replace(all) {
-  if (props.disabled || !props.pane) return
-  const pane = props.pane, id = props.documentId, mode = props.sourceMode, text = query.value, value = replacement.value
+  if (props.disabled || !props.pane || !result.value.count) return
+  const pane = props.pane, id = props.documentId, mode = props.sourceMode, text = query.value, value = replacement.value, sensitive = matchCase.value
   clearTimeout(timer); searchVersion++; changing = true
   try {
-    if (await props.beforeEdit?.() === false || disposed || props.disabled || props.pane !== pane || props.documentId !== id || props.sourceMode !== mode || query.value !== text || replacement.value !== value) return
+    if (await props.beforeEdit?.() === false || disposed || props.disabled || props.pane !== pane || props.documentId !== id || props.sourceMode !== mode || query.value !== text || replacement.value !== value || matchCase.value !== sensitive) return
     const next = props.pane.replaceSearch(query.value, replacement.value, matchCase.value, result.value.index, all)
     result.value = next; replaced.value = next.replaced
   } catch (error) { emit('error', error.message) }
@@ -56,7 +56,11 @@ async function focus(withReplace = props.replaceMode) {
   showReplace.value = withReplace || showReplace.value
   await nextTick(); queryInput.value?.focus(); queryInput.value?.select()
 }
-watch([query, matchCase], () => { replaced.value = null; clearTimeout(timer); timer = setTimeout(() => search(), 120) })
+watch([query, matchCase], () => {
+  searchVersion++; replaced.value = null
+  result.value = { count: 0, index: -1, truncated: false }
+  clearTimeout(timer); timer = setTimeout(() => search(), 120)
+}, { flush: 'sync' })
 watch(() => props.replaceMode, value => { if (value) showReplace.value = true })
 watch([() => props.documentId, () => props.sourceMode, () => props.pane], () => { replaced.value = null; void nextTick(() => search()) })
 watch([() => props.revision, () => props.disabled], () => { if (!changing) { clearTimeout(timer); timer = setTimeout(() => search(result.value.index, false), 120) } })
