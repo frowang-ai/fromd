@@ -1,0 +1,30 @@
+import {test,expect} from '@playwright/test'
+import {installMockHost} from './mock-host.mjs'
+const sample='标题\n\n中文😀 中文。\n\n**中文** 与 *中文*。\n\n| 列 | 值 |\n| --- | --- |\n| 中文 | 中文 |\n'
+const body=page=>page.locator('.ProseMirror:visible')
+async function boot(page){
+ await page.addInitScript(installMockHost,{documents:[{id:'a',title:'A',markdown:sample,shelved:false},{id:'b',title:'B',markdown:'B页 中文😀',shelved:false}]})
+ await page.goto('/?testHost=1');await expect(page.locator('.loading-state')).toHaveCount(0);await expect(body(page)).toBeVisible()
+}
+async function openFind(page){await page.keyboard.press('Control+f');await expect(page.getByRole('dialog',{name:'当前文档查找替换'})).toBeVisible()}
+test('rendered find counts Unicode across marks/table and cycles without writing',async({page})=>{
+ await boot(page);const before=await page.evaluate(()=>window.__FROWD_TEST_HOST__.snapshot());await openFind(page);const input=page.getByRole('textbox',{name:'查找文字'});await input.fill('中文');await expect(page.getByText('1/6')).toHaveCount(1)
+ await page.getByRole('button',{name:'下一处'}).click();await expect(page.getByText('2/6')).toHaveCount(1);await expect.poll(()=>page.evaluate(()=>{const c=document.querySelector('.pm-port').__vueParentComponent.exposed.capture(),s=c.pm.state.selection;return c.pm.state.doc.textBetween(s.from,s.to,'')})).toBe('中文')
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.snapshot())).toEqual(before);await page.getByRole('button',{name:'关闭查找替换'}).click();await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+test('single and all rendered replacements keep marks and one-step undo/redo',async({page})=>{
+ await boot(page);await openFind(page);await page.getByRole('textbox',{name:'查找文字'}).fill('中文');await page.getByRole('textbox',{name:'替换为'}).fill('替');await page.getByRole('button',{name:'下一处'}).click();await page.getByRole('button',{name:'下一处'}).click();await page.getByRole('button',{name:'替换',exact:true}).click();await expect(body(page).locator('strong')).toHaveText('替')
+ await page.getByRole('button',{name:'全部替换',exact:true}).click();await expect(body(page)).not.toContainText('中文');await body(page).press('Control+z');await expect(body(page)).toContainText('中文');await body(page).press('Control+y');await expect(body(page)).not.toContainText('中文')
+})
+test('source find and replace stays exact Markdown and does not switch mode',async({page})=>{
+ await boot(page);await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'源码'}).click();await openFind(page);await page.getByRole('textbox',{name:'查找文字'}).fill('**中文**');await expect(page.getByText('1/1')).toHaveCount(1);await page.getByRole('textbox',{name:'替换为'}).fill('**替换**');await page.getByRole('button',{name:'替换',exact:true}).click()
+ await expect(page.getByRole('textbox',{name:'Markdown 源码'})).toHaveValue(sample.replace('**中文**','**替换**'));await page.getByRole('button',{name:'关闭查找替换'}).click();await expect(page.getByRole('textbox',{name:'Markdown 源码'})).toBeFocused()
+})
+test('find rebinds after switching page and find composition does not replace stale text',async({page})=>{
+ await boot(page);await openFind(page);const input=page.getByRole('textbox',{name:'查找文字'});await input.dispatchEvent('compositionstart',{data:''});await input.fill('中文');await expect(page.getByText('输入查找文字')).toHaveCount(1);await input.dispatchEvent('compositionend',{data:'中文'});await expect(page.getByText('1/6')).toHaveCount(1)
+ await page.locator('[data-tab-id="b"] .tab-title').click();await expect.poll(()=>page.locator('.tab.selected').textContent()).toContain('B');await input.fill('中文');await expect.poll(()=>page.getByText('1/1').count()).toBe(1);await page.getByRole('textbox',{name:'替换为'}).fill('X');await page.getByRole('button',{name:'全部替换',exact:true}).click();await expect(body(page)).toContainText('X');await page.locator('[data-tab-id="a"] .tab-title').click();await expect(body(page)).toContainText('中文')
+})
+test('replace keeps visible text when persistence fails and retries on the next save',async({page})=>{
+ await boot(page);await openFind(page);await page.getByRole('textbox',{name:'查找文字'}).fill('中文');await page.getByRole('textbox',{name:'替换为'}).fill('失败后保留');await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail='update_document');await page.getByRole('button',{name:'替换',exact:true}).click();await expect(body(page)).toContainText('失败后保留');await expect(page.getByRole('alert')).toBeVisible()
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail=null);await page.getByRole('button',{name:'关闭查找替换'}).click();await body(page).click();await page.keyboard.press('End');await page.keyboard.type('x');await page.keyboard.press('Backspace');await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').markdown)).toContain('失败后保留')
+})

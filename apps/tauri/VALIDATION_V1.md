@@ -362,3 +362,7 @@ is claimed. Seven new Rust tests (38 total domain/helper) await the local node.
 They cover strict UTF-8/BOM/EOL, limits/tokens, controlled local resource ownership,
 source-independent reopen/SaveAs, missing/escape/corrupt image rejection, atomic
 DB/file rollback/capacity and idempotent confirmation after reopen.
+
+## Current-document Find/Replace
+
+Implemented temporary Ctrl+F/Ctrl+H panel with rendered/source literal semantics, mark-preserving PM replacement, bounded match count, coordinator ownership/freeze/flush, and retry after persistence failure. Company: find browser5/5, affected PM4/4, shared HTML/math/table3/3, frontend build pass. Native WebView2 shortcut/IME/focus remains pending.

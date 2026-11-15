@@ -163,6 +163,9 @@ async function insertResources(items){
   emit('change',{...owner,markdown:next})
  }
 }
+function literalMatches(text,query){if(!query)return [];const fold=value=>value.replace(/[A-Z]/g,c=>c.toLowerCase()),wanted=fold(query),out=[];let at=0,folded=fold(text);while((at=folded.indexOf(wanted,at))>=0){out.push({from:at,to:at+query.length});at+=query.length||1}return out}
+function findReplace(query,index=0){if(!owner||!query)return {count:0,index:-1,mode:mode.value};if(mode.value==='source'){const matches=literalMatches(markdown(),query),selected=matches.length?matches[((index%matches.length)+matches.length)%matches.length]:null;if(selected){sourceRange={start:selected.from,end:selected.to};source.value.setSelectionRange(selected.from,selected.to);source.value.focus()}return {count:matches.length,index:selected?matches.indexOf(selected):-1,mode:mode.value}}return {...engine.value.findMatch(query,index),mode:mode.value}}
+function replaceFind(query,replacement,index=0,all=false){if(!owner||!query)return {count:0,replaced:0,index:-1,mode:mode.value};if(mode.value==='source'){const text=markdown(),matches=literalMatches(text,query);if(!matches.length)return {count:0,replaced:0,index:-1,mode:mode.value};let next=text;if(all){for(const match of [...matches].reverse())next=next.slice(0,match.from)+replacement+next.slice(match.to);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=next.slice(0,selected.from)+replacement+next.slice(selected.to);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:matches.length,replaced:all?matches.length:1,index:all?-1:(index+1)%Math.max(1,matches.length),mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
 function prepareFileImport(source){return engine.value.prepareFileImport(source)}
 function clear(){owner=null;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
 function focus(){if(mode.value==='source')source.value?.focus();else engine.value?.focus()}
@@ -173,7 +176,7 @@ function end(event){
 }
 onMounted(()=>{root.value.addEventListener('compositionstart',start);root.value.addEventListener('compositionend',end);ready().then(editable).catch(()=>{})})
 onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('compositionstart',start);root.value?.removeEventListener('compositionend',end)})
-defineExpose({prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
+defineExpose({findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 </script>
 <style>
 .pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:46px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}

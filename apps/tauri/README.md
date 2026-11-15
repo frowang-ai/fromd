@@ -278,3 +278,5 @@ pathless draft without modifying or associating the original source. HTML uses
 inert shared conversion and scoped local resources, with an explicit per-page
 conversion report. Exact rules, limits, failure boundaries and isolated native
 steps are in [FILE_IMPORT_V1.md](FILE_IMPORT_V1.md). Native execution remains pending.
+
+Current-document Find/Replace is available with Ctrl+F/Ctrl+H. Exact mode semantics, limits, history, ownership and native handoff are in FIND_REPLACE_V1.md.

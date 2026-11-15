@@ -78,6 +78,14 @@
 
         <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
         <div v-if="state.importReport?.id === state.activeId" class="error-notice import-report" role="status" aria-label="导入说明"><span>{{ state.importReport.text }}</span><button aria-label="关闭导入说明" @click="state.importReport = null">×</button></div>
+        <div v-if="findState.open" class="find-panel" role="dialog" aria-label="当前文档查找替换">
+          <input ref="findInput" v-model="findState.query" aria-label="查找文字" placeholder="查找" @input="findInputChanged" @compositionstart="findState.composing = true" @compositionend="findCompositionEnd" @keydown.enter.prevent="findStep(1)" />
+          <span class="find-count">{{ findState.query ? (findState.count ? (findState.index + 1) + '/' + findState.count + (findState.limited ? '+' : '') : '无匹配') : '输入查找文字' }}</span>
+          <button :disabled="!findState.count" aria-label="上一处" @click="findStep(-1)">↑</button><button :disabled="!findState.count" aria-label="下一处" @click="findStep(1)">↓</button>
+          <input v-model="findState.replacement" aria-label="替换为" placeholder="替换为" @keydown.enter.prevent="replaceOne" />
+          <button :disabled="!findState.count || state.busy" @click="replaceOne">替换</button><button :disabled="!findState.count || findState.limited || state.busy" @click="replaceAll">全部替换</button>
+          <button aria-label="关闭查找替换" @click="closeFind">×</button>
+        </div>
         <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
           <ProseMirrorPort ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
@@ -126,11 +134,13 @@ import {startPageMotion} from './pageMotion.js'
 import html2canvas from 'html2canvas'
 
 const state=reactive({})
-const editor=ref(null),editorPanel=ref(null),pageAnchor=ref(null)
+const editor=ref(null),editorPanel=ref(null),pageAnchor=ref(null),findInput=ref(null)
 const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('rendered')
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
 const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
 const dropTarget=ref(null),dropAfter=ref(false)
+const findState=reactive({open:false,query:'',replacement:'',count:0,index:0,limited:false,composing:false,owner:null,mode:'rendered'})
+let findSerial=0
 let dragging=null
 let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
 const media=matchMedia('(max-width: 760px)')
@@ -158,6 +168,8 @@ async function waitAllComposition(){
  await editor.value?.waitComposition()
 }
 const port={
+ findReplace:(query,index)=>editor.value.findReplace(query,index),
+ replaceFind:(query,replacement,index,all)=>editor.value.replaceFind(query,replacement,index,all),
  prepareFileImport:source=>editor.value.prepareFileImport(source),
  ready:async()=>{await nextTick();await editor.value.ready()},
  prepareResourcePaste:payload=>editor.value.prepareResourcePaste(payload),
@@ -201,6 +213,14 @@ function dropTab(event,id){
  if(ids.every((value,i)=>value===drag.ids[i]))return
  action(()=>coordinator.reorder(ids,drag.revision))
 }
+function closeFind(){findState.open=false;findState.query='';findState.replacement='';findState.count=0;findState.index=0;findState.owner=null;editor.value?.focus()}
+async function refreshFind(index=findState.index){const serial=++findSerial;if(!findState.open||!findState.query||!current.value)return;const owner=current.value.id;try{const result=await coordinator.findReplace(findState.query,index);if(serial!==findSerial||owner!==state.activeId)return;findState.owner=owner;findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)}catch(error){if(serial===findSerial)coordinator.report(error)}}
+function openFind(){findState.open=true;findState.owner=state.activeId;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
+function findInputChanged(){if(!findState.composing){findState.index=0;refreshFind(0)}}
+function findCompositionEnd(){findState.composing=false;findInputChanged()}
+function findStep(direction){refreshFind(Math.max(0,findState.index+direction))}
+function replaceOne(){action(async()=>{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)})}
+function replaceAll(){action(async()=>{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true);findState.index=0;await refreshFind(0)})}
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
@@ -211,6 +231,7 @@ function contextLayout(name){const id=contextPage.value;return action(()=>coordi
 async function setMode(value){await action(()=>coordinator.run(async()=>{await editor.value.setMode(value);mode.value=value;await coordinator.flush()}))}
 function scheduleView(){clearTimeout(viewTimer);viewTimer=setTimeout(()=>{if(!state.busy)coordinator.flush().catch(e=>coordinator.report(e))},250)}
 watch(()=>[current.value?.id,current.value?.title],()=>{if(!nameComposing.value)nameDraft.value=current.value?.title||''},{flush:'sync'})
+watch(()=>[state.activeId,state.markdown,mode.value],()=>{if(findState.open){findState.count=0;findState.index=0;refreshFind(0)}})
 watch(()=>state.removalSequence,()=>undoDismissed.value=false)
 function nameStart(){nameComposing.value=true}
 function nameInput(event){nameDraft.value=event.target.value;if(!event.isComposing&&!nameComposing.value)coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
@@ -233,6 +254,8 @@ function shortcut(event){
  if(key==='n'){event.preventDefault();action(()=>coordinator.create())}
  if(key==='o'){event.preventDefault();action(()=>coordinator.open())}
  if(key==='s'){event.preventDefault();action(()=>coordinator.save(state.activeId,event.shiftKey))}
+ if(key==='f'){event.preventDefault();openFind()}
+ if(key==='h'){event.preventDefault();openFind()}
  if(key==='m'&&event.shiftKey){event.preventDefault();setMode(mode.value==='source'?'rendered':'source')}
  if(key==='tab'&&opened.value.length){event.preventDefault();const index=opened.value.findIndex(d=>d.id===state.activeId);selectPage(opened.value[(index+(event.shiftKey?-1:1)+opened.value.length)%opened.value.length].id)}
 }

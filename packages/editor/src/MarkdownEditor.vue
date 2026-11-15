@@ -142,6 +142,42 @@ function insertResources(items) {
   clipboard.commit(v,plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
 }
+function findTextMatches(query) {
+  if (!query) return []
+  const matches = [], fold = value => value.replace(/[A-Z]/g, c => c.toLowerCase()), wanted = fold(query)
+  const limit = 10000
+  view().state.doc.descendants((node, pos) => {
+    if (matches.length >= limit) return false
+    if (!node.isTextblock) return
+    let run = '', pieces = []
+    const flush = () => {
+      if (!run) return
+      const folded = fold(run); let at = 0
+      while ((at = folded.indexOf(wanted, at)) >= 0) {
+        const end = at + query.length, first = pieces.find(piece => at < piece.end && end > piece.start), last = [...pieces].reverse().find(piece => at < piece.end && end > piece.start)
+        if (first && last) { matches.push({ from: pos + 1 + first.offset + Math.max(0, at - first.start), to: pos + 1 + last.offset + Math.min(last.text.length, end - last.start), marks: first.marks }); if (matches.length >= limit) break }
+        at = end || at + 1
+      }
+      run = ''; pieces = []
+    }
+    node.forEach((child, offset) => { if (!child.isText) { flush(); return }; const start = run.length; pieces.push({ start, end: start + child.text.length, offset, text: child.text, marks: child.marks }); run += child.text })
+    flush()
+  })
+  return matches
+}
+function findMatch(query, index = 0) {
+  const matches = findTextMatches(query), selected = matches.length ? matches[((index % matches.length) + matches.length) % matches.length] : null
+  if (selected) { const v = view(); v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, selected.from, selected.to)).scrollIntoView()); v.focus() }
+  return { count: matches.length, limited: matches.length >= 10000, index: selected ? matches.indexOf(selected) : -1, match: selected }
+}
+function replaceFind(query, replacement, index = 0, all = false) {
+  const matches = findTextMatches(query); if (!matches.length) return { count: 0, replaced: 0, index: -1, limited: false }
+  const v = view()
+  if (all) { v.dispatch(closeHistory(v.state.tr)); let tr = v.state.tr; for (const match of [...matches].reverse()) tr = tr.replaceWith(match.from, match.to, replacement ? v.state.schema.text(replacement, match.marks) : null); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); v.focus(); return { count: matches.length, replaced: matches.length, index: -1, limited: matches.length >= 10000 } }
+  const selected = matches[((index % matches.length) + matches.length) % matches.length]
+  v.dispatch(closeHistory(v.state.tr)); v.dispatch(v.state.tr.replaceWith(selected.from, selected.to, replacement ? v.state.schema.text(replacement, selected.marks) : null).scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); v.focus()
+  return { count: matches.length, replaced: 1, limited: matches.length >= 10000, index: (index + 1) % matches.length }
+}
 function prepareFileImport(source) {
   if(!created)throw Error('编辑器尚未就绪。')
   const ctx=editor.editor.ctx
@@ -169,7 +205,7 @@ function commitResourcePaste(prepared) {
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
-defineExpose({ prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
