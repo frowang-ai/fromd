@@ -1,5 +1,39 @@
 # Windows 桌面验证记录
 
+## frowd 0.5.0 第一轮写作扩展（2026-11-15）
+
+实现基线 `2ef08d8`，受测功能提交 `a49fe25`。三个独立 worktree 分别实现搜索、图片和阅读工具，由主 agent 审核实际提交后集成。版本设为0.5.0，具体行为见 [第一轮写作功能](docs/round-one-writing.md)。
+
+本轮证据位于 `website/_worktrees/round-one/`。所有文档、附件与 `FROWANG_USER_DATA` 均使用隔离合成样本。
+
+| 检查 | 实际结果 | 工作区证据 |
+| --- | --- | --- |
+| 完整单元测试 | **89/89**，无跳过 | `output/round-one-unit-final.log` |
+| 产品构建 | **通过** | `output/round-one-build-final.log` |
+| 完整编辑器浏览器回归 | **62/62** | `output/round-one-browser-final.log` |
+| 完整开发桌面回归 | **63/63** | `output/round-one-desktop-final.log` |
+| 本地 NSIS 安装器构建 | **通过** | `output/round-one-installer-final.log` |
+| 最终打包程序完整桌面回归 | **63/63**，正常Chromium沙箱 | `output/round-one-packaged-final.log` |
+| 打包文件一致性与身份 | **183 个 out 文件逐字节一致**，应用0.5.0，产品资源 frowd，`frowangUpdates=null` | `output/round-one-package-inspection.json` |
+| 静态集成复核 | 图片身份检查、查找栏互斥、PDF主题边界均通过 | `2ef08d8..a49fe25` 实际变更 |
+
+安装器为 `release/0.5.0/frowd-Setup-0.5.0-x64.exe`，130,512,454字节，SHA-256 为 `46e0ec884050ca887782d7eb09f1001cfde5fbd2669c8532003333ab590961d1`。本地构建使用锁定 Electron45.2.3 与现有安装身份，产物为未签名安装包。应用更新配置为停用。
+
+### 覆盖范围
+
+- SQLite 搜索未访问和收起正文、备份失败的待写入正文、删除后的过滤、Unicode字面量偏移及片段空白保留。真实窗口覆盖搜索片段定位、隐藏URL切源码、迟到查询、IME等待、替换撤销与切页。
+- 图片在真实 IPC 中落盘，覆盖草稿重启、另存后新profile打开、PDF、源码原生撤销、正文拖放、保存失败与重试，以及回执延迟时外部打开另一页。导入前后核对页面身份、generation、选页版本与pane。
+- 阅读工具覆盖富文本和源码大纲定位、统计随编辑/切页更新、字号/宽度/主题重启恢复、设置写入失败反馈、深色代码/公式对比度、系统主题切换与窄窗口。深色和窄窗口截图已视觉检查。
+- 审核修复了页内查找与全文搜索高亮互相覆盖、快速变更查询/大小写后沿用旧匹配序号、统计与大纲自动转换标点的问题。统计采用独立解析器，PDF继续使用独立打印文档。
+
+### 过程记录与验证范围
+
+- 初次联合桌面为57/61。图片竞态用例对原草稿的预期漏了编辑器序列化末尾换行，改为精确比较插入前已提交的正文。三个阅读用例的 `getByLabel` 精确匹配未找到实际combobox，按可访问角色修正定位。失败证据保留在 `output/round-one-desktop.log` 和 `output/round-one-desktop-results/`，随后完整63项通过。
+- 搜索分支早期浏览器回归有一次既有列表Shift+Tab失败，原用例单独重跑通过，原因尚未确认。集成后的两次完整62项均通过。最终浏览器使用本机 Chromium1223，通过 `CHROME_PATH` 指定。
+- 新下载的Electron runtime和打包产物继承了Low完整性标签，导致启动在窗口创建前退出。限定将对应生成目录恢复为Medium后，真实桌面回归使用正常Chromium沙箱通过。证据为 `output/runtime-integrity-fix.log` 和 `output/package-integrity-fix.log`。
+- 首次安装器构建在esbuild删除系统临时文件时遇到Access denied，改用工作区独立 `TEMP/TMP` 后构建成功。原日志 `output/round-one-installer.log` 保留。
+- 本轮验收覆盖Windows x64、隔离profile和自动化IME组合输入。真实用户覆盖安装与各类Windows输入法仍需试用反馈；本轮NSIS验证为安装器构建，历史真实自动升级链见0.4记录。未引用图片附件保留，以支持撤销和恢复。
+
 ## frowd 0.4.0 联合交付
 
 本轮按用户授权将名称/图标 PR #9 与页面收起/动效 PR #8 整合。PR #9先合入 `0fb28c5`；任务分支普通merge为 `ba6b220`，唯一冲突为本文件的历史记录，双方均保留。联合版本候选 `88f9915` 升为0.4.0，依赖版本未变，`package.name=frowang-markdown`、`appId=com.frowang.markdown`、内部 `Frowang Markdown.exe` 保持兼容，显示名与图标为frowd；收起450ms/展开400ms。
