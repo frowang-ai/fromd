@@ -1,4 +1,6 @@
-import { DOMParser, DOMSerializer } from '@milkdown/kit/prose/model'
+import { DOMParser, DOMSerializer, Slice, Fragment } from '@milkdown/kit/prose/model'
+import {Transform} from '@milkdown/kit/prose/transform'
+import {tableEditingKey,TableMap} from '@milkdown/kit/prose/tables'
 import { logWritingEvent } from './writingDiagnostics.js'
 
 export function describeWritingDocument(doc) {
@@ -23,15 +25,90 @@ function richFeatures(doc) {
   return features
 }
 
+// Milkdown has distinct header/data row schemas. Clipboard parsing promotes the
+// first copied row to headers, which cannot be inserted into a data-only row.
+// Adapt node kinds (not cell contents/attributes) before the public table handler.
+function compatibleTableSlice(view,slice,event){
+ const sel=view.state.selection,{$from}=sel
+ let depth=$from.depth
+ while(depth>0&&$from.node(depth).type.spec.tableRole!=='table')depth--
+ if(!depth)return slice
+ const target=$from.node(depth),schema=view.state.schema
+ if(!schema.nodes.table_header_row||!schema.nodes.table_row)return slice
+ let top=$from.index(depth),height=0
+ if(sel.$anchorCell&&sel.$headCell){
+  const start=sel.$anchorCell.start(-1)
+  const rect=TableMap.get(target).rectBetween(sel.$anchorCell.pos-start,sel.$headCell.pos-start)
+  top=rect.top;height=rect.bottom-rect.top
+ }
+ let content=slice.content
+ if(content.childCount===1&&content.firstChild.type.spec.tableRole==='table')content=content.firstChild.content
+ const rows=[]
+ content.forEach(node=>rows.push(node))
+ if(!rows.length||!rows.every(node=>node.type.spec.tableRole==='row')){
+  if(!sel.$anchorCell)return slice
+  const empty=schema.nodes.table_cell.createAndFill()
+  const cell=new Transform(empty).replace(0,empty.content.size,slice).doc
+  rows.length=0;rows.push(schema.nodes.table_row.create(null,[cell]))
+ }
+ const html=event.clipboardData?.getData('text/html')
+ if(html&&typeof document!=='undefined'){
+  const template=document.createElement('template');template.innerHTML=html
+  const copied=template.content.querySelector('table[data-pm-slice]')
+  // PM's own cell clipboard wraps rows in a table. Milkdown's strict table
+  // schema may append an empty data row while parsing a single copied row.
+  // Do not turn that schema filler into a second clipboard row.
+  if(copied&&/^\d+ \d+ -2(?: |$)/.test(copied.getAttribute('data-pm-slice')||'')){
+   const count=copied.rows.length
+   const filler=row=>{let empty=true;row.forEach(cell=>{if(cell.childCount!==1||cell.firstChild.type.name!=='paragraph'||cell.firstChild.content.size)empty=false});return empty}
+   if(count>0&&count<rows.length&&rows[0].type.name==='table_header_row'&&filler(rows[0])&&Array.from(copied.rows[0].cells).every(cell=>cell.tagName==='TD'))rows.shift()
+   if(count>0&&count<rows.length&&rows.slice(count).every(filler))rows.length=count
+  }
+ }
+ const normalized=[]
+ for(let index=0;index<Math.max(rows.length,height);index++){
+  const header=top+index===0,row=rows[index%rows.length],cells=[]
+  const cellType=header?schema.nodes.table_header:schema.nodes.table_cell
+  row.forEach(cell=>cells.push(cellType.create(cell.attrs,cell.content,cell.marks)))
+  normalized.push((header?schema.nodes.table_header_row:schema.nodes.table_row).create(row.attrs,cells,row.marks))
+ }
+ return new Slice(Fragment.fromArray(normalized),0,0)
+}
+
+// Invoke the same keyed table plugin without reordering any plugins or DOM/keys.
+function tablePaste(view,event,slice){
+ const selection=view.state.selection
+ if(selection.$from.parent.type.spec.code || selection.$from.marks().some(mark=>mark.type.spec.code))return null
+ let cell=false
+ for(let depth=selection.$from.depth;depth>0;depth--){
+  const role=selection.$from.node(depth).type.spec.tableRole
+  if(role==='cell'||role==='header_cell'){cell=true;break}
+ }
+ if(!cell)return null
+ const plugin=view.state.plugins.find(plugin=>plugin.key===tableEditingKey.key)
+ if(!plugin?.props.handlePaste)return null
+ return {handler:plugin.props.handlePaste,handled:Boolean(plugin.props.handlePaste.call(plugin,view,event,slice))}
+}
+export function snapshotPasteEvent(event){
+ const values=new Map(['text/plain','text/html','vscode-editor-data','text/uri-list'].map(type=>[type,event.clipboardData?.getData(type)||'']))
+ // Text aliases are not consistently included in DataTransfer.types.
+ for(const type of ['text/plain','text/html','vscode-editor-data','Text'])if(!values.has(type))values.set(type,event.clipboardData?.getData(type)||'')
+ return {type:'paste',timeStamp:event.timeStamp,target:event.target,defaultPrevented:false,
+  preventDefault(){this.defaultPrevented=true},stopPropagation(){},
+  clipboardData:{types:Array.from(event.clipboardData?.types||[]),items:[],files:[],getData:type=>values.get(type)||''}}
+}
+
 // HTML is ordinarily authoritative. Only use explicit Markdown math from the
 // same clipboard when HTML lost formulas and doing so preserves rich features.
-export function installWritingClipboard(view, { parse, normalize, editorId }) {
+export function installWritingClipboard(view, { parse, normalize, editorId, deferPaste, parsePlain = false }) {
   const previous = view.props.handlePaste
   let serial = 0
-  view.setProps({
-    handlePaste(editorView, event, slice) {
+  function prepareRaw(editorView, event, slice, {authorized=false}={}) {
+      const inputSlice=slice;let recovered=false
+      const selection=editorView.state.selection
+      const literal=Boolean(selection.$from.parent.type.spec.code || selection.$from.marks().some(mark=>mark.type.spec.code))
       const data = event.clipboardData
-      if (!data) return previous?.(editorView, event, slice) || false
+      if (!data) return {slice,inputSlice,event,recovered,literal}
       const text = data.getData('text/plain'), html = data.getData('text/html')
       const pasteId = `${editorId}-${++serial}`
       const metadata = {
@@ -45,9 +122,7 @@ export function installWritingClipboard(view, { parse, normalize, editorId }) {
         if (!editorView.isDestroyed) logWritingEvent('paste-result', { editorId, pasteId, route, reason, convertedDisplay, convertedInline, ...describeWritingDocument(editorView.state.doc) })
       })
       try {
-        const selection = editorView.state.selection
-        const literal = selection.$from.parent.type.spec.code || selection.$from.marks().some(mark => mark.type.spec.code)
-        if (!editorView.editable || literal || data.getData('vscode-editor-data')) {
+        if ((!editorView.editable&&!authorized) || literal || data.getData('vscode-editor-data')) {
           route = 'native'; reason = 'literal-or-special-context'
         } else if (text) {
           const fixed = normalize(text)
@@ -70,8 +145,7 @@ export function installWritingClipboard(view, { parse, normalize, editorId }) {
                 convertedDisplay = Math.max(0, counts.displayMath - htmlCounts.displayMath)
                 convertedInline = Math.max(0, counts.inlineMath - htmlCounts.inlineMath)
                 logWritingEvent('paste-route', { ...metadata, route, reason, normalized, convertedDisplay, convertedInline })
-                editorView.dispatch(editorView.state.tr.replaceSelection(candidate).scrollIntoView().setMeta('paste', true).setMeta('uiEvent', 'paste'))
-                result(); return true
+                return {slice:candidate,inputSlice,event,recovered:true,literal,result}
               }
               if (missingMath || missingStrong) reason = preservesMath ? 'html-has-additional-rich-content' : 'html-preserves-math'
               else reason = 'html-format-already-preserved'
@@ -84,8 +158,51 @@ export function installWritingClipboard(view, { parse, normalize, editorId }) {
         logWritingEvent('paste-error', { editorId, pasteId, errorType: error instanceof TypeError ? 'TypeError' : 'Error' })
       }
       logWritingEvent('paste-route', { ...metadata, route, reason, normalized })
-      result()
-      return previous?.(editorView, event, slice) || false
-    },
-  })
+      if(parsePlain&&!html&&!literal&&!data.getData('vscode-editor-data')&&/(?:\.frowd-assets\/|blob:|frowd-resource[.:])/i.test(text)){
+        const doc=parse(text);if(doc)slice=Slice.maxOpen(doc.content)
+      }
+      return {slice,inputSlice,event,recovered,literal,result}
+  }
+  function prepare(editorView,event,slice,options){
+    const plan=prepareRaw(editorView,event,slice,options)
+    if(!plan.literal)plan.slice=compatibleTableSlice(editorView,plan.slice,plan.event)
+    return plan
+  }
+  function commit(editorView,plan,{authorized=false}={}){
+    const {event,slice}=plan
+    const table=plan.literal||event.clipboardData?.getData('vscode-editor-data')?null:tablePaste(editorView,event,slice)
+    if(table?.handled){plan.result?.();return true}
+    if(plan.recovered){
+      editorView.dispatch(editorView.state.tr.replaceSelection(slice).scrollIntoView().setMeta('paste',true).setMeta('uiEvent','paste'))
+      plan.result?.();return true
+    }
+    // Only the explicit owned commit can pass the logical editability gate.
+    // The actual view props, owner, readonly DOM and inert lock never change.
+    const operationView=authorized?Object.create(editorView):editorView
+    if(authorized)Object.defineProperties(operationView,{
+      props:{value:{...editorView.props,editable:()=>true}},
+      editable:{value:true},
+      state:{get:()=>editorView.state},
+      dispatch:{value:editorView.dispatch.bind(editorView)},
+    })
+    let handled=false
+    editorView.someProp('handlePaste',handler=>{
+      if(handler===handlePaste){handled=Boolean(previous?.(operationView,event,slice));return handled}
+      if(table&&handler===table.handler)return false
+      handled=Boolean(handler(operationView,event,slice));return handled
+    })
+    if(!handled){
+      const single=slice.openStart===0&&slice.openEnd===0&&slice.content.childCount===1?slice.content.firstChild:null
+      const tr=single?editorView.state.tr.replaceSelectionWith(single,plan.literal):editorView.state.tr.replaceSelection(slice)
+      editorView.dispatch(tr.scrollIntoView().setMeta('paste',true).setMeta('uiEvent','paste'))
+    }
+    plan.result?.();return true
+  }
+  function handlePaste(editorView,event,slice){
+    const plan=prepare(editorView,event,slice)
+    if(deferPaste?.(editorView,event,plan))return true
+    return commit(editorView,plan)
+  }
+  view.setProps({handlePaste})
+  return {prepare,commit}
 }

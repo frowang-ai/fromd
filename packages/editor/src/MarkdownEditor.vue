@@ -26,7 +26,7 @@ import { isAllowedResourceUrl } from './markdown/sanitize.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
 import { installWritingListKeys, writingListLabels } from './writingListKeys.js'
 import { installWritingListViews } from './writingListView.js'
-import { describeWritingDocument, installWritingClipboard } from './writingClipboard.js'
+import { describeWritingDocument, installWritingClipboard, snapshotPasteEvent } from './writingClipboard.js'
 import { logWritingEvent } from './writingDiagnostics.js'
 import { installWritingLinks } from './writingLinks.js'
 import { configureWritingTables } from './writingTableSelection.js'
@@ -42,7 +42,7 @@ const props = defineProps({ modelValue: { type: String, default: '' }, resolveIm
 const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
-let editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
+let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
 let activeSession = null, sessionResolver = null, allPlugins, switching = false, updateTimer, rememberedViews = null, restoredViews = []
 let resolveReady, disposeLinks
 const initialized = new Promise(resolve => { resolveReady = resolve })
@@ -136,7 +136,9 @@ function insertResources(items) {
     else nodes.push(schema.text(item.name || '附件', [schema.marks.link.create({href:item.reference,title:null})]))
   }
   if (!nodes.length) return
-  v.dispatch(closeHistory(v.state.tr).replaceSelection(new Slice(Fragment.fromArray(nodes),0,0)).scrollIntoView())
+  v.dispatch(closeHistory(v.state.tr))
+  const plan=clipboard.prepare(v,{clipboardData:null},new Slice(Fragment.fromArray(nodes),0,0),{authorized:true})
+  clipboard.commit(v,plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
 }
 function resourceMarkdownReferences(markdown,range,before) {
@@ -146,15 +148,15 @@ function resourceMarkdownReferences(markdown,range,before) {
 function prepareResourcePaste(payload) {
   if (!created || !activeSession) throw Error('编辑会话不可用。')
   if (payload.error) throw Error(payload.error)
-  const v=view(),literal=v.state.selection.$from.parent.type.spec.code || v.state.selection.$from.marks().some(mark=>mark.type.spec.code)
-  return {state:v.state,slice:payload.slice,text:payload.text,literal,references:literal?[]:sliceResources(payload.slice)}
+  const v=view(),plan=payload.preparedState===v.state?{...payload.plan,event:payload.event}:clipboard.prepare(v,payload.event,payload.slice,{authorized:true})
+  return {state:v.state,plan,references:plan.literal?[]:sliceResources(plan.slice)}
 }
 function commitResourcePaste(prepared) {
   const v=view()
   if(v.state!==prepared.state)throw Error('正文或选区已变化，请重新粘贴。')
-  let tr=closeHistory(v.state.tr)
-  tr=prepared.literal?tr.insertText(prepared.text):tr.replaceSelection(prepared.slice)
-  v.dispatch(tr.scrollIntoView().setMeta('paste',true).setMeta('uiEvent','paste'))
+  v.dispatch(closeHistory(v.state.tr))
+  if(prepared.plan.literal)v.dispatch(v.state.tr.insertText(prepared.plan.event.clipboardData.getData('text/plain')).scrollIntoView())
+  else clipboard.commit(v,prepared.plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
@@ -242,33 +244,22 @@ onMounted(async () => {
     installWritingMathViews(view())
     installWritingListViews(view())
     installWritingListKeys(view())
-    installWritingClipboard(view(), {
+    clipboard=installWritingClipboard(view(), {
+      deferPaste:props.resourceImport?(editorView,event,plan)=>{
+        if(!activeSession||!editorView.editable||switching||plan.literal)return false
+        let references,error
+        try{references=sliceResources(plan.slice)}catch(cause){error=cause.message}
+        if(!error&&!references.length)return false
+        event.preventDefault()
+        emit('resource-paste',{...activeSession,payload:{mode:'rendered',slice:plan.inputSlice,preparedState:editorView.state,plan,event:snapshotPasteEvent(event),error}})
+        return true
+      }:undefined,
+      parsePlain:props.resourceImport,
       editorId,
       parse: markdown => editor.editor.action(ctx => ctx.get(core.parserCtx)(markdown)),
       normalize: markdown => editor.editor.action(ctx => normalizeWritingMarkdown(markdown, text => ctx.get(core.remarkCtx).parse(text))),
     })
     if (props.resourceImport) {
-      const previousPaste=v.props.handlePaste
-      v.setProps({handlePaste(editorView,event,slice) {
-        if(!activeSession || !editorView.editable || switching)return previousPaste?.(editorView,event,slice)||false
-        const selection=editorView.state.selection
-        if(selection.$from.parent.type.spec.code || selection.$from.marks().some(mark=>mark.type.spec.code))return previousPaste?.(editorView,event,slice)||false
-        const text=event.clipboardData?.getData('text/plain')||'',html=event.clipboardData?.getData('text/html')
-        let candidate=slice,references,error
-        try {
-          // HTML uses the actual PM clipboard slice. Plain Markdown follows the
-          // same parser as the body, without changing the active editor state.
-          if(!html && /(?:\.frowd-assets\/|blob:|frowd-resource[.:])/i.test(text)){
-            const parsed=editor.editor.ctx.get(core.parserCtx)(text)
-            if(parsed)candidate=Slice.maxOpen(parsed.content)
-          }
-          references=sliceResources(candidate)
-        } catch(cause){error=cause.message}
-        if(!error&&!references?.length)return previousPaste?.(editorView,event,slice)||false
-        event.preventDefault()
-        emit('resource-paste',{...activeSession,payload:{mode:'rendered',slice:candidate,text,error}})
-        return true
-      }})
       const handlers = v.props.handleDOMEvents || {}
       v.setProps({handleDOMEvents:{...handlers,paste(editorView,event) {
         const files = Array.from(event.clipboardData?.files || [])

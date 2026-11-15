@@ -261,3 +261,10 @@ fail without changing the target selection/text. Source reference definitions ar
 handled too. See RESOURCES_V1.md for the exact source qualification and SVG policy.
 For local targeted native checks:
 cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked clipboard_reuse
+
+Shared table paste now routes through the same original keyed tableEditing handler
+for ordinary paste and resource continuation. HTML/math planning and row-kind
+compatibility precede binding; the actual editor remains readonly/inert through
+native waits and commit. No plugin reorder or vendor insertCells copy is used.
+Focused regression: resource-cell-paste.browser.spec.mjs and paste-route.test.mjs.
+Native checks remain pending; see VALIDATION_V1.md for exact company results.

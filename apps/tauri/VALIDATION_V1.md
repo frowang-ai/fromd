@@ -236,3 +236,49 @@ cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked 
 
 No unrelated full Electron/workbench suites were rerun. Native OS clipboard/IME,
 file dialogs/protocol and physical restart remain separate local acceptance.
+
+## Shared table paste routing and resource continuation (5e519b0 baseline)
+
+The earlier output diagnostic (3 failed /1 passed) remains unchanged. It showed
+the same broken geometry in plain/resource controls and runtime order:
+MILKDOWN_CLIPBOARD$ -> MILKDOWN_UPLOAD$ -> selectingCells$, with the first plugin
+consuming plain paste. Resource direct replacement invoked none of those handlers.
+
+The fixed route keeps plugin order but invokes the original keyed table handler
+first for table paste, after necessary HTML/math and Milkdown row-kind preparation.
+Actual runtime traces now show selectingCells$ consuming once for both ordinary
+and resource table targets; ordinary body fallback still uses MILKDOWN_CLIPBOARD$.
+Resource traces assert actual contenteditable=false and inert=true during handling.
+
+Current directly affected checks:
+- 22/22 Node: route4 + table policy5 + resource reuse7 + imports6.
+- 31/31 resource browser: new table/paste11 + reuse12 + import8.
+- 4/4 shared browser: table/math clipboard compatibility and list/table Tab.
+- 5/5 PM browser: cross-cell drag both directions, switch/shelf/source/reorder,
+  row/column handles + Tab/delete Undo, and HTML cell paste.
+- vue-tsc/Vite frontend build passes; existing large-chunk warning remains.
+No unrelated whole-workbench/Electron suite was mechanically rerun.
+
+Healthy geometry assertions go beyond equality between two bad paths:
+- Single cell -> 2x3 selection fills all six cells, with six image instances but
+  only one resource registration. Two-row source replaces exactly two data rows.
+- Text caret inside a cell uses the table handler's rectangle semantics.
+- Column selection includes header plus data rows; target cell kinds stay valid,
+  and unselected columns remain byte-for-text equal. Header/data marked HTML also
+  fills correctly. Prefix/suffix text and unselected rows remain.
+- Pasting a cell fragment into ordinary body preserves the old separate-fragment
+  behavior and leaves the existing table intact; this is not a split target table.
+- Both ordinary and resource operations undo/redo as one owned insertion.
+- Ordinary HTML marks/math recovery and literal code remain appropriate.
+- Final math-recovered slice resources are bound; a newly recovered unknown image
+  rejects the entire batch without changing text/selection or partially binding.
+- New File paste uses the same continuation; source reuse, late responses, IME,
+  close, removal/fresh-id Undo and failed body-backup retry still pass.
+
+The adapter initially exposed the dedicated Milkdown header/data schema mismatch
+via a public-handler RangeError before any document dispatch; the final adapter
+removes that failure without swallowing it into generic replacement.
+
+Only shared paste modules, focused tests and documentation change. Rust/SQLite,
+native protocol, physical WebView2/IME/clipboard/export/restart remain pending the
+local node exactly as before; there is no new native acceptance claim.

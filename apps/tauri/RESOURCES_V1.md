@@ -112,3 +112,34 @@ The explicit image policy remains PNG/JPEG/GIF/WebP. Auto/image import of SVG or
 spoofed image is NOT silently downgraded to an attachment. SVG is available through
 the explicit Insert attachment entry; rejected-image errors now explain that choice.
 This is an intentional product policy, not a missing automatic fallback.
+
+## Shared table-aware continuation (5e519b0 follow-up)
+
+The default clipboard plugin previously consumed table fragments before the
+keyed tableEditing handler; resource replay also used direct replaceSelection.
+The preserved diagnostic found both routes splitting one target table into two.
+The shared route now prepares HTML/math recovery first, then gives the original
+keyed table handler first refusal in eligible table contexts. It is the same
+plugin instance/function with its correct receiver; no plugin array, mouse/key
+priority, appendTransaction, vendor or insertCells implementation is changed.
+A false result continues the original previous/plugin order, skips the already
+attempted table handler, then uses public transaction fallback.
+
+Milkdown's dedicated table_header_row/table_row schemas require a small slice
+adapter: source cells become the destination row's header/data cell kind while
+retaining content, marks and attributes. Vertical repetition is materialized with
+appropriate row kinds before the original handler performs geometric insertion.
+For PM's own cell-copy wrapper, parser-created empty header/data filler rows are
+removed using the captured original row count; real copied rows remain. Generic
+CellSelection content is fitted through the public Transform API, not copied
+vendor insertion logic. TableMap/clipboard geometry still belongs to tableEditing.
+
+The same prepare/commit continuation handles ordinary paste, bound-reference
+reuse and new imported files. Resource prepare covers the final normalized slice
+(including math recovery) before atomic binding. Clipboard data is captured during
+the original event; no second paste event or later OS clipboard read occurs.
+Prepared state/docId/generation guards remain. Actual readonly/inert props never
+unlock: original fallback handlers receive a narrow authorized operation view for
+their logical editability check, whose dispatch targets the still-frozen editor.
+The original table handler receives the actual view. Each owned insertion has
+history boundaries around its one document operation. Source mode is unchanged.
