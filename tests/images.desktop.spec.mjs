@@ -217,6 +217,8 @@ test('图片导入回执延迟期间外部打开另一页，图片不会插到�
     await body(page).click()
     await page.keyboard.insertText('原草稿')
     const originalId = await page.evaluate(async () => (await window.desktop.listMetadata()).activeId)
+    await expect.poll(() => currentMarkdown(page)).toContain('原草稿')
+    const originalMarkdown = await currentMarkdown(page)
     // Delay only the completed import's reply; the image write, validation and
     // document operation queue have already completed normally.
     await app.evaluate(({ ipcMain }) => {
@@ -239,7 +241,7 @@ test('图片导入回执延迟期间外部打开另一页，图片不会插到�
     await expect(images(page)).toHaveCount(0)
     expect(await currentMarkdown(page)).toBe('# 另一页\n\n保留外部正文')
     expect(await readFile(other, 'utf8')).toBe('# 另一页\n\n保留外部正文')
-    expect(await page.evaluate(async id => (await window.desktop.read(id)).markdown, originalId)).toBe('原草稿')
+    expect(await page.evaluate(async id => (await window.desktop.read(id)).markdown, originalId)).toBe(originalMarkdown)
     await page.getByRole('tab', { name: '未命名笔记', exact: true }).click()
     await editorReady(page)
     await expect(body(page)).toHaveText('原草稿')
