@@ -1,4 +1,11 @@
-import { getMarkdownRenderer } from './renderer.js'
+import { createMarkdownRenderer } from './renderer.js'
+
+// Counts and outline labels must retain the punctuation shown by the editor.
+// Keep this parser separate from the shared preview/PDF typography settings.
+let analysisRenderer
+function getAnalysisRenderer() {
+  return analysisRenderer ??= createMarkdownRenderer().set({ typographer: false })
+}
 
 const cjkCharacter = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
 const wordSegments = new Intl.Segmenter('en', { granularity: 'word' })
@@ -32,7 +39,7 @@ export function countWritingText(text) {
 }
 
 export function analyzeMarkdown(markdown = '') {
-  const tokens = getMarkdownRenderer().parse(markdown, {})
+  const tokens = getAnalysisRenderer().parse(markdown, {})
   const offsets = [0]
   for (const match of markdown.matchAll(/\r\n|\r|\n/g)) offsets.push(match.index + match[0].length)
   const headings = []
@@ -56,7 +63,7 @@ export function analyzeMarkdown(markdown = '') {
         .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
         .replace(/<\/?(?:p|div|br|h[1-6]|li|tr|td|th|pre|blockquote)\b[^>]*>/gi, '\n')
         .replace(/<[^>]*>/g, '')
-      text.push(getMarkdownRenderer().utils.unescapeAll(content))
+      text.push(getAnalysisRenderer().utils.unescapeAll(content))
     }
   }
   return { headings, ...countWritingText(text.join('\n')) }

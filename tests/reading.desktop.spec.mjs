@@ -57,7 +57,7 @@ async function cleanup(app, directory) {
 async function openSettings(page) {
   const button = page.getByRole('button', { name: '阅读', exact: true })
   if (await button.getAttribute('aria-expanded') !== 'true') await button.click()
-  await expect(page.getByLabel('正文字号', { exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: '正文字号', exact: true })).toBeVisible()
 }
 
 async function expectCodeContrast(locator) {
@@ -141,9 +141,9 @@ test('字号、正文宽度和主题重启后恢复，设置存储故障有反�
     app = launched.app
     let page = launched.page
     await openSettings(page)
-    await page.getByLabel('正文字号', { exact: true }).selectOption('20')
-    await page.getByLabel('正文宽度', { exact: true }).selectOption('720')
-    await page.getByLabel('主题', { exact: true }).selectOption('dark')
+    await page.getByRole('combobox', { name: '正文字号', exact: true }).selectOption('20')
+    await page.getByRole('combobox', { name: '正文宽度', exact: true }).selectOption('720')
+    await page.getByRole('combobox', { name: '主题', exact: true }).selectOption('dark')
     await expect(page.locator('main')).toHaveAttribute('data-theme', 'dark')
     await expect(body(page)).toHaveCSS('font-size', '20px')
     await expect(page.locator('.shared-editor')).toHaveCSS('max-width', '720px')
@@ -155,11 +155,11 @@ test('字号、正文宽度和主题重启后恢复，设置存储故障有反�
     await expect(page.locator('main')).toHaveAttribute('data-theme', 'dark')
     await expect(body(page)).toHaveCSS('font-size', '20px')
     await openSettings(page)
-    await expect(page.getByLabel('正文字号', { exact: true })).toHaveValue('20')
-    await expect(page.getByLabel('正文宽度', { exact: true })).toHaveValue('720')
-    await expect(page.getByLabel('主题', { exact: true })).toHaveValue('dark')
+    await expect(page.getByRole('combobox', { name: '正文字号', exact: true })).toHaveValue('20')
+    await expect(page.getByRole('combobox', { name: '正文宽度', exact: true })).toHaveValue('720')
+    await expect(page.getByRole('combobox', { name: '主题', exact: true })).toHaveValue('dark')
     await page.evaluate(() => { Storage.prototype.setItem = () => { throw new Error('Synthetic settings failure') } })
-    await page.getByLabel('正文字号', { exact: true }).selectOption('18')
+    await page.getByRole('combobox', { name: '正文字号', exact: true }).selectOption('18')
     await expect(body(page)).toHaveCSS('font-size', '18px')
     await expect(page.getByRole('alert')).toContainText('阅读设置保存失败')
     await expect(body(page)).toContainText('保留正文')
@@ -171,7 +171,7 @@ test('深色下普通代码和公式编辑文字保持可读，跟随系统实�
   const { app, page } = await launch(profile)
   try {
     await openSettings(page)
-    await page.getByLabel('主题', { exact: true }).selectOption('dark')
+    await page.getByRole('combobox', { name: '主题', exact: true }).selectOption('dark')
     await page.getByRole('button', { name: '关闭阅读工具', exact: true }).click()
     await expect(page.locator('main')).toHaveCSS('background-color', 'rgb(32, 39, 35)')
     const code = page.locator('.milkdown-code-block .cm-content')
@@ -187,7 +187,7 @@ test('深色下普通代码和公式编辑文字保持可读，跟随系统实�
     await page.keyboard.press('Escape')
 
     await openSettings(page)
-    await page.getByLabel('主题', { exact: true }).selectOption('system')
+    await page.getByRole('combobox', { name: '主题', exact: true }).selectOption('system')
     await page.emulateMedia({ colorScheme: 'light' })
     await expect(page.locator('main')).toHaveAttribute('data-theme', 'light')
     await page.emulateMedia({ colorScheme: 'dark' })
@@ -210,8 +210,8 @@ test('窄窗口可以打开大纲和阅读设置，面板与主要工具保持�
     await page.getByRole('button', { name: '大纲', exact: true }).click()
     await expect(outline(page).getByRole('button', { name: '窄窗口', exact: true })).toBeVisible()
     await page.getByRole('tab', { name: '阅读设置', exact: true }).click()
-    await page.getByLabel('正文字号', { exact: true }).selectOption('20')
-    await page.getByLabel('正文宽度', { exact: true }).selectOption('1080')
+    await page.getByRole('combobox', { name: '正文字号', exact: true }).selectOption('20')
+    await page.getByRole('combobox', { name: '正文宽度', exact: true }).selectOption('1080')
     const bounds = await page.getByRole('complementary', { name: '阅读工具', exact: true }).boundingBox()
     expect(bounds.x).toBeGreaterThanOrEqual(0)
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(await page.evaluate(() => innerWidth))

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { analyzeMarkdown, countWritingText } from '../packages/editor/src/markdown/analysis.js'
+import { getMarkdownRenderer } from '../packages/editor/src/markdown/renderer.js'
 import {
   DEFAULT_READING_PREFERENCES, normalizeReadingPreferences, loadReadingPreferences,
   saveReadingPreferences, resolvedReadingTheme, readingStyle,
@@ -30,6 +31,18 @@ test('word count uses individual CJK characters and non-CJK words, with nonspace
   assert.deepEqual(countWritingText('😀 e\u0301'), { wordCount: 1, characterCount: 3 })
   assert.equal(countWritingText('日本語 한글').wordCount, 5)
   assert.deepEqual(countWritingText(''), { wordCount: 0, characterCount: 0 })
+})
+
+test('analysis preserves literal punctuation without changing shared preview typography', () => {
+  const preview = getMarkdownRenderer()
+  assert.equal(preview.render('hello... (c)'), '<p>hello… ©</p>\n')
+  assert.deepEqual(analyzeMarkdown('hello... (c)'), { headings: [], wordCount: 2, characterCount: 11 })
+  assert.deepEqual(analyzeMarkdown('# hello... (c)'), {
+    headings: [{ index: 0, offset: 0, level: 1, text: 'hello... (c)' }],
+    wordCount: 2,
+    characterCount: 11,
+  })
+  assert.equal(preview.render('hello... (c)'), '<p>hello… ©</p>\n')
 })
 
 test('Markdown analysis excludes syntax, URLs and hidden comments while counting code and formulas', () => {
