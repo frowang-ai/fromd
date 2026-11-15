@@ -13,6 +13,9 @@
           <button :disabled="!current || state.busy" @click="insertResource(null, 'attachment')">插入附件…</button>
           <button :disabled="!current" @click="removePage(state.activeId)">移除当前页面</button>
         </div></details>
+        <details><summary>编辑</summary><div class="menu-popup">
+          <button @click="openFind">查找 / 替换… <kbd>Ctrl+F / Ctrl+H</kbd></button>
+        </div></details>
         <details><summary>视图</summary><div class="menu-popup">
           <button :disabled="!current" @click="setMode('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
           <button :disabled="!current" @click="setMode('source')">源码 <kbd>Ctrl+Shift+M</kbd><span v-if="mode === 'source'">✓</span></button>
@@ -79,10 +82,10 @@
         <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
         <div v-if="state.importReport?.id === state.activeId" class="error-notice import-report" role="status" aria-label="导入说明"><span>{{ state.importReport.text }}</span><button aria-label="关闭导入说明" @click="state.importReport = null">×</button></div>
         <div v-if="findState.open" class="find-panel" role="dialog" aria-label="当前文档查找替换">
-          <input ref="findInput" v-model="findState.query" aria-label="查找文字" placeholder="查找" @input="findInputChanged" @compositionstart="findState.composing = true" @compositionend="findCompositionEnd" @keydown.enter.prevent="findStep(1)" />
+          <input ref="findInput" v-model="findState.query" aria-label="查找文字" placeholder="查找" @input="findInputChanged" @compositionstart="findState.composing = true" @compositionend="findCompositionEnd" @keydown.enter="findEnter" />
           <span class="find-count">{{ findState.query ? (findState.count ? (findState.index + 1) + '/' + findState.count + (findState.limited ? '+' : '') : '无匹配') : '输入查找文字' }}</span>
           <button :disabled="!findState.count" aria-label="上一处" @click="findStep(-1)">↑</button><button :disabled="!findState.count" aria-label="下一处" @click="findStep(1)">↓</button>
-          <input v-model="findState.replacement" aria-label="替换为" placeholder="替换为" @keydown.enter.prevent="replaceOne" />
+          <input v-model="findState.replacement" aria-label="替换为" placeholder="替换为" @keydown.enter="replaceEnter" />
           <button :disabled="!findState.count || state.busy" @click="replaceOne">替换</button><button :disabled="!findState.count || findState.limited || state.busy" @click="replaceAll">全部替换</button>
           <button aria-label="关闭查找替换" @click="closeFind">×</button>
         </div>
@@ -213,14 +216,17 @@ function dropTab(event,id){
  if(ids.every((value,i)=>value===drag.ids[i]))return
  action(()=>coordinator.reorder(ids,drag.revision))
 }
-function closeFind(){findState.open=false;findState.query='';findState.replacement='';findState.count=0;findState.index=0;findState.owner=null;editor.value?.focus()}
-async function refreshFind(index=findState.index){const serial=++findSerial;if(!findState.open||!findState.query||!current.value)return;const owner=current.value.id;try{const result=await coordinator.findReplace(findState.query,index);if(serial!==findSerial||owner!==state.activeId)return;findState.owner=owner;findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)}catch(error){if(serial===findSerial)coordinator.report(error)}}
-function openFind(){findState.open=true;findState.owner=state.activeId;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
+function closeFind(){findSerial++;findState.open=false;findState.query='';findState.replacement='';findState.count=0;findState.limited=false;findState.index=0;findState.owner=null;editor.value?.focus()}
+function currentFindTarget(query){const captured=editor.value?.capture();return captured?{id:captured.id,generation:captured.generation,mode:captured.viewState?.mode||mode.value,query}:null}
+async function refreshFind(index=findState.index){const serial=++findSerial;if(!findState.open||!findState.query||!current.value){findState.count=0;findState.limited=false;findState.owner=null;return}const target=currentFindTarget(findState.query);if(!target)return;try{const result=await coordinator.findReplace(findState.query,index,target);if(serial!==findSerial||target.id!==state.activeId)return;findState.owner=target;findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)}catch(error){if(serial===findSerial)coordinator.report(error)}}
+function openFind(){closeMenus();findState.open=true;findState.owner=state.activeId;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
 function findInputChanged(){if(!findState.composing){findState.index=0;refreshFind(0)}}
 function findCompositionEnd(){findState.composing=false;findInputChanged()}
-function findStep(direction){refreshFind(Math.max(0,findState.index+direction))}
-function replaceOne(){action(async()=>{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)})}
-function replaceAll(){action(async()=>{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true);findState.index=0;await refreshFind(0)})}
+function findStep(direction){if(!findState.count)return;refreshFind((findState.index+direction+findState.count)%findState.count)}
+function findEnter(event){if(event.isComposing||findState.composing||event.keyCode===229||state.busy)return;event.preventDefault();findStep(1)}
+function replaceEnter(event){if(event.isComposing||findState.composing||event.keyCode===229||state.busy)return;event.preventDefault();replaceOne()}
+function replaceOne(){const target=findState.owner;action(async()=>{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false,target);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)})}
+function replaceAll(){const target=findState.owner;action(async()=>{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true,target);findState.index=0;await refreshFind(0)})}
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
@@ -248,7 +254,7 @@ function globalEnd(){globalComposing=false}
 function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=false}
 function shortcut(event){
  if(event.isComposing||globalComposing||removalDialog.value)return
- if(event.key==='Escape'){contextPage.value=null;closeMenus();if(narrow.value)sidebarOpen.value=false}
+ if(event.key==='Escape'){if(findState.open){event.preventDefault();closeFind();return}contextPage.value=null;closeMenus();if(narrow.value)sidebarOpen.value=false}
  if(!(event.ctrlKey||event.metaKey)||event.altKey)return
  const key=event.key.toLowerCase()
  if(key==='n'){event.preventDefault();action(()=>coordinator.create())}

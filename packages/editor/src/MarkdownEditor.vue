@@ -142,10 +142,11 @@ function insertResources(items) {
   clipboard.commit(v,plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
 }
+const FIND_LIMIT = 10000
 function findTextMatches(query) {
   if (!query) return []
   const matches = [], fold = value => value.replace(/[A-Z]/g, c => c.toLowerCase()), wanted = fold(query)
-  const limit = 10000
+  const limit = FIND_LIMIT
   view().state.doc.descendants((node, pos) => {
     if (matches.length >= limit) return false
     if (!node.isTextblock) return
@@ -168,15 +169,20 @@ function findTextMatches(query) {
 function findMatch(query, index = 0) {
   const matches = findTextMatches(query), selected = matches.length ? matches[((index % matches.length) + matches.length) % matches.length] : null
   if (selected) { const v = view(); v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, selected.from, selected.to)).scrollIntoView()); v.focus() }
-  return { count: matches.length, limited: matches.length >= 10000, index: selected ? matches.indexOf(selected) : -1, match: selected }
+  return { count: matches.length, limited: matches.length >= FIND_LIMIT, index: selected ? matches.indexOf(selected) : -1, match: selected }
 }
+function nextMatchIndex(matches, from) { const next = matches.findIndex(match => match.from >= from); return next < 0 ? 0 : next }
+function replacementSize(text, query, replacement, count) { if (text.length + (replacement.length - query.length) * count > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
 function replaceFind(query, replacement, index = 0, all = false) {
   const matches = findTextMatches(query); if (!matches.length) return { count: 0, replaced: 0, index: -1, limited: false }
+  if (all && matches.length >= FIND_LIMIT) throw Error('匹配数量达到 10000 上限，未执行全部替换。')
   const v = view()
-  if (all) { v.dispatch(closeHistory(v.state.tr)); let tr = v.state.tr; for (const match of [...matches].reverse()) tr = tr.replaceWith(match.from, match.to, replacement ? v.state.schema.text(replacement, match.marks) : null); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); v.focus(); return { count: matches.length, replaced: matches.length, index: -1, limited: matches.length >= 10000 } }
+  replacementSize(v.state.doc.textContent, query, replacement, matches.length)
+  if (all) { v.dispatch(closeHistory(v.state.tr)); let tr = v.state.tr; for (const match of [...matches].reverse()) tr = tr.replaceWith(match.from, match.to, replacement ? v.state.schema.text(replacement, match.marks) : null); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); return { count: matches.length, replaced: matches.length, index: -1, limited: false } }
   const selected = matches[((index % matches.length) + matches.length) % matches.length]
-  v.dispatch(closeHistory(v.state.tr)); v.dispatch(v.state.tr.replaceWith(selected.from, selected.to, replacement ? v.state.schema.text(replacement, selected.marks) : null).scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); v.focus()
-  return { count: matches.length, replaced: 1, limited: matches.length >= 10000, index: (index + 1) % matches.length }
+  v.dispatch(closeHistory(v.state.tr)); v.dispatch(v.state.tr.replaceWith(selected.from, selected.to, replacement ? v.state.schema.text(replacement, selected.marks) : null).scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr))
+  const next = findTextMatches(query), nextIndex = nextMatchIndex(next, selected.from + replacement.length)
+  return { count: next.length, replaced: 1, limited: next.length >= FIND_LIMIT, index: nextIndex }
 }
 function prepareFileImport(source) {
   if(!created)throw Error('编辑器尚未就绪。')

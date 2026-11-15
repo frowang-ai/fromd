@@ -365,4 +365,4 @@ DB/file rollback/capacity and idempotent confirmation after reopen.
 
 ## Current-document Find/Replace
 
-Implemented temporary Ctrl+F/Ctrl+H panel with rendered/source literal semantics, mark-preserving PM replacement, bounded match count, coordinator ownership/freeze/flush, and retry after persistence failure. Company: find browser5/5, affected PM4/4, shared HTML/math/table3/3, frontend build pass. Native WebView2 shortcut/IME/focus remains pending.
+Implemented temporary Ctrl+F/Ctrl+H or Edit-menu panel with rendered/source literal semantics, mark-preserving PM replacement, execution-enforced 10000-match bound, fixed target ownership/freeze/flush, previous/next wrap, IME Enter guard, and retry after persistence failure. Company: find browser5/5, affected PM4/4, shared HTML/math/table3/3, frontend build pass. Native WebView2 shortcut/IME/focus remains pending.

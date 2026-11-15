@@ -257,11 +257,16 @@ export class DocumentCoordinator {
       return result;
     });
   }
-  findReplace(query, index = 0) {
-    return this.run(async () => { await this.port.waitComposition(); const owner = this.port.capture(); if (!owner || owner.id !== this.state.activeId || owner.generation !== this.generation) throw Error('当前页面已切换，请重新查找。'); return this.port.findReplace(query, index); });
+  findTarget(target, query) {
+    const owner = this.port.capture();
+    if (!target || !query || target.query !== query || !owner || owner.id !== target.id || owner.generation !== target.generation || owner.viewState?.mode !== target.mode) throw Error('查找结果已失效，请重新查找。');
+    return owner;
   }
-  replaceFind(query, replacement, index = 0, all = false) {
-    return this.run(async () => { await this.flush(); const owner = this.port.capture(); if (!owner || owner.id !== this.state.activeId || owner.generation !== this.generation) throw Error('当前页面已切换，请重新替换。'); const result = await this.port.replaceFind(query, replacement, index, all); if (owner.id !== this.state.activeId || owner.generation !== this.generation) throw Error('替换归属已变化，请重试。'); await this.flush(); return result; });
+  findReplace(query, index = 0, target) {
+    return this.run(async () => { await this.port.waitComposition(); this.findTarget(target, query); const result = await this.port.findReplace(query, index); this.findTarget(target, query); return result; });
+  }
+  replaceFind(query, replacement, index = 0, all = false, target) {
+    return this.run(async () => { this.findTarget(target, query); await this.flush(); this.findTarget(target, query); const result = await this.port.replaceFind(query, replacement, index, all); this.findTarget(target, query); await this.flush(); return result; });
   }
   importFile() {
     return this.run(async()=>{
