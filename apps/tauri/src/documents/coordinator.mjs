@@ -264,7 +264,7 @@ export class DocumentCoordinator {
   }
   findReplace(query, index = 0, target) {
     return this.run(async () => {
-      const cancelled = () => ({ cancelled: true, count: 0, index: -1, limited: false, mode: target?.mode ?? this.port.currentOwner?.()?.viewState?.mode ?? 'rendered' });
+      const cancelled = () => ({ cancelled: true, count: 0, index: -1, limited: false, mode: target?.mode ?? 'rendered' });
       if (target?.cancelled) return cancelled();
       await this.port.waitComposition();
       if (target?.cancelled) return cancelled();
