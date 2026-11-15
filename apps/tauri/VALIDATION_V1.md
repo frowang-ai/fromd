@@ -282,3 +282,68 @@ removes that failure without swallowing it into generic replacement.
 Only shared paste modules, focused tests and documentation change. Rust/SQLite,
 native protocol, physical WebView2/IME/clipboard/export/restart remain pending the
 local node exactly as before; there is no new native acceptance claim.
+
+## Crop-effective resource qualification (4ea0a3f baseline)
+
+Real Edge reproduction used source-mode fixture editing, the existing row handles
+to copy a 2x3 source with PM's actual clipboard serializer, and triple-click /
+Shift+ArrowDown / column handles to select the target. No Selection/history was
+injected and no system clipboard was read or written.
+
+Before the fix: 4 failed / 1 passed. Unknown images in the discarded right column
+or second source row rejected the valid 1x1 paste. An entirely discarded resource
+set still caused IPC/rejection; a known discarded attachment unnecessarily joined
+the target binding. Unknown resources in retained cells already rejected correctly.
+
+The shared clipboard preparation now invokes only the original keyed public table
+handler with a frozen, two-field collector (immutable state + transaction capture).
+It has no live view/DOM/dispatch/update/focus methods and does not apply the planned
+transaction or run appendTransaction. The resulting CellSelection.forEachCell
+provides the actual insertion region after the public handler's clipping, spanning
+and repetition. Those cells form resourceSlice for BOTH initial defer qualification
+and frozen re-preparation. No private clipping/insertion code is copied.
+
+After atomic binding and exact prepared-state/owner validation, commit dispatches
+that same transaction once; the table handler is not replayed. A history boundary
+marks the planned transaction without advancing the live state first. The real
+editor stays readonly/inert through asynchronous binding and actual insertion.
+Non-table HTML/math/literal fallback and source Markdown paths remain unchanged.
+New imported Files also use the same prepare/commit table path.
+
+Current company results:
+- 24/24 Node (route6 + table policy5 + reuse7 + imports6). Added no-live-dispatch/
+  DOM/event mutation, exact kept references excluding unrelated target resources,
+  one public-handler call, and stale-selection rejection cases.
+- 37/37 resource browser (table/paste17 + reuse12 + imports8).
+- Final focused crop run 6/6 after adding the held-IPC preparation check: unchanged
+  target text/selection and zero target bindings while readonly/inert, then one
+  insertion after release.
+- 4/4 existing shared table/math/list-paste browser cases.
+- 5/5 directly affected PM cases: cross-cell mouse drag both directions, handles/
+  Tab/delete Undo, page/shelf/source/reorder lifecycle, ordinary HTML cell paste.
+- vue-tsc/Vite frontend build passes; the existing large-chunk warning remains.
+
+Exact crop expectations:
+- Source 2x3 -> target 1x1 or 2x1: A11 (and A21 for 2x1) replaces the first
+  destination column; only retained PNG is requested. A12's registered attachment
+  and A13's unknown PNG are excluded. Header, all other rows/columns and surrounding
+  paragraphs remain intact; Undo/Redo each restore one complete operation.
+- Unknown A21 is excluded for a 1x1 target. If all resources are outside the
+  retained area, reuse IPC is not called and no target binding is added.
+- A 2x3 source -> whole-column header/data target retains/repeats A11/A21; placing
+  an unknown resource in A21 rejects the batch including the known A11 image,
+  leaving the original target text/selection and zero bindings.
+- Previous single-cell -> 2x3/whole-column repeat cases, valid image display,
+  attachment links, table structure and File insertion still pass.
+
+Run only the directly affected checks from the repository root:
+```powershell
+node --test apps/tauri/tests/paste-route.test.mjs apps/tauri/tests/table-policy.test.mjs apps/tauri/tests/resource-reuse.test.mjs apps/tauri/tests/resources.test.mjs
+node apps/tauri/node_modules/@playwright/test/cli.js test -c apps/tauri/playwright.config.mjs resource-cell-paste.browser.spec.mjs resource-reuse.browser.spec.mjs resources.browser.spec.mjs
+npm run tauri:web
+```
+
+Rust is unchanged. The existing 31 domain/helper tests, SQLite/object protocol,
+native export/restart, WebView2 and physical clipboard/IME remain pending local
+execution using README's isolated synthetic profile instructions. Browser mock IPC
+and a frontend dist are not native acceptance or a native binary size measurement.

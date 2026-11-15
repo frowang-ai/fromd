@@ -75,9 +75,12 @@ function compatibleTableSlice(view,slice,event){
  return new Slice(Fragment.fromArray(normalized),0,0)
 }
 
-// Invoke the same keyed table plugin without reordering any plugins or DOM/keys.
-function tablePaste(view,event,slice){
- const selection=view.state.selection
+// Plan only the original keyed public table handler. Its pinned implementation
+// reads state and dispatches one transaction; it needs no DOM or live view APIs.
+// The collector cannot dispatch/update/focus the actual EditorView. In particular,
+// table clipping/repetition runs here, before resource qualification or binding.
+function prepareTablePaste(view,event,slice){
+ const state=view.state,selection=state.selection
  if(selection.$from.parent.type.spec.code || selection.$from.marks().some(mark=>mark.type.spec.code))return null
  let cell=false
  for(let depth=selection.$from.depth;depth>0;depth--){
@@ -85,9 +88,27 @@ function tablePaste(view,event,slice){
   if(role==='cell'||role==='header_cell'){cell=true;break}
  }
  if(!cell)return null
- const plugin=view.state.plugins.find(plugin=>plugin.key===tableEditingKey.key)
+ const plugin=state.plugins.find(plugin=>plugin.key===tableEditingKey.key)
  if(!plugin?.props.handlePaste)return null
- return {handler:plugin.props.handlePaste,handled:Boolean(plugin.props.handlePaste.call(plugin,view,event,slice))}
+ let transaction
+ const collector=Object.freeze({state,dispatch(tr){
+  if(transaction)throw Error('表格粘贴产生了多次提交，请重新粘贴。')
+  transaction=tr
+ }})
+ const handled=Boolean(plugin.props.handlePaste.call(plugin,collector,snapshotPasteEvent(event),slice))
+ if(!handled){
+  if(transaction)throw Error('表格粘贴准备未完成，请重新粘贴。')
+  return {handler:plugin.props.handlePaste,handled:false}
+ }
+ // The public handler selects exactly the inserted cells after its own geometry
+ // decisions. Inspect those cells, not its full source slice or unrelated target
+ // resources (even intermediate steps may carry existing split/spanned cells).
+ if(!transaction||!transaction.before.eq(state.doc)||typeof transaction.selection.forEachCell!=='function')
+  throw Error('表格粘贴准备无效，请重新粘贴。')
+ const cells=[]
+ transaction.selection.forEachCell(node=>cells.push(node))
+ return {state,handler:plugin.props.handlePaste,handled:true,transaction,
+  resourceSlice:new Slice(Fragment.fromArray(cells),0,0)}
 }
 export function snapshotPasteEvent(event){
  const values=new Map(['text/plain','text/html','vscode-editor-data','text/uri-list'].map(type=>[type,event.clipboardData?.getData(type)||'']))
@@ -166,12 +187,18 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
   function prepare(editorView,event,slice,options){
     const plan=prepareRaw(editorView,event,slice,options)
     if(!plan.literal)plan.slice=compatibleTableSlice(editorView,plan.slice,plan.event)
+    plan.table=plan.literal||event.clipboardData?.getData('vscode-editor-data')?null:prepareTablePaste(editorView,event,plan.slice)
+    plan.resourceSlice=plan.table?.resourceSlice??plan.slice
     return plan
   }
   function commit(editorView,plan,{authorized=false}={}){
     const {event,slice}=plan
-    const table=plan.literal||event.clipboardData?.getData('vscode-editor-data')?null:tablePaste(editorView,event,slice)
-    if(table?.handled){plan.result?.();return true}
+    const table=plan.table
+    if(table?.handled){
+      if(editorView.state!==table.state)throw Error('正文或选区已变化，请重新粘贴。')
+      editorView.dispatch(table.transaction)
+      plan.result?.();return true
+    }
     if(plan.recovered){
       editorView.dispatch(editorView.state.tr.replaceSelection(slice).scrollIntoView().setMeta('paste',true).setMeta('uiEvent','paste'))
       plan.result?.();return true

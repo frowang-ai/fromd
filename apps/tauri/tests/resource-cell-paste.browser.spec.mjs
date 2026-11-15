@@ -55,16 +55,18 @@ async function scenario(browser,resources,shape,target){
  const before=await capture(page)
  await page.evaluate(()=>{
   const v=document.querySelector('.writing-editor').__vueParentComponent.setupState.view()
-  window.__pasteTrace=[]
+  window.__pasteTrace=[];window.__pasteDispatches=[]
+  const dispatch=v.dispatch.bind(v)
+  v.dispatch=tr=>{if(tr.docChanged)window.__pasteDispatches.push({domEditable:v.dom.getAttribute('contenteditable'),inert:document.querySelector('.pm-port').inert});return dispatch(tr)}
   for(const plugin of v.state.plugins)if(plugin.props.handlePaste){
    const original=plugin.props.handlePaste
-   plugin.props.handlePaste=function(...args){const result=original.apply(this,args);window.__pasteTrace.push({key:plugin.key,handled:Boolean(result),domEditable:document.querySelector('.ProseMirror').getAttribute('contenteditable'),inert:document.querySelector('.pm-port').inert});return result}
+   plugin.props.handlePaste=function(...args){const result=original.apply(this,args);window.__pasteTrace.push({key:plugin.key,handled:Boolean(result),planning:args[0]!==v,domEditable:document.querySelector('.ProseMirror').getAttribute('contenteditable'),inert:document.querySelector('.pm-port').inert});return result}
   }
  })
  await paste(page,copied)
  await expect.poll(async()=> (await capture(page)).text).toContain('A11')
  await expect.poll(()=>page.evaluate(()=>document.querySelector('.ProseMirror').getAttribute('contenteditable'))).toBe('true')
- const after=await capture(page);after.handlerTrace=await page.evaluate(()=>window.__pasteTrace);expect(after.text).toContain('B前正文');expect(after.text).toContain('B后正文')
+ const after=await capture(page);after.handlerTrace=await page.evaluate(()=>window.__pasteTrace);after.dispatchTrace=await page.evaluate(()=>window.__pasteDispatches);expect(after.text).toContain('B前正文');expect(after.text).toContain('B后正文')
  if(resources){
   expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reuse_resources)).toBe(1)
   await expect.poll(()=>page.locator('img[data-editor-image-src]').evaluateAll(imgs=>imgs.filter(i=>i.naturalWidth>0).length)).toBe(after.images)
@@ -95,8 +97,8 @@ for(const [shape,target] of [['single','rectangle'],['rows','rectangle'],['rows'
   }
   expect(resources.after.images).toBe(target==='column'?4:shape==='single'&&target==='rectangle'?6:1)
   expect(resources.after.links).toBe(shape==='rows'?1:0)
-  expect(resources.after.handlerTrace[0].domEditable).toBe('false')
-  expect(resources.after.handlerTrace[0].inert).toBe(true)
+  if(target!=='body')expect(resources.after.handlerTrace[0].planning).toBe(true)
+  expect(resources.after.dispatchTrace).toEqual([{domEditable:'false',inert:true}])
 
  }finally{await control.context.close();await resources.context.close()}
 })
@@ -173,4 +175,75 @@ test('new File paste uses the same frozen table continuation and one undo',async
  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reuse_resources||0)).toBe(0)
  await body(page).press('Control+z');await expect.poll(async()=> (await capture(page)).markdown).toBe(before.markdown)
  await body(page).press('Control+y');await expect(page.locator('img[data-editor-image-src]')).toHaveCount(6)
+})
+
+const missing='.frowd-assets/'+'d'.repeat(64)+'.png'
+async function cropFixture(page,kind){
+ await boot(page,true)
+ const refs=await page.evaluate(()=>[...window.__FROWD_TEST_HOST__.bindings.get('a')])
+ const image=refs.find(ref=>ref.endsWith('.png')),attachment=refs.find(ref=>ref.endsWith('.txt'))
+ const values=[['A11','A12','A13'],['A21','A22','A23']]
+ if(kind==='all-clipped'){values[0][1]+=' ![known]('+image+')';values[1][2]+=' ![missing]('+missing+')'}
+ else if(kind==='kept-unknown'){values[0][0]+=' ![known]('+image+')';values[1][0]+=' ![missing]('+missing+')'}
+ else {values[0][0]+=' ![known]('+image+')';values[0][1]+=' [attachment]('+attachment+')';if(kind.startsWith('horizontal'))values[0][2]+=' ![missing]('+missing+')';if(kind==='vertical')values[1][0]+=' ![missing]('+missing+')'}
+ const markdown='A前正文\n\n| AH1 | AH2 | AH3 |\n| --- | --- | --- |\n'+values.map(row=>'| '+row.join(' | ')+' |').join('\n')+'\n| A31 | A32 | A33 |\n\nA后正文\n'
+ await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'源码'}).click()
+ await page.getByRole('textbox',{name:'Markdown 源码',exact:true}).fill(markdown)
+ await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'正文'}).first().click()
+ const copied=await copy(page,'rows')
+ expect(copied.html).toContain('data-pm-slice')
+ await page.locator('[data-tab-id="b"] .tab-title').click()
+ await expect.poll(async()=> (await capture(page)).id).toBe('b');await expect(body(page)).toHaveAttribute('contenteditable','true')
+ if(kind==='kept-unknown'){
+  await page.locator('.ProseMirror td').filter({hasText:'B11'}).hover();await page.waitForTimeout(120);await page.locator('[data-role="col-drag-handle"]').click()
+ }else{
+  await page.locator('.ProseMirror td').filter({hasText:'B11'}).locator('p').click({clickCount:3,position:{x:6,y:12}})
+  if(kind==='horizontal-rectangle')await body(page).press('Shift+ArrowDown')
+ }
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
+ expect((await capture(page)).selection.type).toBe('cell')
+ return {copied,image,attachment}
+}
+for(const kind of ['horizontal','horizontal-rectangle','vertical','all-clipped','known-clipped','kept-unknown'])test('table crop binds only effective cells: '+kind,async({page})=>{
+ const {copied,image}=await cropFixture(page,kind),before=await capture(page)
+ if(kind==='horizontal-rectangle')await page.evaluate(()=>window.__FROWD_TEST_HOST__.holds.add('reuse_resources'))
+ await paste(page,copied)
+ if(kind==='horizontal-rectangle'){
+  await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reuse_resources||0)).toBe(1)
+  const waiting=await capture(page);expect(waiting.markdown).toBe(before.markdown);expect(waiting.selection).toEqual(before.selection)
+  await expect(body(page)).toHaveAttribute('contenteditable','false');await expect(page.locator('.pm-port')).toHaveJSProperty('inert',true)
+  await expect(page.locator('img[data-editor-image-src]')).toHaveCount(0)
+  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.bindings.get('b')?.size||0)).toBe(0)
+  await page.evaluate(()=>window.__FROWD_TEST_HOST__.release('reuse_resources'))
+ }
+ await expect.poll(async()=>await page.getByRole('alert').count()>0||(await capture(page)).tables[0][1][0].text==='A11').toBe(true)
+ await mkdir(evidence,{recursive:true});await writeFile(evidence+'crop-observed-'+kind+'.json',JSON.stringify({before,observed:await capture(page),copied,host:await page.evaluate(()=>({calls:window.__FROWD_TEST_HOST__.calls.filter(c=>c.command==='reuse_resources'),bindings:[...window.__FROWD_TEST_HOST__.bindings.get('b')||[]],alert:document.querySelector('[role=alert]')?.textContent}))},null,2));await page.screenshot({path:evidence+'crop-observed-'+kind+'.png'})
+ if(kind==='kept-unknown'){
+  await expect(page.getByRole('alert')).toContainText('重新导入')
+  const after=await capture(page)
+  expect(after.markdown).toBe(before.markdown);expect(after.selection).toEqual(before.selection)
+  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.bindings.get('b')?.size||0)).toBe(0)
+  const requested=await page.evaluate(()=>window.__FROWD_TEST_HOST__.calls.filter(c=>c.command==='reuse_resources').map(c=>c.args.references.map(r=>r.reference)))
+  expect(requested).toEqual([[image,missing]])
+ }else{
+  await expect.poll(async()=> (await capture(page)).tables[0][1][0].text).toBe('A11')
+  const after=await capture(page)
+  expect(after.tables).toHaveLength(1);expect(after.tables[0]).toHaveLength(4)
+  expect(after.tables[0][0]).toEqual(before.tables[0][0])
+  const height=kind==='horizontal-rectangle'?2:1
+  expect(before.selected).toBe(height)
+  expect(after.tables[0].slice(1+height)).toEqual(before.tables[0].slice(1+height))
+  if(height===2){expect(after.tables[0][2][0].text).toBe('A21');expect(after.tables[0][2].slice(1)).toEqual(before.tables[0][2].slice(1))}
+  expect(after.tables[0][1].slice(1)).toEqual(before.tables[0][1].slice(1))
+  expect(after.text).toContain('B前正文');expect(after.text).toContain('B后正文')
+  const requested=await page.evaluate(()=>window.__FROWD_TEST_HOST__.calls.filter(c=>c.command==='reuse_resources').map(c=>c.args.references.map(r=>r.reference)))
+  expect(requested).toEqual(kind==='all-clipped'?[]:[[image]])
+  expect(await page.evaluate(()=>[...window.__FROWD_TEST_HOST__.bindings.get('b')||[]])).toEqual(kind==='all-clipped'?[]:[image])
+  expect(after.images).toBe(kind==='all-clipped'?0:1);expect(after.links).toBe(0)
+  if(after.images)await expect(page.locator('img[data-editor-image-src]')).toHaveJSProperty('naturalWidth',240)
+  await body(page).press('Control+z');await expect.poll(async()=> (await capture(page)).markdown).toBe(before.markdown)
+  await body(page).press('Control+y');await expect.poll(async()=> (await capture(page)).markdown).toBe(after.markdown)
+  await mkdir(evidence,{recursive:true});await writeFile(evidence+'crop-'+kind+'.json',JSON.stringify({before,after,requested,copied},null,2))
+  await page.screenshot({path:evidence+'crop-'+kind+'.png'})
+ }
 })

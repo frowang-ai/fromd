@@ -263,8 +263,12 @@ For local targeted native checks:
 cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked clipboard_reuse
 
 Shared table paste now routes through the same original keyed tableEditing handler
-for ordinary paste and resource continuation. HTML/math planning and row-kind
-compatibility precede binding; the actual editor remains readonly/inert through
-native waits and commit. No plugin reorder or vendor insertCells copy is used.
+for ordinary paste and resource continuation. HTML/math and row-kind preparation
+precede a side-effect-free call to that public handler: its collected transaction
+selects the actual cells after clipping/repetition. Only resources in those cells
+are qualified/bound, then that same transaction is committed after state/owner
+validation. Discarded cells cannot grant bindings or block an otherwise valid paste.
+The actual editor stays readonly/inert through native waits and insertion. No
+plugin reorder or vendor clipping/insertCells copy is used.
 Focused regression: resource-cell-paste.browser.spec.mjs and paste-route.test.mjs.
 Native checks remain pending; see VALIDATION_V1.md for exact company results.

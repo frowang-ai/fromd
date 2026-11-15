@@ -149,12 +149,15 @@ function prepareResourcePaste(payload) {
   if (!created || !activeSession) throw Error('编辑会话不可用。')
   if (payload.error) throw Error(payload.error)
   const v=view(),plan=payload.preparedState===v.state?{...payload.plan,event:payload.event}:clipboard.prepare(v,payload.event,payload.slice,{authorized:true})
-  return {state:v.state,plan,references:plan.literal?[]:sliceResources(plan.slice)}
+  return {state:v.state,plan,references:plan.literal?[]:sliceResources(plan.resourceSlice)}
 }
 function commitResourcePaste(prepared) {
   const v=view()
   if(v.state!==prepared.state)throw Error('正文或选区已变化，请重新粘贴。')
-  v.dispatch(closeHistory(v.state.tr))
+  // The planned table transaction is tied to this exact state. Mark its history
+  // boundary without dispatching a separate transaction that would stale it.
+  if(prepared.plan.table?.handled)closeHistory(prepared.plan.table.transaction)
+  else v.dispatch(closeHistory(v.state.tr))
   if(prepared.plan.literal)v.dispatch(v.state.tr.insertText(prepared.plan.event.clipboardData.getData('text/plain')).scrollIntoView())
   else clipboard.commit(v,prepared.plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
@@ -248,7 +251,7 @@ onMounted(async () => {
       deferPaste:props.resourceImport?(editorView,event,plan)=>{
         if(!activeSession||!editorView.editable||switching||plan.literal)return false
         let references,error
-        try{references=sliceResources(plan.slice)}catch(cause){error=cause.message}
+        try{references=sliceResources(plan.resourceSlice)}catch(cause){error=cause.message}
         if(!error&&!references.length)return false
         event.preventDefault()
         emit('resource-paste',{...activeSession,payload:{mode:'rendered',slice:plan.inputSlice,preparedState:editorView.state,plan,event:snapshotPasteEvent(event),error}})
