@@ -21,7 +21,7 @@
 
 ## 本地资源与事务
 
-HTML 图片和本地附件链接由转换后的实际 image/link 节点收集；代码示例不授予资源权限。
+HTML 图片和本地附件链接由转换后的实际 image/link 节点收集；代码示例不授予资源权限。协议相对网页链接（合法 `//host/path?query#fragment`）只在 HTML `a[href]` 语境补成显式 `https:` 并报告；不对 TXT、图片、UNC 或文件路径放宽。
 最多 8 个不同引用、合计 50 MiB，沿用真实 PNG/JPEG/GIF/WebP 10 MiB、附件 25 MiB、
 profile 512 MiB/2048 对象限额。SVG 图片明确失败，可改为附件链接；不自动降级。
 只解析源文件 canonical 所属目录内的相对普通文件，拒绝绝对/父级/符号链接越界；
@@ -70,7 +70,7 @@ Coordinator 等待正文/名称 IME 完成，再真实 readonly/inert 冻结、f
   提交失败、真实当前页/选择保护、IME/关闭等待、回执丢失核对及重复确认。
 - 同轮既有资源浏览器 20/20、共享表格/HTML/公式/列表浏览器 4/4。
 - vue-tsc/Vite build、rustfmt 语法解析和 diff --check 通过；大 chunk 警告仍存在。
-沿已约定的本机原生节点，7 项新增/总 38 项测试均未在公司执行，原生构建/桌面不宣称通过。
+沿已约定的本机原生节点，8 项新增/总 39 项测试均未在公司执行，原生构建/桌面不宣称通过。
 
 从仓库根目录复用 README 的依赖安装与隔离 profile，执行：
 ```powershell

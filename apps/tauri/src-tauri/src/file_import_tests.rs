@@ -236,3 +236,11 @@ fn import_final_confirmation_is_idempotent_across_reopen() {
         2
     );
 }
+
+#[test]
+fn html_protocol_relative_final_markdown_is_https_and_has_no_resource_binding(){
+ let (dir,mut store,_)=setup();let source=dir.path().join('source.html');fs::write(&source,b"<a href=\"//example.com/help?q=x#part\">help</a>").unwrap();
+ let mut pending=FileImport::read(&source).unwrap();pending.stage(&store,&[]).unwrap();let id=pending.source.token.clone();
+ let snapshot=pending.commit(&mut store,"[help](https://example.com/help?q=x#part)").unwrap();
+ let doc=store.read_stored(&id).unwrap();assert_eq!(doc.path,None);assert_eq!(doc.markdown,"[help](https://example.com/help?q=x#part)");assert!(snapshot.documents.iter().all(|d|d.id!=id||!d.dirty));assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM resource_bindings WHERE docId=?1",params![id],|r|r.get::<_,i64>(0)).unwrap(),0);
+}

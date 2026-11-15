@@ -85,3 +85,54 @@ test('lost import commit acknowledgement reconciles the reserved ID and retry is
  await page.evaluate(({id,markdown})=>window.__FROWD_TEST_HOST__.invoke('commit_document_import',{token:id,markdown}),{id:after.id,markdown:after.markdown})
  expect((await snapshot(page)).rows).toHaveLength(3);expect((await snapshot(page)).id).toBe(after.id)
 })
+
+for(const [name,href,expected] of [
+ ['exact','//example.com/help','https://example.com/help'],
+ ['query-fragment','//example.com/help?q=中文%20value&mode=1#部分','https://example.com/help?q=中文%20value&mode=1#部分'],
+ ['ascii-space','  //example.com/help?q=x#part  ','https://example.com/help?q=x#part'],
+])test('protocol-relative HTML link imports and opens through HTTPS: '+name,async({page})=>{
+ await boot(page);const requests=[];page.on('request',r=>{if(r.url().includes('example.com'))requests.push(r.url())})
+ await choice(page,'<p><a href="'+href.replaceAll('&','&amp;')+'">帮助</a></p>');await importFile(page)
+ await expect.poll(async()=> (await snapshot(page)).id!=='a'||await page.getByRole('alert').count()>0).toBe(true)
+ const observed=await snapshot(page),calls=await page.evaluate(()=>window.__FROWD_TEST_HOST__.calls)
+ await mkdir(evidence,{recursive:true});await writeFile(evidence+'protocol-relative-'+name+'.json',JSON.stringify({input:href,expected,observed,calls,alert:await page.getByRole('alert').allTextContents()},null,2))
+ expect(observed.id).toMatch(/^imported-/)
+ const link=body(page).locator('a').filter({hasText:'帮助'});await expect(link).toHaveAttribute('href',expected)
+ expect(observed.markdown).toContain('https://');await expect(page.getByRole('status',{name:'导入说明'})).toContainText('https:')
+ const prepared=calls.filter(c=>c.command==='prepare_document_import_resources');expect(prepared).toHaveLength(1);expect(prepared[0].args.references).toEqual([])
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.objects.size)).toBe(0)
+ expect(observed.bindings.find(([id])=>id===observed.id)[1]).toEqual([])
+ await expect(body(page)).toHaveAttribute('contenteditable','true');const url=page.url()
+ await link.click();expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.open_document_link||0)).toBe(0);expect(page.url()).toBe(url)
+ await link.click({modifiers:['Control']});await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.open_document_link||0)).toBe(1)
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.calls.filter(c=>c.command==='open_document_link').map(c=>c.args))).toEqual([{id:observed.id,href:expected}])
+ expect(requests).toEqual([]);expect(page.url()).toBe(url)
+ await writeFile(evidence+'protocol-relative-'+name+'.json',JSON.stringify({input:href,expected,observed,calls:await page.evaluate(()=>window.__FROWD_TEST_HOST__.calls),requests},null,2));await page.screenshot({path:evidence+'protocol-relative-'+name+'.png'})
+})
+for(const [name,markup,file] of [
+ ['empty','<p><a href="//">bad</a></p>'],
+ ['empty-query','<p><a href="//?q=x">bad</a></p>'],
+ ['empty-fragment','<p><a href="//#x">bad</a></p>'],
+ ['triple-slash','<p><a href="///local/path">bad</a></p>'],
+ ['drive-authority','<p><a href="//C:/local/path">bad</a></p>'],
+ ['authority-space','<p><a href="//exa mple.com/help">bad</a></p>'],
+ ['backslash','<p><a href="//example.com\\help">bad</a></p>'],
+ ['UNC','<p><a href="\\\\server\\share">bad</a></p>'],
+ ['tab','<p><a href="//exam&#9;ple.com/help">bad</a></p>'],
+ ['leading-tab','<p><a href="&#9;//example.com/help">bad</a></p>'],
+ ['newline','<p><a href="//example.com/a&#10;b">bad</a></p>'],
+ ['DEL','<p><a href="//example.com/a&#127;b">bad</a></p>'],
+ ['empty-port','<p><a href="//example.com:/help">bad</a></p>'],
+ ['bad-port','<p><a href="//example.com:99999/help">bad</a></p>'],
+ ['image','<p>禁止远程图片</p><img src="//example.com/image.png">'],
+ ['absolute-local','<p><a href="/local/file.txt">bad</a></p>'],
+ ['escaped-local','<p><a href="../file.txt">bad</a></p>'],
+ ['TXT','[帮助](//example.com/help)','literal.txt'],
+])test('protocol-relative boundary rejects without page or network: '+name,async({page})=>{
+ await boot(page);const requests=[];page.on('request',r=>{if(r.url().includes('example.com'))requests.push(r.url())})
+ await choice(page,markup,file);const before=await snapshot(page);await importFile(page)
+ await expect(page.getByRole('alert')).toBeVisible();await expect(body(page)).toHaveAttribute('contenteditable','true')
+ expect(await snapshot(page)).toEqual(before);expect(requests).toEqual([])
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.commit_document_import||0)).toBe(0)
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.objects.size)).toBe(0)
+})

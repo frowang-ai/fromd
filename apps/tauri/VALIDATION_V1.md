@@ -350,6 +350,8 @@ and a frontend dist are not native acceptance or a native binary size measuremen
 
 ## UTF-8 TXT / HTML import (84a3852 baseline)
 
+Follow-up protocol-relative link fix: HTML `a[href]` `//host` links are validated and normalized to `https:` while images/UNC/TXT remain rejected; browser and Ctrl-click regressions cover this boundary.
+
 Implemented menu/coordinator/EditorPort/native picker-source/resource-stage/atomic
 commit flow. See FILE_IMPORT_V1.md for exact source rules, bounded ownership and
 limitations. Company: Node34/34 (new import10 + affected24), import browser14/14,

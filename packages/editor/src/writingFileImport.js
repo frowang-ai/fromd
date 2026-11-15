@@ -11,6 +11,20 @@ function localReference(url,image){
  if(/^[a-z][a-z0-9+.-]*:|^[/\\]/i.test(url))throw Error('导入不读取远程/内嵌/绝对路径图片或文件，请改为源文件目录内的相对资源。')
  return true
 }
+// Only HTML a.href receives this normalization. Never apply it to TXT, image
+// sources or filesystem references; do not let URL's permissive slash/control
+// repair turn a local/UNC path into an unintended web address.
+function htmlProtocolLink(href){
+ if(!/^[\u0000-\u0020\u007f]*\/\//.test(href))return null
+ const value=href.replace(/^ +| +$/g,'')
+ const authority=/^\/\/([^/?#]+)/.exec(value)?.[1]
+ const fail=()=>{throw Error('HTML 协议相对网页链接无效，请使用含有效主机的 https:// 地址。')}
+ if(/[\\\u0000-\u001f\u007f]/.test(href)||!authority||value.startsWith('///')||/\s/.test(authority)||authority.endsWith(':'))return fail()
+ let parsed
+ try{parsed=new URL('https:'+value)}catch{return fail()}
+ if(parsed.protocol!=='https:'||!parsed.hostname||/^\.+$/.test(parsed.hostname))return fail()
+ return 'https:'+value
+}
 function references(doc){
  const found=new Map()
  doc.descendants(node=>{
@@ -57,12 +71,15 @@ export function prepareFileImport(source,{schema,remark,parse,serialize}){
   localReference(src,true)
   for(const attr of [...img.attributes])if(!['src','alt','title'].includes(attr.name))img.removeAttribute(attr.name)
  }
- let removedLinks=0
+ let removedLinks=0,completedProtocols=0
  for(const a of inert.content.querySelectorAll('a[href]')){
-  const href=a.getAttribute('href')
+  let href=a.getAttribute('href')
+  const completed=htmlProtocolLink(href)
+  if(completed){href=completed;a.setAttribute('href',href);completedProtocols++}
   if(/^(javascript:|vbscript:|data:|blob:)/i.test(href.trim())){a.removeAttribute('href');removedLinks++;continue}
   localReference(href,false)
  }
+ if(completedProtocols)warnings.push('已为 '+completedProtocols+' 个 HTML 协议相对网页链接补全 https:；路径、查询和片段保留。')
  if(removedLinks)warnings.push('已移除 '+removedLinks+' 个不安全链接地址，保留可见文字。')
  const normalized=normalizeWritingPastedMath(sanitizeHtml(inert.innerHTML),remark,document)
  const clean=document.createElement('template');clean.innerHTML=sanitizeHtml(normalized)
