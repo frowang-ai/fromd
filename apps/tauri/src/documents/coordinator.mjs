@@ -275,6 +275,21 @@ export class DocumentCoordinator {
       return result;
     });
   }
+  findPassive(query, index = 0, target) {
+    const cancelled = () => ({ cancelled: true, count: 0, index: -1, limited: false, mode: target?.mode ?? 'rendered' });
+    const next = this.tail.catch(() => {}).then(async () => {
+      if (!this.state.loaded || target?.cancelled) return cancelled();
+      await this.port.waitComposition();
+      if (target?.cancelled) return cancelled();
+      this.findTarget(target, query);
+      const result = await this.port.findReplace(query, index, false);
+      if (target?.cancelled) return cancelled();
+      this.findTarget(target, query);
+      return result;
+    });
+    this.tail = next;
+    return next;
+  }
   replaceFind(query, replacement, index = 0, all = false, target) {
     return this.run(async () => { this.findTarget(target, query); await this.flush(); this.findTarget(target, query); const result = await this.port.replaceFind(query, replacement, index, all); this.findTarget(target, query); await this.flush(); return result; });
   }

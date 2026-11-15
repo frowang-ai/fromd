@@ -148,7 +148,9 @@ function insertResources(items,position=null,expectedState=null) {
  if(position!==null){
   if(!Number.isInteger(position)||position<0||position>v.state.doc.content.size)throw Error('拖入位置已失效，请重新拖入。')
   const content=nodes.length===1?nodes[0]:slice.content
-  const tr=v.state.tr.insert(position,content).scrollIntoView().setMeta('uiEvent','drop')
+  const tr=v.state.tr.insert(position,content)
+  const nextPosition=Math.min(position+(content.nodeSize??content.size??1),tr.doc.content.size)
+  tr.setSelection(TextSelection.near(tr.doc.resolve(nextPosition),1)).scrollIntoView().setMeta('uiEvent','drop')
   v.dispatch(closeHistory(v.state.tr));v.dispatch(tr);v.dispatch(closeHistory(v.state.tr));return
  }
   v.dispatch(closeHistory(v.state.tr))
@@ -180,9 +182,9 @@ function findTextMatches(query) {
   })
   return matches
 }
-function findMatch(query, index = 0) {
+function findMatch(query, index = 0, reveal = true) {
   const matches = findTextMatches(query), selected = matches.length ? matches[((index % matches.length) + matches.length) % matches.length] : null
-  if (selected) { const v = view(); v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, selected.from, selected.to)).scrollIntoView()); v.focus() }
+  if (selected && reveal) { const v = view(); v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, selected.from, selected.to)).scrollIntoView()); v.focus() }
   return { count: matches.length, limited: matches.length >= FIND_LIMIT, index: selected ? matches.indexOf(selected) : -1, match: selected }
 }
 function nextMatchIndex(matches, from) { const next = matches.findIndex(match => match.from >= from); return next < 0 ? 0 : next }

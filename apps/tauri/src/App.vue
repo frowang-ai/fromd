@@ -171,7 +171,7 @@ async function waitAllComposition(){
  await editor.value?.waitComposition()
 }
 const port={
- findReplace:(query,index)=>editor.value.findReplace(query,index),
+ findReplace:(query,index,reveal=true)=>editor.value.findReplace(query,index,reveal),
  replaceFind:(query,replacement,index,all)=>editor.value.replaceFind(query,replacement,index,all),
  prepareFileImport:source=>editor.value.prepareFileImport(source),
  ready:async()=>{await nextTick();await editor.value.ready()},
@@ -245,7 +245,7 @@ async function waitForFindOwner(target){
  }
  return null
 }
-async function refreshFind(index=findState.index){
+async function refreshFind(index=findState.index,{reveal=true}={}){
  const serial=++findSerial
  invalidateFindTarget()
  const query=findState.query
@@ -256,7 +256,7 @@ async function refreshFind(index=findState.index){
   await editor.value?.ready()
   if(!findTargetLive(target))return
   if(!await waitForFindOwner(target))return
-  const result=await coordinator.findReplace(query,index,target)
+  const result=await (reveal?coordinator.findReplace(query,index,target):coordinator.findPassive(query,index,target))
   if(!findTargetLive(target)||result.cancelled)return
   findState.pending=null;findState.owner=target
   findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)
@@ -311,7 +311,8 @@ function contextLayout(name){const id=contextPage.value;return action(()=>coordi
 async function setMode(value){await action(()=>coordinator.run(async()=>{await editor.value.setMode(value);mode.value=value;await coordinator.flush()}))}
 function scheduleView(){clearTimeout(viewTimer);viewTimer=setTimeout(()=>{if(!state.busy)coordinator.flush().catch(e=>coordinator.report(e))},250)}
 watch(()=>[current.value?.id,current.value?.title],()=>{if(!nameComposing.value)nameDraft.value=current.value?.title||''},{flush:'sync'})
-watch(()=>[state.activeId,state.markdown,mode.value],()=>{if(findState.open){findState.count=0;findState.index=0;refreshFind(0)}})
+watch(()=>[state.activeId,mode.value],()=>{if(findState.open){findState.count=0;findState.index=0;refreshFind(0,{reveal:true})}})
+watch(()=>state.markdown,()=>{if(findState.open&&findState.query&&findState.owner&&!findState.pending)refreshFind(findState.index,{reveal:false})})
 watch(()=>state.removalSequence,()=>undoDismissed.value=false)
 function nameStart(){nameComposing.value=true}
 function nameInput(event){nameDraft.value=event.target.value;if(!event.isComposing&&!nameComposing.value)coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
