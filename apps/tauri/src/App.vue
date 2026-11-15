@@ -236,18 +236,26 @@ function findTargetLive(target){
  const attached=findState.pending?.serial===target?.serial||findState.owner?.serial===target?.serial
  return Boolean(target&&!target.cancelled&&target.serial===findSerial&&findState.open&&findState.query===target.query&&attached&&target.id===state.activeId)
 }
+async function waitForFindOwner(target){
+ for(let attempt=0;attempt<60;attempt++){
+  if(!findTargetLive(target))return null
+  const owner=currentFindTarget(target.query)
+  if(owner?.id===target.id){Object.assign(target,owner);return target}
+  await new Promise(resolve=>setTimeout(resolve,16))
+ }
+ return null
+}
 async function refreshFind(index=findState.index){
  const serial=++findSerial
  invalidateFindTarget()
  const query=findState.query
  if(!findState.open||!query||!current.value){findState.count=0;findState.limited=false;return}
- const target=currentFindTarget(query)
- if(!target){findState.count=0;findState.limited=false;return}
- target.serial=serial;target.cancelled=false;target.pinned=false
+ const target={id:state.activeId,generation:null,mode:null,query,serial,cancelled:false,pinned:false}
  findState.pending=target
  try{
   await editor.value?.ready()
   if(!findTargetLive(target))return
+  if(!await waitForFindOwner(target))return
   const result=await coordinator.findReplace(query,index,target)
   if(!findTargetLive(target)||result.cancelled)return
   findState.pending=null;findState.owner=target
@@ -258,7 +266,12 @@ async function refreshFind(index=findState.index){
   if(findState.pending?.serial===target.serial)findState.pending=null
  }
 }
-function openFind(){closeMenus();findState.open=true;findState.owner=null;findState.pending=null;nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})}
+function openFind(){
+ closeMenus()
+ findSerial++;invalidateFindTarget()
+ findState.open=true;findState.owner=null;findState.pending=null
+ nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})
+}
 function findInputChanged(){if(!findState.composing){findState.index=0;refreshFind(0)}else invalidateFindTarget()}
 function findCompositionEnd(){findState.composing=false;findInputChanged()}
 function findStep(direction){if(!findState.count)return;refreshFind((findState.index+direction+findState.count)%findState.count)}
