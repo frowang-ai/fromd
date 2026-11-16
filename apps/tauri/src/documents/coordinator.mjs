@@ -257,41 +257,43 @@ export class DocumentCoordinator {
       return result;
     });
   }
-  findTarget(target, query) {
+  findTarget(target, query, checkContent = false, matchCase = false) {
     const owner = this.port.capture();
     if (!target || target.cancelled || !query || target.query !== query || !owner || owner.id !== target.id || owner.generation !== target.generation || (owner.viewState?.mode && owner.viewState.mode !== target.mode)) { throw Error('查找结果已失效，请重新查找。'); }
+    if (Boolean(target.matchCase) !== Boolean(matchCase)) throw Error('查找条件已变化，请重新查找。');
+    if (checkContent && target.markdown !== undefined && target.markdown !== owner.markdown) throw Error('正文已变化，请重新查找后替换。');
     return owner;
   }
-  findReplace(query, index = 0, target) {
+  findReplace(query, index = 0, target, matchCase = false) {
     return this.run(async () => {
       const cancelled = () => ({ cancelled: true, count: 0, index: -1, limited: false, mode: target?.mode ?? 'rendered' });
       if (target?.cancelled) return cancelled();
       await this.port.waitComposition();
       if (target?.cancelled) return cancelled();
-      this.findTarget(target, query);
-      const result = await this.port.findReplace(query, index);
+      this.findTarget(target, query, false, matchCase);
+      const result = await this.port.findReplace(query, index, true, matchCase);
       if (target?.cancelled) return cancelled();
-      this.findTarget(target, query);
+      target.markdown = this.findTarget(target, query, false, matchCase).markdown;
       return result;
     });
   }
-  findPassive(query, index = 0, target) {
+  findPassive(query, index = 0, target, matchCase = false) {
     const cancelled = () => ({ cancelled: true, count: 0, index: -1, limited: false, mode: target?.mode ?? 'rendered' });
     const next = this.tail.catch(() => {}).then(async () => {
       if (!this.state.loaded || target?.cancelled) return cancelled();
       await this.port.waitComposition();
       if (target?.cancelled) return cancelled();
-      this.findTarget(target, query);
-      const result = await this.port.findReplace(query, index, false);
+      this.findTarget(target, query, false, matchCase);
+      const result = await this.port.findReplace(query, index, false, matchCase);
       if (target?.cancelled) return cancelled();
-      this.findTarget(target, query);
+      target.markdown = this.findTarget(target, query, false, matchCase).markdown;
       return result;
     });
     this.tail = next;
     return next;
   }
-  replaceFind(query, replacement, index = 0, all = false, target) {
-    return this.run(async () => { this.findTarget(target, query); await this.flush(); this.findTarget(target, query); const result = await this.port.replaceFind(query, replacement, index, all); this.findTarget(target, query); await this.flush(); return result; });
+  replaceFind(query, replacement, index = 0, all = false, target, matchCase = false) {
+    return this.run(async () => { this.findTarget(target, query, true, matchCase); await this.flush(); this.findTarget(target, query, true, matchCase); const result = await this.port.replaceFind(query, replacement, index, all, matchCase); this.findTarget(target, query, false, matchCase); await this.flush(); return result; });
   }
   importFile() {
     return this.run(async()=>{

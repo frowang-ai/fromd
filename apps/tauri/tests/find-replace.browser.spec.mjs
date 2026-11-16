@@ -8,10 +8,60 @@ async function boot(page){
 }
 async function openFind(page){await page.keyboard.press('Control+f');await expect(page.getByRole('dialog',{name:'当前文档查找替换'})).toBeVisible()}
 async function coordinatorBusy(page){return page.evaluate(()=>document.querySelector('.app-shell')?.__vueParentComponent?.setupState?.state?.busy??null)}
+for(const mode of ['rendered','source'])test(`${mode} optional case-sensitive search replaces only exact case and retains undo`,async({page})=>{
+ await page.addInitScript(installMockHost,{documents:[{id:'a',title:'A',markdown:'**Aa** aa',shelved:false,viewState:{mode}}]})
+ await page.goto('/?testHost=1');await expect(page.locator('.loading-state')).toHaveCount(0)
+ const result=await page.evaluate(()=>{
+  const port=document.querySelector('.pm-port').__vueParentComponent.exposed
+  const defaults=port.findReplace('aa',0,false),exact=port.findReplace('aa',0,false,true)
+  const changed=port.replaceFind('aa','X',0,true,true)
+  return {defaults:defaults.count,exact:exact.count,replaced:changed.replaced,markdown:port.capture().markdown}
+ })
+ expect(result.defaults).toBe(2);expect(result.exact).toBe(1);expect(result.replaced).toBe(1)
+ expect(result.markdown.trim()).toBe('**Aa** X')
+ const input=mode==='source'?page.getByRole('textbox',{name:'Markdown 源码'}):body(page)
+ await input.press('Control+z')
+ await expect.poll(()=>page.evaluate(()=>document.querySelector('.pm-port').__vueParentComponent.exposed.capture().markdown.trim())).toBe('**Aa** aa')
+})
+test('CRLF raw-syntax hit keeps raw Markdown and selects the matching LF textarea range',async({page})=>{
+ const markdown='前行😀\r\n\r\n[普通链接](https://example.com/hidden-key)\r\n'
+ await page.addInitScript(installMockHost,{documents:[{id:'a',title:'A',markdown,shelved:false}]})
+ await page.goto('/?testHost=1');await expect(page.locator('.loading-state')).toHaveCount(0)
+ await page.getByRole('searchbox',{name:'搜索全部页面'}).fill('hidden-key')
+ await expect(page.locator('.search-result')).toHaveCount(1);await page.locator('.search-result').click()
+ await expect(page.getByRole('alert')).toContainText('Markdown 源文')
+ expect(await page.evaluate(()=>document.querySelector('.pm-port').__vueParentComponent.exposed.capture().markdown)).toBe(markdown)
+ await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'源码'}).click()
+ const source=page.getByRole('textbox',{name:'Markdown 源码'})
+ await expect(source).toBeVisible()
+ expect(await source.evaluate(input=>input.value.slice(input.selectionStart,input.selectionEnd))).toBe('hidden-key')
+})
+test('rendered find remains bounded across atomic nodes in the same paragraph',async({page})=>{
+ const markdown=Array(10000).fill('x').join(' ')+' $z$ x $z$ x'
+ await page.addInitScript(installMockHost,{documents:[{id:'a',title:'A',markdown,shelved:false}]})
+ await page.goto('/?testHost=1');await expect(page.locator('.loading-state')).toHaveCount(0)
+ await openFind(page);await page.getByRole('textbox',{name:'查找文字'}).fill('x')
+ await expect(page.locator('.find-count')).toHaveText('1/10000+')
+ await expect(page.getByRole('button',{name:'全部替换',exact:true})).toBeDisabled()
+})
+test('source find reveals an offscreen match while retaining query focus',async({page})=>{
+ const markdown=Array(160).fill('普通源码行').join('\n')+'\n定位末尾'
+ await page.addInitScript(installMockHost,{documents:[{id:'a',title:'A',markdown,shelved:false,viewState:{mode:'source'}}]})
+ await page.goto('/?testHost=1');await expect(page.locator('.loading-state')).toHaveCount(0)
+ const source=page.getByRole('textbox',{name:'Markdown 源码'})
+ await expect(source).toBeVisible();expect(await source.evaluate(input=>input.scrollTop)).toBe(0)
+ await openFind(page);const query=page.getByRole('textbox',{name:'查找文字'});await query.fill('定位末尾')
+ await expect(page.locator('.find-count')).toHaveText('1/1')
+ await expect.poll(()=>source.evaluate(input=>input.scrollTop)).toBeGreaterThan(0)
+ expect(await source.evaluate(input=>input.value.slice(input.selectionStart,input.selectionEnd))).toBe('定位末尾')
+ await expect(query).toBeFocused()
+})
 test('rendered find counts Unicode across marks/table and cycles without writing',async({page})=>{
- await boot(page);const before=await page.evaluate(()=>window.__FROWD_TEST_HOST__.snapshot());await openFind(page);const input=page.getByRole('textbox',{name:'查找文字'});await input.fill('中文');await expect(page.getByText('1/6')).toHaveCount(1)
+ const snapshot=()=>page.evaluate(()=>{const state=window.__FROWD_TEST_HOST__.snapshot();return {...state,documents:state.documents.map(({viewState,...doc})=>doc)}})
+ await boot(page);const before=await snapshot();await openFind(page);const input=page.getByRole('textbox',{name:'查找文字'});await input.fill('中文');await expect(page.getByText('1/6')).toHaveCount(1)
  await page.getByRole('button',{name:'下一处'}).click();await expect(page.getByText('2/6')).toHaveCount(1);await expect.poll(()=>page.evaluate(()=>{const c=document.querySelector('.pm-port').__vueParentComponent.exposed.capture(),s=c.pm.state.selection;return c.pm.state.doc.textBetween(s.from,s.to,'')})).toBe('中文')
- expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.snapshot())).toEqual(before);await page.getByRole('button',{name:'关闭查找替换'}).click();await expect(page.getByRole('dialog')).toHaveCount(0)
+ // Selection/view persistence is independent of document text and revision.
+ expect(await snapshot()).toEqual(before);await page.getByRole('button',{name:'关闭查找替换'}).click();await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 test('single and all rendered replacements keep marks and one-step undo/redo',async({page})=>{
  await boot(page);await openFind(page);await page.getByRole('textbox',{name:'查找文字'}).fill('中文');await page.getByRole('textbox',{name:'替换为'}).fill('替');await page.getByRole('button',{name:'下一处'}).click();await page.getByRole('button',{name:'下一处'}).click();await page.getByRole('button',{name:'替换',exact:true}).click();await expect(body(page).locator('strong')).toHaveText('替')
