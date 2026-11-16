@@ -487,7 +487,7 @@ fn escaping_missing_and_modified_resources_are_rejected_without_document_write()
     let out = dir.path().join("out");
     fs::create_dir(&out).unwrap();
     assert!(store.save_file(&id, Some(&out.join("note.md"))).is_err());
-    put(&mut store, &id, &format!("<img src='{}'>", image.reference));
+    put(&mut store, &id, "<img src='relative.png'>");
     assert!(store.save_file(&id, Some(&out.join("note.md"))).is_err());
     assert!(!out.join("note.md").exists());
     let item = import(&mut store, &id, &png(), "x.png", true);
@@ -592,6 +592,8 @@ fn canonical_boundaries_reject_profile_target_and_external_image_directory_links
     let out = dir.path().join("export");
     fs::create_dir(&out).unwrap();
     directory_link(&out.join(".frowd-assets"), &outside);
+    assert!(store.save_file(&id, Some(&out.join("note.md"))).is_err());
+    put(&mut store, &id, &format!("<img src='{}'>", image.reference));
     assert!(store.save_file(&id, Some(&out.join("note.md"))).is_err());
     assert!(!out.join("note.md").exists());
     assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
