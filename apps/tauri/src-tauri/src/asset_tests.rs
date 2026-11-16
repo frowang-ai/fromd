@@ -337,6 +337,135 @@ fn save_as_copies_only_referenced_owned_directory_rasters_and_preserves_bom_eol(
     assert_eq!(fs::read(out.join("image.png")).unwrap(), bytes);
     assert!(!out.join("secret.txt").exists());
 }
+
+#[test]
+fn html_images_and_reference_images_export_with_entities_without_rewriting_markdown() {
+    let (dir, mut store, _) = setup();
+    let source = dir.path().join("html-source");
+    let out = dir.path().join("html-export");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&out).unwrap();
+    let bytes = png();
+    for name in ["a & b.png", "中文.png", "reference.png", "plain.png"] {
+        fs::write(source.join(name), &bytes).unwrap();
+    }
+    let markdown = "# HTML images\n\n<div><IMG alt='quoted > value' SRC=\"a%20&amp;%20b.png?size=1#preview\"><img src='&#x4e2d;&#25991;.png'><img src=plain.png></div>\n\n![reference][asset]\n\n[asset]: reference.png\n\n<img src='https://example.invalid/remote.png'>\n<img src='//example.invalid/remote.png'>\n<img src='DATA:image/png;base64,AAAA'>\n<a href='missing.pdf'>ordinary link</a>\n";
+    let original = source.join("original.md");
+    fs::write(&original, markdown).unwrap();
+    let id = store.open_file(&original).unwrap().active_id.unwrap();
+    let target = out.join("copy.md");
+    store.save_file(&id, Some(&target)).unwrap();
+    assert_eq!(fs::read_to_string(target).unwrap(), markdown);
+    for name in ["a & b.png", "中文.png", "reference.png", "plain.png"] {
+        assert_eq!(fs::read(out.join(name)).unwrap(), bytes);
+    }
+    let mut reopened = Store::open(&dir.path().join("fresh-profile"), MAX_SESSION_BYTES).unwrap();
+    let reopened_id = reopened
+        .open_file(&out.join("copy.md"))
+        .unwrap()
+        .active_id
+        .unwrap();
+    assert_eq!(
+        reopened
+            .resource_image(&reopened_id, "a%20&%20b.png")
+            .unwrap()
+            .0,
+        bytes
+    );
+}
+
+#[test]
+fn resource_parser_ignores_code_comments_raw_text_and_fake_tags_in_attributes() {
+    let markdown = r#"`<img src="inline.png">`
+
+```html
+<img src="fenced.png">
+![fenced](fenced-md.png)
+```
+
+    <img src="indented.png">
+
+<!-- <img src="comment.png"> -->
+<div title='<img src="attribute.png">'>text</div>
+<script>
+<img src="script.png">
+
+![inside script](script-md.png)
+</script>
+
+<style><img src="style.png"></style>
+<textarea><img src="textarea.png"></textarea>
+<title><img src="title.png"></title>
+<xmp><img src="xmp.png"></xmp>
+<iframe><img src="iframe.png"></iframe>
+<noembed><img src="noembed.png"></noembed>
+<noframes><img src="noframes.png"></noframes>
+<noscript><img src="noscript.png"></noscript>
+<img src="actual.png">
+<plaintext><img src="plaintext.png">
+"#;
+    assert_eq!(
+        markdown_resources(markdown),
+        vec![("actual.png".into(), true)]
+    );
+}
+
+#[test]
+fn managed_html_resources_survive_restart_and_html_conflicts_preserve_draft() {
+    let (dir, mut store, id) = setup();
+    let bytes = png();
+    let image = import(&mut store, &id, &bytes, "html.png", true);
+    let attachment = import(&mut store, &id, b"attachment", "notes.txt", false);
+    let markup = format!(
+        "<img src='{}'>\n<a href='{}'>attachment</a>\n",
+        image.reference, attachment.reference
+    );
+    put(&mut store, &id, &markup);
+    drop(store);
+    let mut store = Store::open(&dir.path().join("profile"), MAX_SESSION_BYTES).unwrap();
+    let out = dir.path().join("html-managed");
+    fs::create_dir(&out).unwrap();
+    fs::create_dir(out.join(".frowd-assets")).unwrap();
+    let asset = out.join(&image.reference);
+    fs::write(&asset, b"conflicting image").unwrap();
+    let target = out.join("copy.md");
+    fs::write(&target, "keep existing markdown").unwrap();
+    assert!(store.save_file(&id, Some(&target)).is_err());
+    assert!(store.read_stored(&id).unwrap().path.is_none());
+    assert_eq!(store.read_stored(&id).unwrap().markdown, markup);
+    assert_eq!(
+        fs::read_to_string(&target).unwrap(),
+        "keep existing markdown"
+    );
+    assert_eq!(fs::read(&asset).unwrap(), b"conflicting image");
+    fs::remove_file(&asset).unwrap();
+    store.save_file(&id, Some(&target)).unwrap();
+    assert_eq!(fs::read(asset).unwrap(), bytes);
+    assert_eq!(
+        fs::read(out.join(&attachment.reference)).unwrap(),
+        b"attachment"
+    );
+}
+
+#[test]
+fn html_image_encoded_escape_stays_within_document_directory() {
+    let (dir, mut store, id) = setup();
+    let out = dir.path().join("html-escape");
+    fs::create_dir(&out).unwrap();
+    let target = out.join("copy.md");
+    for reference in [
+        "&#46;&#46;/outside.png",
+        "%2e%2e/outside.png",
+        "C:&#92;outside.png",
+    ] {
+        let markup = format!("<img src='{reference}'>");
+        put(&mut store, &id, &markup);
+        assert!(store.save_file(&id, Some(&target)).is_err(), "{reference}");
+        assert!(!target.exists());
+        assert!(store.read_stored(&id).unwrap().path.is_none());
+        assert_eq!(store.read_stored(&id).unwrap().markdown, markup);
+    }
+}
 #[test]
 fn escaping_missing_and_modified_resources_are_rejected_without_document_write() {
     let (dir, mut store, id) = setup();
@@ -357,6 +486,8 @@ fn escaping_missing_and_modified_resources_are_rejected_without_document_write()
     put(&mut store, &id, "![missing](relative.png)");
     let out = dir.path().join("out");
     fs::create_dir(&out).unwrap();
+    assert!(store.save_file(&id, Some(&out.join("note.md"))).is_err());
+    put(&mut store, &id, &format!("<img src='{}'>", image.reference));
     assert!(store.save_file(&id, Some(&out.join("note.md"))).is_err());
     assert!(!out.join("note.md").exists());
     let item = import(&mut store, &id, &png(), "x.png", true);
@@ -475,6 +606,9 @@ fn canonical_boundaries_reject_profile_target_and_external_image_directory_links
         .active_id
         .unwrap();
     assert!(store.resource_image(&file, "link/external.png").is_err());
+    put(&mut store, &file, "<img src='link/external.png'>");
+    assert!(store.save_file(&file, Some(&out.join("html.md"))).is_err());
+    assert!(!out.join("html.md").exists());
     // Remove the temporary links explicitly before TempDir cleanup.
     #[cfg(windows)]
     {

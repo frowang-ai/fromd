@@ -1136,6 +1136,7 @@ dependencies = [
 name = "frowd-documents"
 version = "0.5.0"
 dependencies = [
+ "html5ever",
  "image",
  "percent-encoding",
  "pulldown-cmark",
@@ -2913,8 +2914,15 @@ checksum = "3db2be46835f013dd3f4fa7f5f7402c537787b54ebb6fe2b94bbdd7e2669bb7b"
 dependencies = [
  "bitflags 2.11.1",
  "memchr",
+ "pulldown-cmark-escape",
  "unicase",
 ]
+
+[[package]]
+name = "pulldown-cmark-escape"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "007d8adb5ddab6f8e3f491ac63566a7d5002cc7ed73901f72057943fa71ae1ae"
 
 [[package]]
 name = "pxfm"
