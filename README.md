@@ -1,14 +1,28 @@
-# frowd — Windows 0.4.6
+# frowd
 
-## Tauri 融合候选（开发中）
+## 当前工作：Tauri 第一轮整合
 
-本轮独立候选位于 [apps/tauri](apps/tauri/README.md)，从固定 SoloMD v5.0.21 派生
-Tauri 宿主并接入 frowd 文档服务；当前 EditorPort 采用共享 Milkdown/ProseMirror
-文字优先候选，完整 CM 对照保留在 406ab17 历史。开发入口为
-`npm run tauri:web`、`npm run tauri:dev`；
-行为测试与实际限制见 [融合验证记录](apps/tauri/VALIDATION_V1.md)。
-当前仅前端构建和浏览器模拟 IPC 交互已验证，原生 Windows 构建/SQLite 重启与表格
-交互验收仍待完成。此候选不替换既有 0.4.6 安装版，也不自动迁移真实用户数据。
+本轮以 `feat/tauri-blackboard-v1` 的 `f648c93` 为基线，对照 Electron 0.5 补齐功能。
+实际客户端位于 [apps/tauri](apps/tauri/README.md)，使用 Tauri/Rust、Windows WebView2、
+共享 Milkdown/ProseMirror 与 SQLite。保留页面写作、收起/恢复、450ms收起动效、
+单个正文编辑器及源码模式，复用 Tauri 已有搜索和资源服务，补齐阅读设置、统计、
+Setext大纲、查找大小写选项、HTML图片另存及稳定性修复。
+
+| 从仓库根运行 | 实际入口 |
+| --- | --- |
+| `npm run tauri:web` | Tauri 前端类型检查与构建，不启动原生窗口 |
+| `npm run tauri:dev` | Tauri/Rust + WebView2 开发客户端 |
+| `npm run tauri:build` | Tauri release 可执行文件，no-bundle，不安装或发布 |
+| `npm run test:tauri:native` | 真实 debug WebView2 回归；先完成 debug no-bundle 构建 |
+| `npm run dev` / `npm run build` | 保留的旧 Electron 工程，不是 Tauri 入口 |
+
+本轮范围与隔离运行方式见[整合说明](apps/tauri/ROUND_ONE_20261116.md)，
+最终构建、浏览器和原生验收以[本轮验证记录](apps/tauri/VALIDATION_ROUND_ONE.md)为准。
+根 Node 74/74、Tauri Node 85/85、Rust domain 43/43 已通过；基线 debug 原生启动与
+图片落盘已验证，不能将其等同于最终整合版全量验收。旧公司阶段证据保留在
+[VALIDATION_V1](apps/tauri/VALIDATION_V1.md)。现有安装版与真实用户数据不自动迁移。
+
+## 既有 Electron 版本记录
 
 0.4.6 为底部“已移除／撤销”提示增加右侧×（“关闭移除提示”）。它只隐藏提示，不消费撤销记录，不改正文或文件；没有新增自动倒计时。关闭后保存、切换、新建或取消／失败的移除都不会复活旧提示，新的成功移除才重新显示，即使页面同名。公司对运行代码`a94540a`完成增量静态审核PASS、24开发／24成品相关桌面检查及NSIS构建，实际0.4.6，包内182个out文件一致、正常退出。本轮没有重跑全桌面、单元或56项浏览器套件；下面0.4.5的74/74为保留的历史结果。产物与边界见`VALIDATION.md`。
 
@@ -23,6 +37,10 @@ Tauri 宿主并接入 frowd 文档服务；当前 EditorPort 采用共享 Milkdo
 历史 0.2.0 验收产物目录：`release/0.2.0-verified/`，便携包为 `Frowang-Markdown-0.2.0-x64.exe`；0.1.0 产物保留在原目录，不覆盖。源码存储22/22、内核56/56、开发桌面28/28通过；打包状态及限制见 `VALIDATION.md`。源码为独立 Git 仓库，远端为私有的 [frowang-ai/markdown-editor](https://github.com/frowang-ai/markdown-editor)，默认分支 `main`；0.2 轮基线为 `8b750c6`。尚未公开发布。
 
 ## 项目记忆
+
+当前 Tauri 整合入口为 [apps/tauri/README](apps/tauri/README.md)、
+[本轮说明](apps/tauri/ROUND_ONE_20261116.md)和[本轮验收](apps/tauri/VALIDATION_ROUND_ONE.md)。
+下方 0.4.x 记录及根 `VALIDATION.md` 继续保存 Electron 阶段历史。
 
 0.4.0—0.4.4已于2026-11-12由用户确认统一收束，独立记忆更新在[docs PR #10](https://github.com/frowang-ai/docs/pull/10)。该PR尚待合入维护分支；合入前以其文件和独立工作区为准，不再使用“本轮尚未整理记忆”的旧状态。应用交付结果仍由本仓库README、VALIDATION和docs中的功能约定维护。
 
@@ -42,7 +60,7 @@ Fro本机的最新记忆副本为`website/_worktrees/markdown-editor-v04-memory/
 
 正文和表格里的链接普通点击用于编辑，Ctrl＋点击打开。浮层地址单击进入编辑，并提供“打开网页”或“打开位置”按钮。文件链接只定位到资源管理器，不启动Word或PDF阅读器；复制和铅笔入口保留。当前正文均可编辑，没有新增只读模式。路径规则、未保存草稿及测试入口见[链接点击说明](docs/document-links.md)。
 
-## 开发与构建
+## Electron 开发与构建（保留入口）
 
 0.2 轮临时草稿、SQLite和多标签工作的接口及分工见 [实施约定](docs/iteration-02-contract.md)。0.3 引入原生菜单、按用户安装和更新启动保护；0.4 的收起与schema 3增量见 [页面收起说明](docs/page-shelf.md)。源码固定后先 `build`，再开发回归、打包和打包回归；不要在同一 `out` 上并发构建与测试。
 
@@ -62,7 +80,7 @@ npm run dist:installer   # 按当前用户安装的 NSIS 安装包
 
 `package:dir` 默认生成 `release/0.4.6/win-unpacked/Frowang Markdown.exe`，需要保留同目录所有文件。`dist:installer` 生成 `release/0.4.6/frowd-Setup-0.4.6-x64.exe`。`dist:win` 可生成 `frowd-0.4.6-x64.exe` portable，本轮交付以安装包为准。历史 `release/0.2.0-verified/` 保持原样。构建默认不发布、未进行代码签名。便携版表示无需安装，草稿仍保存在用户数据目录，不跟随 exe。
 
-## Windows 安装与更新
+## Windows 安装与更新（Electron）
 
 `npm run dist:installer` 使用 electron-builder 26.18.0 生成 `release/0.4.6/frowd-Setup-0.4.6-x64.exe`，按当前用户安装，保留固定的 `com.frowang.markdown` 身份、安装入口及桌面／开始菜单快捷方式。后续直接运行已安装的 exe，无需每次执行 portable 外壳。安装／升级不删除应用数据或外部 `.md`，卸载默认也保留用户数据。portable 构建入口继续保留。
 
