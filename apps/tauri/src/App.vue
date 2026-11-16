@@ -85,6 +85,7 @@
         <div v-if="state.importReport?.id === state.activeId" class="error-notice import-report" role="status" aria-label="导入说明"><span>{{ state.importReport.text }}</span><button aria-label="关闭导入说明" @click="state.importReport = null">×</button></div>
         <div v-if="findState.open" class="find-panel" role="dialog" aria-label="当前文档查找替换">
           <input ref="findInput" v-model="findState.query" aria-label="查找文字" placeholder="查找" @input="findInputChanged" @compositionstart="findState.composing = true" @compositionend="findCompositionEnd" @keydown.enter="findEnter" />
+          <button :aria-pressed="findState.matchCase" :disabled="state.busy || findState.composing" aria-label="区分大小写" title="区分大小写" @click="toggleFindCase">Aa</button>
           <span class="find-count">{{ findState.query ? (findState.count ? (findState.index + 1) + '/' + findState.count + (findState.limited ? '+' : '') : '无匹配') : '输入查找文字' }}</span>
           <button :disabled="!findState.count" aria-label="上一处" @click="findStep(-1)">↑</button><button :disabled="!findState.count" aria-label="下一处" @click="findStep(1)">↓</button>
           <input v-model="findState.replacement" aria-label="替换为" placeholder="替换为" @compositionstart="findState.replacementComposing = true" @compositionend="findState.replacementComposing = false" @keydown.enter="replaceEnter" />
@@ -157,7 +158,7 @@ let analysisTimer
 function themeChanged(event){systemDark.value=event.matches}
 watch(readingTheme,value=>{document.documentElement.dataset.readingTheme=value;document.documentElement.style.colorScheme=value},{immediate:true})
 const dropTarget=ref(null),dropAfter=ref(false)
-const findState=reactive({open:false,query:'',replacement:'',count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,pending:null,mode:'rendered'})
+const findState=reactive({open:false,query:'',replacement:'',matchCase:false,count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,pending:null,mode:'rendered'})
 let findSerial=0
 let dragging=null
 let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
@@ -188,8 +189,8 @@ async function waitAllComposition(){
  await editor.value?.waitComposition()
 }
 const port={
- findReplace:(query,index,reveal=true)=>editor.value.findReplace(query,index,reveal),
- replaceFind:(query,replacement,index,all)=>editor.value.replaceFind(query,replacement,index,all),
+ findReplace:(query,index,reveal=true,matchCase=false)=>editor.value.findReplace(query,index,reveal,matchCase),
+ replaceFind:(query,replacement,index,all,matchCase=false)=>editor.value.replaceFind(query,replacement,index,all,matchCase),
  prepareFileImport:source=>editor.value.prepareFileImport(source),
  ready:async()=>{await nextTick();await editor.value.ready()},
  prepareResourcePaste:payload=>editor.value.prepareResourcePaste(payload),
@@ -263,11 +264,11 @@ function closeFind(){
 }
 function currentFindTarget(query){
  const owner=editor.value?.currentOwner?.()
- return owner?{id:owner.id,generation:owner.generation,mode:owner.viewState?.mode||mode.value,query}:null
+ return owner?{id:owner.id,generation:owner.generation,mode:owner.viewState?.mode||mode.value,query,matchCase:findState.matchCase}:null
 }
 function findTargetLive(target){
  const attached=findState.pending?.serial===target?.serial||findState.owner?.serial===target?.serial
- return Boolean(target&&!target.cancelled&&target.serial===findSerial&&findState.open&&findState.query===target.query&&attached&&target.id===state.activeId)
+ return Boolean(target&&!target.cancelled&&target.serial===findSerial&&findState.open&&findState.query===target.query&&findState.matchCase===target.matchCase&&attached&&target.id===state.activeId)
 }
 async function waitForFindOwner(target){
  for(let attempt=0;attempt<60;attempt++){
@@ -281,15 +282,15 @@ async function waitForFindOwner(target){
 async function refreshFind(index=findState.index,{reveal=true}={}){
  const serial=++findSerial
  invalidateFindTarget()
- const query=findState.query
+ const query=findState.query,matchCase=findState.matchCase
  if(!findState.open||!query||!current.value){findState.count=0;findState.limited=false;return}
- const target={id:state.activeId,generation:null,mode:null,query,serial,cancelled:false,pinned:false}
+ const target={id:state.activeId,generation:null,mode:null,query,matchCase,serial,cancelled:false,pinned:false}
  findState.pending=target
  try{
   await editor.value?.ready()
   if(!findTargetLive(target))return
   if(!await waitForFindOwner(target))return
-  const result=await (reveal?coordinator.findReplace(query,index,target):coordinator.findPassive(query,index,target))
+  const result=await (reveal?coordinator.findReplace(query,index,target,matchCase):coordinator.findPassive(query,index,target,matchCase))
   if(!findTargetLive(target)||result.cancelled)return
   findState.pending=null;findState.owner=target
   findState.mode=result.mode;findState.count=result.count;findState.index=result.index<0?0:result.index;findState.limited=Boolean(result.limited)
@@ -307,12 +308,13 @@ function openFind(){
  nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})
 }
 function findInputChanged(){if(!findState.composing){findState.index=0;refreshFind(0)}else invalidateFindTarget()}
+function toggleFindCase(){findState.matchCase=!findState.matchCase;findState.index=0;refreshFind(0)}
 function findCompositionEnd(){findState.composing=false;findInputChanged()}
 function findStep(direction){if(!findState.count)return;refreshFind((findState.index+direction+findState.count)%findState.count)}
 function findEnter(event){if(event.isComposing||findState.composing||event.keyCode===229||state.busy)return;event.preventDefault();findStep(1)}
 function replaceEnter(event){if(event.isComposing||findState.composing||findState.replacementComposing||globalComposing||event.keyCode===229||state.busy)return;event.preventDefault();replaceOne()}
-function replaceOne(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false,target);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)}finally{target.pinned=false}})}
-function replaceAll(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true,target);findState.index=0;await refreshFind(0)}finally{target.pinned=false}})}
+function replaceOne(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false,target,findState.matchCase);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)}finally{target.pinned=false}})}
+function replaceAll(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true,target,findState.matchCase);findState.index=0;await refreshFind(0)}finally{target.pinned=false}})}
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}

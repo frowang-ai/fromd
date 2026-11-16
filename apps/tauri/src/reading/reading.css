@@ -102,6 +102,7 @@
   .app-shell[data-theme=dark] .page-context button:hover,
   .app-shell[data-theme=dark] .search-result:hover,
   .app-shell[data-theme=dark] .tab.selected,
+  .app-shell[data-theme=dark] .find-panel button[aria-pressed=true],
   .app-shell[data-theme=dark] .sidebar-switch button[aria-pressed=true],
   .app-shell[data-theme=dark] .dialog-actions .primary,
   .app-shell[data-theme=dark] .empty-desktop button { color: var(--reading-text); background: var(--reading-selected); border-color: var(--reading-selected); }

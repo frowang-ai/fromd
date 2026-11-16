@@ -8,6 +8,21 @@ async function boot(page){
 }
 async function openFind(page){await page.keyboard.press('Control+f');await expect(page.getByRole('dialog',{name:'当前文档查找替换'})).toBeVisible()}
 async function coordinatorBusy(page){return page.evaluate(()=>document.querySelector('.app-shell')?.__vueParentComponent?.setupState?.state?.busy??null)}
+for(const mode of ['rendered','source'])test(`${mode} case toggle refreshes counts and replaces through the application coordinator`,async({page})=>{
+ await page.addInitScript(installMockHost,{documents:[{id:'a',title:'A',markdown:'**Aa** aa AA',shelved:false,viewState:{mode}}]})
+ await page.goto('/?testHost=1');await expect(page.locator('.loading-state')).toHaveCount(0)
+ await openFind(page);await page.getByRole('textbox',{name:'查找文字',exact:true}).fill('aa')
+ const toggle=page.getByRole('button',{name:'区分大小写',exact:true})
+ await expect(toggle).toHaveAttribute('aria-pressed','false');await expect(page.locator('.find-count')).toHaveText('1/3')
+ await toggle.click();await expect(toggle).toHaveAttribute('aria-pressed','true');await expect(page.locator('.find-count')).toHaveText('1/1')
+ await page.getByRole('textbox',{name:'替换为',exact:true}).fill('X');await page.getByRole('button',{name:'全部替换',exact:true}).click()
+ await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').markdown.trim())).toBe('**Aa** X AA')
+ await expect(page.locator('.find-count')).toHaveText('无匹配');await toggle.click();await expect(page.locator('.find-count')).toHaveText('1/2')
+ await page.getByRole('button',{name:'关闭查找替换',exact:true}).click()
+ const input=mode==='source'?page.getByRole('textbox',{name:'Markdown 源码',exact:true}):body(page)
+ await input.press('Control+z');await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').markdown.trim())).toBe('**Aa** aa AA')
+ await expect(page.getByRole('alert')).toHaveCount(0)
+})
 for(const mode of ['rendered','source'])test(`${mode} optional case-sensitive search replaces only exact case and retains undo`,async({page})=>{
  await page.addInitScript(installMockHost,{documents:[{id:'a',title:'A',markdown:'**Aa** aa',shelved:false,viewState:{mode}}]})
  await page.goto('/?testHost=1');await expect(page.locator('.loading-state')).toHaveCount(0)
