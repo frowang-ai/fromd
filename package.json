@@ -22,6 +22,7 @@
     "test:update": "playwright test -c playwright.updates.config.mjs",
     "test:tauri": "node --test apps/tauri/tests/*.test.mjs",
     "test:tauri:browser": "npm --prefix apps/tauri run test:browser",
+    "test:tauri:native": "npm --prefix apps/tauri run test:native",
     "tauri:web": "npm --prefix apps/tauri run build",
     "tauri:check": "cargo check --manifest-path apps/tauri/src-tauri/Cargo.toml --locked",
     "tauri:dev": "npm --prefix apps/tauri run tauri -- dev",

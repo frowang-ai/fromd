@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "tauri": "tauri",
-    "test:browser": "playwright test -c playwright.config.mjs"
+    "test:browser": "playwright test -c playwright.config.mjs",
+    "test:native": "playwright test -c playwright.native.config.mjs"
   },
   "dependencies": {
     "@frowang/editor": "link:../../packages/editor",

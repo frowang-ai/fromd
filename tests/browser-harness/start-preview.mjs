@@ -13,7 +13,13 @@ export async function startWritingPreview({ port = 5198 } = {}) {
     cacheDir: resolve(root, `node_modules/.vite-writing-${port || 'test'}`),
     resolve: { alias: { '@': resolve(root, 'src') } },
     optimizeDeps: { entries: ['tests/browser-harness/ProbeWritingApp.vue'], include: ['@milkdown/crepe', '@milkdown/kit/core', '@milkdown/kit/ctx', '@milkdown/kit/utils', '@milkdown/kit/prose/state', '@milkdown/kit/prose/history', '@milkdown/kit/prose/inputrules', '@milkdown/kit/preset/commonmark', 'remark-math', 'katex'] },
-    server: { host: '127.0.0.1', port, strictPort: Boolean(port), fs: { allow: [root, realpathSync(resolve(root, 'node_modules'))] } },
+    server: {
+      host: '127.0.0.1', port, strictPort: Boolean(port),
+      fs: { allow: [root, realpathSync(resolve(root, 'node_modules'))] },
+      // Native linker temp files and large build trees are not editor sources.
+      // Anchor paths to this checkout: it may itself live under _worktrees.
+      watch: { ignored: ['output', 'release', 'apps/tauri/src-tauri/target', 'apps/tauri/crates/document-store/target', 'website/_worktrees'].map(path => resolve(root, path).replaceAll('\\', '/') + '/**') },
+    },
     plugins: [vue(), { name: 'standalone-writing-preview', configureServer(s) {
       s.middlewares.use(async (req, res, next) => {
         const pathname = new URL(req.url, 'http://localhost').pathname
