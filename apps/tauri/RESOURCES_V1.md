@@ -57,9 +57,10 @@ UAC, installer, PDF, Office importer, mobile feature or resize work belongs here
 
 ## Concrete scope and retained data
 
-Only Markdown image destinations (including reference-style syntax) and managed
-attachment link destinations are materialized. Ordinary file links, raw HTML img
-tags and remote/data image destinations are not copied; relative image escapes
+Markdown image destinations (including reference-style syntax), raw HTML `img src`
+and managed attachment destinations (including HTML `a href`) are materialized.
+HTML comments, code and raw-text elements do not authorize resources. Ordinary
+file links and remote/data image destinations are not copied; relative image escapes
 and missing sources fail explicitly on Save As. Normal same-directory Save does
 not add existence requirements to unmanaged external images. Export references
 cannot alias the target Markdown file. The managed objects are immutable; manual

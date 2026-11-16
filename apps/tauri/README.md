@@ -202,12 +202,12 @@ Only use synthetic documents and files inside the task output directory.
 
 ## Evidence and remaining validation
 
-At this documentation handoff, root Node **74/74**, Tauri Node **85/85** and
-Rust domain **43/43** have passed. The baseline debug executable has also launched
-in actual WebView2 and persisted an imported image through native IPC. Final
-integrated frontend/native builds, browser tests and native desktop results are
-recorded in [VALIDATION_ROUND_ONE.md](VALIDATION_ROUND_ONE.md); the baseline smoke
-and branch-local tests are not substitutes for those final results.
+The integrated root Node **74/74**, Tauri Node **85/85**, Rust domain **43/43**,
+Tauri browser **162/162**, shared-editor **15/15** and actual debug WebView2
+desktop **3/3** checks passed. Native checks cover normal close/restart, visible
+cross-page search selection, image output/reopening and reading preference
+persistence. Tested sources, build evidence and local artifact information are
+recorded in [VALIDATION_ROUND_ONE.md](VALIDATION_ROUND_ONE.md).
 
 Physical Windows IME, OS clipboard, native picker behavior, real-user migration,
 installer execution and mobile runtime/builds are not accepted by these checks.

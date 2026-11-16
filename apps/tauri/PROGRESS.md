@@ -13,17 +13,18 @@ counts, Setext outline entries, case-sensitive Find/Replace, HTML image copying
 on Save As, and fixes for source coordinates/focus and stale operation ownership.
 See [this round's scope](ROUND_ONE_20261116.md) for behavior and boundaries.
 
-Confirmed checks available at documentation handoff:
+Completed integration checks:
 
 - Root Node suite: **74/74**.
 - Tauri Node suite: **85/85**.
 - Rust document-store/domain suite: **43/43**.
-- The baseline debug executable launched in actual WebView2 and imported an image
-  through native IPC into the isolated profile. This is not a final integrated
-  build/restart acceptance claim.
+- Complete Tauri browser suite: **162/162**.
+- Affected shared-editor regressions: **15/15**.
+- Real debug WebView2 desktop scenarios: **3/3**, including normal-close SQLite
+  recovery, visible search selection, image save/reopening and reading settings.
 
-Final frontend/native builds, browser regressions and native desktop checks are
-being recorded separately in [VALIDATION_ROUND_ONE.md](VALIDATION_ROUND_ONE.md).
+Frontend/native build evidence and local artifact details are recorded in
+[VALIDATION_ROUND_ONE.md](VALIDATION_ROUND_ONE.md).
 Use that record for the final tested commit and results. Historical company
 browser/mock-IPC results remain in [VALIDATION_V1.md](VALIDATION_V1.md).
 

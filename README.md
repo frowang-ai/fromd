@@ -18,8 +18,9 @@ Setext大纲、查找大小写选项、HTML图片另存及稳定性修复。
 
 本轮范围与隔离运行方式见[整合说明](apps/tauri/ROUND_ONE_20261116.md)，
 最终构建、浏览器和原生验收以[本轮验证记录](apps/tauri/VALIDATION_ROUND_ONE.md)为准。
-根 Node 74/74、Tauri Node 85/85、Rust domain 43/43 已通过；基线 debug 原生启动与
-图片落盘已验证，不能将其等同于最终整合版全量验收。旧公司阶段证据保留在
+根 Node 74/74、Tauri Node 85/85、Rust domain 43/43、Tauri 浏览器162/162、
+共享编辑器15/15及真实 debug WebView2桌面3/3已通过，包括关闭重启、图片落盘与阅读偏好恢复。
+旧公司阶段证据保留在
 [VALIDATION_V1](apps/tauri/VALIDATION_V1.md)。现有安装版与真实用户数据不自动迁移。
 
 ## 既有 Electron 版本记录
