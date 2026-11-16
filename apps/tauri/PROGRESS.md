@@ -1,19 +1,45 @@
-# Current progress — 2026-11-15
+# Current progress — 2026-11-16
 
-The independent document service from 2ba593e is now wired into the Vue shell and
-fixed Tauri host command adapter. The selected actual SoloMD v5.0.21 CM extensions
-run as an explicitly pending editor candidate. See README.md for module ownership
-and VALIDATION_V1.md for exact results and limitations.
+The current integration starts from `feat/tauri-blackboard-v1` at `f648c93`.
+It compares Electron 0.5 capabilities against the existing Tauri application,
+preserving the Tauri/Rust host, WebView2, SQLite document authority, page workbar,
+shelve/restore flow and 450 ms collapse motion. There is one shared
+Milkdown/ProseMirror body editor plus source mode. The full CodeMirror candidate
+is historical at `406ab17`, not the current editor.
 
-Actual checks: root Node suite 74/74, coordinator/removal/handoff suite 17/17,
-browser UI integration 18/18, and frontend vue-tsc/Vite build.
-The metadata-wait handoff race was first reproduced by three failing controlled
-tests, then corrected with real IME-safe edit freeze and post-acknowledgement reflush.
+Existing Tauri full-text search, Find/Replace, durable images/attachments and
+TXT/HTML import are reused. This round adds reading preferences, word/character
+counts, Setext outline entries, case-sensitive Find/Replace, HTML image copying
+on Save As, and fixes for source coordinates/focus and stale operation ownership.
+See [this round's scope](ROUND_ONE_20261116.md) for behavior and boundaries.
 
-No native Rust test, Tauri Windows launch, SQLite restart or final table-interaction
-acceptance is claimed. MSVC link.exe remains unavailable; the official manual
-UAC installation entry is preserved in output/toolchain-prep-20261114.
-No UAC was retriggered. The native eight domain tests are pending execution.
+Completed integration checks:
 
-7327e3f and 2ba593e remain unchanged in Git history. This branch is a draft/progress
-delivery. The remaining asset/search/import/mobile work remains open.
+- Root Node suite: **74/74**.
+- Tauri Node suite: **85/85**.
+- Rust document-store/domain suite: **43/43**.
+- Complete Tauri browser suite: **162/162**.
+- Affected shared-editor regressions: **15/15**.
+- Real debug WebView2 desktop scenarios: **3/3**, including normal-close SQLite
+  recovery, visible search selection, image save/reopening and reading settings.
+
+Frontend/native build evidence and local artifact details are recorded in
+[VALIDATION_ROUND_ONE.md](VALIDATION_ROUND_ONE.md).
+Use that record for the final tested commit and results. Historical company
+browser/mock-IPC results remain in [VALIDATION_V1.md](VALIDATION_V1.md).
+
+The local Windows toolchain is available: Rust **1.93.1**, MSVC **14.44**,
+Windows SDK **10.0.26100**, WebView2 **157**. Run native builds/tests from a VS
+Developer PowerShell with `TEMP`/`TMP` pointing to `output/native-temp` and
+`CARGO_BUILD_JOBS=4`. The old missing-linker blocker is resolved.
+
+Use the root `tauri:*` scripts for this client; unqualified `npm run dev/build`
+still target the retained Electron project. Build a debug no-bundle executable
+before `npm run test:tauri:native`. Manual debug runs must isolate both
+`FROWANG_USER_DATA` and `WEBVIEW2_USER_DATA_FOLDER`; the former is debug-only.
+Do not use a release executable as a profile-isolated lifecycle test.
+
+No real-user migration, installer execution, release publishing, updater or
+mobile acceptance is included. Physical Windows IME, OS clipboard and native
+picker behavior still require separate validation; synthetic/browser evidence
+does not establish them.

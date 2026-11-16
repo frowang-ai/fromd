@@ -34,6 +34,7 @@ import {sliceResources,markdownResources,markdownPasteResources} from './writing
 import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
 import { markdownRange } from './writingMarkdownLocation.js'
 import '@milkdown/crepe/theme/common/style.css'
+import { writingCodeTheme } from './writingCodeTheme.js'
 import '@milkdown/crepe/theme/classic.css'
 import 'katex/dist/katex.min.css'
 import './writingLists.css'
@@ -159,16 +160,16 @@ function insertResources(items,position=null,expectedState=null) {
   v.dispatch(closeHistory(v.state.tr))
 }
 const FIND_LIMIT = 10000
-function findTextMatches(query) {
+function findTextMatches(query, matchCase = false) {
   if (!query) return []
-  const matches = [], fold = value => value.replace(/[A-Z]/g, c => c.toLowerCase()), wanted = fold(query)
+  const matches = [], fold = value => matchCase ? value : value.replace(/[A-Z]/g, c => c.toLowerCase()), wanted = fold(query)
   const limit = FIND_LIMIT
   view().state.doc.descendants((node, pos) => {
     if (matches.length >= limit) return false
     if (!node.isTextblock) return
     let run = '', pieces = []
     const flush = () => {
-      if (!run) return
+      if (!run || matches.length >= limit) { run = ''; pieces = []; return }
       const folded = fold(run); let at = 0
       while ((at = folded.indexOf(wanted, at)) >= 0) {
         const end = at + query.length, first = pieces.find(piece => at < piece.end && end > piece.start), last = [...pieces].reverse().find(piece => at < piece.end && end > piece.start)
@@ -177,13 +178,13 @@ function findTextMatches(query) {
       }
       run = ''; pieces = []
     }
-    node.forEach((child, offset) => { if (!child.isText) { flush(); return }; const start = run.length; pieces.push({ start, end: start + child.text.length, offset, text: child.text, marks: child.marks }); run += child.text })
+    node.forEach((child, offset) => { if (matches.length >= limit) return; if (!child.isText) { flush(); return }; const start = run.length; pieces.push({ start, end: start + child.text.length, offset, text: child.text, marks: child.marks }); run += child.text })
     flush()
   })
   return matches
 }
-function findMatch(query, index = 0, reveal = true) {
-  const matches = findTextMatches(query), selected = matches.length ? matches[((index % matches.length) + matches.length) % matches.length] : null
+function findMatch(query, index = 0, reveal = true, matchCase = false) {
+  const matches = findTextMatches(query, matchCase), selected = matches.length ? matches[((index % matches.length) + matches.length) % matches.length] : null
   if (selected && reveal) { const v = view(); v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, selected.from, selected.to)).scrollIntoView()); v.focus() }
   return { count: matches.length, limited: matches.length >= FIND_LIMIT, index: selected ? matches.indexOf(selected) : -1, match: selected }
 }
@@ -191,15 +192,15 @@ function nextMatchIndex(matches, from) { const next = matches.findIndex(match =>
 function utf8Bytes(text) { return new TextEncoder().encode(text).byteLength }
 function replacementSize(text, query, replacement, count) { if (utf8Bytes(text) + (utf8Bytes(replacement) - utf8Bytes(query)) * count > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
 function ensureSerializedCapacity(doc) { const markdown = editor.editor.ctx.get(core.serializerCtx)(doc); if (utf8Bytes(markdown) > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
-function replaceFind(query, replacement, index = 0, all = false) {
-  const matches = findTextMatches(query); if (!matches.length) return { count: 0, replaced: 0, index: -1, limited: false }
+function replaceFind(query, replacement, index = 0, all = false, matchCase = false) {
+  const matches = findTextMatches(query, matchCase); if (!matches.length) return { count: 0, replaced: 0, index: -1, limited: false }
   if (all && matches.length >= FIND_LIMIT) throw Error('匹配数量达到 10000 上限，未执行全部替换。')
   const v = view()
   replacementSize(v.state.doc.textContent, query, replacement, all ? matches.length : 1)
   if (all) { let tr = v.state.tr; for (const match of [...matches].reverse()) tr = tr.replaceWith(match.from, match.to, replacement ? v.state.schema.text(replacement, match.marks) : null); ensureSerializedCapacity(tr.doc); v.dispatch(closeHistory(v.state.tr)); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); return { count: matches.length, replaced: matches.length, index: -1, limited: false } }
   const selected = matches[((index % matches.length) + matches.length) % matches.length]
   const tr = v.state.tr.replaceWith(selected.from, selected.to, replacement ? v.state.schema.text(replacement, selected.marks) : null); ensureSerializedCapacity(tr.doc); v.dispatch(closeHistory(v.state.tr)); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr))
-  const next = findTextMatches(query), nextIndex = nextMatchIndex(next, selected.from + replacement.length)
+  const next = findTextMatches(query, matchCase), nextIndex = nextMatchIndex(next, selected.from + replacement.length)
   return { count: next.length, replaced: 1, limited: next.length >= FIND_LIMIT, index: nextIndex }
 }
 function prepareFileImport(source) {
@@ -242,7 +243,7 @@ onMounted(async () => {
       },
       featureConfigs: {
         [Crepe.Feature.Placeholder]: { text: '从这里开始写…', mode: 'doc' },
-        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言' },
+        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言', theme: writingCodeTheme },
       },
     })
     // Replace the generic-transaction-only synchronizer; input rules carry

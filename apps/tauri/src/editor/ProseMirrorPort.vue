@@ -98,13 +98,15 @@ async function setMode(value){
 }
 async function reveal(offset){
  await ready()
- sourceRange={start:offset,end:offset}
+ const sourcePosition=markdown().slice(0,offset).replace(/\r\n?/g,'\n').length
+ sourceRange={start:sourcePosition,end:sourcePosition}
  if(mode.value==='source'){source.value.setSelectionRange(offset,offset);source.value.focus();source.value.scrollTop=Math.max(0,source.value.scrollHeight*offset/Math.max(1,markdown().length)-40)}
  else if(!engine.value.revealMarkdown(offset))emit('navigation-hint','已定位文稿；可从视图菜单打开源码查看精确位置。')
 }
 async function revealMatch(location){
  await ready()
- const offset=sourceOffset(markdown(),location);sourceRange={start:offset,end:offset+location.needle.length}
+ const text=markdown(),offset=sourceOffset(text,location),sourcePosition=text.slice(0,offset).replace(/\r\n?/g,'\n').length
+ sourceRange={start:sourcePosition,end:sourcePosition+location.needle.replace(/\r\n?/g,'\n').length}
  source.value.setSelectionRange(sourceRange.start,sourceRange.end)
  if(mode.value==='source'){await reveal(offset);source.value.setSelectionRange(sourceRange.start,offset+location.needle.length)}
  else if(!engine.value.revealMarkdown(offset,location.needle))emit('navigation-hint','命中 Markdown 源文；可从视图菜单打开源码查看精确范围。')
@@ -186,12 +188,22 @@ async function insertResources(items,position=null,dropState=null,dropMode=null)
  }
 }
 const FIND_LIMIT=10000
-function literalMatches(text,query){if(!query)return {matches:[],limited:false};const fold=value=>value.replace(/[A-Z]/g,c=>c.toLowerCase()),wanted=fold(query),matches=[];let at=0,folded=fold(text);while((at=folded.indexOf(wanted,at))>=0){matches.push({from:at,to:at+query.length});if(matches.length>=FIND_LIMIT)break;at+=query.length||1}return {matches,limited:matches.length>=FIND_LIMIT}}
+function literalMatches(text,query,matchCase=false){if(!query)return {matches:[],limited:false};const fold=value=>matchCase?value:value.replace(/[A-Z]/g,c=>c.toLowerCase()),wanted=fold(query),matches=[];let at=0,folded=fold(text);while((at=folded.indexOf(wanted,at))>=0){matches.push({from:at,to:at+query.length});if(matches.length>=FIND_LIMIT)break;at+=query.length||1}return {matches,limited:matches.length>=FIND_LIMIT}}
 function nextLiteralIndex(matches,from){const index=matches.findIndex(match=>match.from>=from);return index<0?0:index}
 function replaceLiteral(text,matches,replacement){let out='',cursor=0;for(const match of matches){out+=text.slice(cursor,match.from)+replacement;cursor=match.to}return out+text.slice(cursor)}
-function findReplace(query,index=0,reveal=true){if(!owner||!query)return {count:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const found=literalMatches(markdown(),query),matches=found.matches,selected=matches.length?matches[((index%matches.length)+matches.length)%matches.length]:null;if(selected&&reveal){sourceRange={start:selected.from,end:selected.to};source.value.setSelectionRange(selected.from,selected.to)}return {count:matches.length,limited:found.limited,index:selected?matches.indexOf(selected):-1,mode:mode.value}}return {...engine.value.findMatch(query,index,reveal),mode:mode.value}}
+function selectSourceMatch(from,to){
+ const input=source.value,style=getComputedStyle(input),mirror=document.createElement('div'),marker=document.createElement('span')
+ sourceRange={start:from,end:to};input.setSelectionRange(from,to)
+ // A selection on the unfocused, frozen textarea does not scroll itself.
+ // Measure wrapped lines without stealing focus from the find input.
+ for(const property of ['font','lineHeight','letterSpacing','padding','boxSizing','wordBreak','overflowWrap','tabSize'])mirror.style[property]=style[property]
+ Object.assign(mirror.style,{position:'absolute',visibility:'hidden',whiteSpace:'pre-wrap',width:`${input.clientWidth}px`,left:'-100000px'})
+ mirror.textContent=input.value.slice(0,from);marker.textContent=input.value.slice(from,to)||'\u200b';mirror.append(marker);document.body.append(mirror)
+ try{input.scrollTop=Math.max(0,marker.offsetTop-input.clientHeight/2)}finally{mirror.remove()}
+}
+function findReplace(query,index=0,reveal=true,matchCase=false){if(!owner||!query)return {count:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const found=literalMatches(markdown(),query,matchCase),matches=found.matches,selected=matches.length?matches[((index%matches.length)+matches.length)%matches.length]:null;if(selected&&reveal)selectSourceMatch(selected.from,selected.to);return {count:matches.length,limited:found.limited,index:selected?matches.indexOf(selected):-1,mode:mode.value}}return {...engine.value.findMatch(query,index,reveal,matchCase),mode:mode.value}}
 function utf8Bytes(text){return new TextEncoder().encode(text).byteLength}
-function replaceFind(query,replacement,index=0,all=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=markdown(),found=literalMatches(text,query),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}if(utf8Bytes(next)>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
+function replaceFind(query,replacement,index=0,all=false,matchCase=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=markdown(),found=literalMatches(text,query,matchCase),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query,matchCase);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}if(utf8Bytes(next)>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query,matchCase).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all,matchCase);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
 function prepareFileImport(source){return engine.value.prepareFileImport(source)}
 function currentOwner(){return owner?{...owner,viewState:{mode:mode.value}}:null}
 function clear(){owner=null;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}

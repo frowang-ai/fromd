@@ -1,8 +1,12 @@
 use super::*;
+use html5ever::tokenizer::{
+    states::RawKind, BufferQueue, StartTag, Token, TokenSink, TokenSinkResult, Tokenizer,
+};
 use image::{ImageFormat, ImageReader, Limits};
-use pulldown_cmark::{Event, Options, Parser, Tag};
+use pulldown_cmark::{html, Options, Parser};
 use serde::{Deserialize, Serialize};
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     io::{Cursor, Read},
 };
@@ -14,6 +18,65 @@ const MAX_OBJECT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_OBJECTS: usize = 2048;
 const MAX_EXPORT: usize = 256;
 const PREFIX: &str = ".frowd-assets/";
+
+#[derive(Default)]
+struct ResourceTokens(RefCell<Vec<(String, bool)>>);
+
+impl TokenSink for ResourceTokens {
+    type Handle = ();
+
+    fn process_token(&self, token: Token, _: u64) -> TokenSinkResult<()> {
+        let Token::TagToken(tag) = token else {
+            return TokenSinkResult::Continue;
+        };
+        if tag.kind != StartTag {
+            return TokenSinkResult::Continue;
+        }
+        // The tokenizer handles comments, quoted attributes and character
+        // references. A token sink must opt into the HTML raw-text states.
+        match tag.name.as_ref() {
+            "script" => return TokenSinkResult::RawData(RawKind::ScriptData),
+            "style" | "xmp" | "iframe" | "noembed" | "noframes" | "noscript" => {
+                return TokenSinkResult::RawData(RawKind::Rawtext);
+            }
+            "title" | "textarea" => return TokenSinkResult::RawData(RawKind::Rcdata),
+            "plaintext" => return TokenSinkResult::Plaintext,
+            _ => (),
+        }
+        let (attribute, image) = match tag.name.as_ref() {
+            "img" => ("src", true),
+            "a" => ("href", false),
+            _ => return TokenSinkResult::Continue,
+        };
+        if let Some(value) = tag
+            .attrs
+            .iter()
+            .find(|attr| attr.name.local.as_ref() == attribute)
+        {
+            let reference = value.value.trim();
+            if !reference.is_empty()
+                && (image || reference.trim_start_matches("./").starts_with(PREFIX))
+            {
+                self.0.borrow_mut().push((reference.to_owned(), image));
+            }
+        }
+        TokenSinkResult::Continue
+    }
+}
+
+fn markdown_resources(markdown: &str) -> Vec<(String, bool)> {
+    // Rendering preserves raw HTML order across Markdown events while escaping
+    // fenced/inline code. Tokenizing only individual Html events would lose
+    // raw-text state or accidentally include Markdown images inside scripts.
+    let mut rendered = String::new();
+    html::push_html(&mut rendered, Parser::new_ext(markdown, Options::all()));
+    let input = BufferQueue::default();
+    input.push_back(rendered.into());
+    let tokenizer = Tokenizer::new(ResourceTokens::default(), Default::default());
+    let _ = tokenizer.feed(&input);
+    tokenizer.end();
+    tokenizer.sink.0.into_inner()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -530,18 +593,12 @@ impl Store {
         let mut indexes = HashMap::<PathBuf, usize>::new();
         let mut references: Vec<(String, PathBuf, bool)> = Vec::new();
         let mut total = 0u64;
-        for event in Parser::new_ext(&doc.markdown, Options::all()) {
-            let (reference, image) = match event {
-                Event::Start(Tag::Image { dest_url, .. }) => (dest_url.to_string(), true),
-                Event::Start(Tag::Link { dest_url, .. })
-                    if dest_url.trim_start_matches("./").starts_with(PREFIX) =>
-                {
-                    (dest_url.to_string(), false)
-                }
-                _ => continue,
-            };
-            if reference.starts_with("data:")
+        for (reference, image) in markdown_resources(&doc.markdown) {
+            if reference
+                .get(..5)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:"))
                 || reference.contains("://")
+                || reference.starts_with("//")
                 || reference.starts_with('#')
             {
                 continue;

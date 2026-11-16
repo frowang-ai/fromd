@@ -10,3 +10,6 @@ playwright-report/
 # Tauri local build output
 apps/tauri/dist/
 apps/tauri/src-tauri/target/
+apps/tauri/src-tauri/gen/
+apps/tauri/crates/document-store/target/
+website/_worktrees/

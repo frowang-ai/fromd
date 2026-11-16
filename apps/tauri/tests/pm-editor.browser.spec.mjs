@@ -2,7 +2,7 @@ import {test,expect} from '@playwright/test'
 import {readFile,writeFile} from 'node:fs/promises'
 import {fileURLToPath} from 'node:url'
 import {installMockHost} from './mock-host.mjs'
-const sample=await readFile(new URL('./pm-table-sample.md',import.meta.url),'utf8')
+const sample=(await readFile(new URL('./pm-table-sample.md',import.meta.url),'utf8')).replace(/\r\n/g,'\n')
 const evidence=fileURLToPath(new URL('../../../output/pm-port-evidence/',import.meta.url))
 test.beforeEach(async({page})=>{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));page.__errors=errors
