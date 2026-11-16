@@ -228,7 +228,16 @@ watch(()=>[query.value,state.markdown,state.loaded,state.documents.map(d=>[d.id,
  search.request('')
  if(query.value.trim()&&state.loaded)searchTimer=setTimeout(()=>search.request(query.value),150)
 })
-function selectResult(result){return action(async()=>{await coordinator.activate(result.id,result.location);if(narrow.value)sidebarOpen.value=false})}
+function selectResult(result){return action(async()=>{
+ await coordinator.activate(result.id,result.location)
+ const owner=editor.value?.currentOwner?.()
+ if(narrow.value)sidebarOpen.value=false
+ // The location is selected while the command owns a frozen editor. Focus only
+ // after the DOM unfreezes, so ProseMirror can publish that selection to the DOM.
+ await nextTick()
+ const currentOwner=editor.value?.currentOwner?.()
+ if(!state.busy&&state.activeId===result.id&&owner?.id===result.id&&currentOwner?.id===owner.id&&currentOwner?.generation===owner.generation)editor.value?.focus()
+})}
 function startDrag(event,id){
  if(state.busy||event.target.closest('.tab-minus')){event.preventDefault();return}
  dragging={id,ids:opened.value.map(d=>d.id),revision:state.layoutRevision}

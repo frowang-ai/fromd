@@ -241,7 +241,9 @@ test('full-text search covers drafts and shelves, includes unacknowledged input,
  await search.fill('收起页合成');await expect(page.locator('.search-result')).toHaveCount(1);
  await page.screenshot({path:evidence+'full-text-search.png',fullPage:true});
  await page.locator('.search-result').click();await expect(page.locator('.tab.selected')).toContainText('阅读摘录');
- // CM draws its own selection; the persisted source range records the selected match.
+ // The target must own the real DOM selection after the command unfreezes.
+ await expect.poll(()=>page.evaluate(()=>getSelection()?.toString())).toBe('收起页合成');
+ await expect(page.locator('.ProseMirror:visible')).toBeFocused();
  await expect.poll(async()=> (await stored(page,'c')).viewState?.sourceSelection?.end-(await stored(page,'c')).viewState?.sourceSelection?.start).toBe(5);
 });
 test('search ignores late responses/errors and clears stale results while next query waits',async({page})=>{
