@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
+  <div class="app-shell" :data-theme="readingTheme" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
     <header class="app-header">
       <div class="brand"><img src="./assets/icon.png" alt="" /><span>frowd</span></div>
       <nav class="app-menu" aria-label="应用菜单">
@@ -20,9 +20,11 @@
           <button :disabled="!current" @click="setMode('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
           <button :disabled="!current" @click="setMode('source')">源码 <kbd>Ctrl+Shift+M</kbd><span v-if="mode === 'source'">✓</span></button>
           <button @click="sidebarOpen = !sidebarOpen; closeMenus()">{{ sidebarOpen ? '隐藏' : '显示' }}工作栏</button>
+          <button :disabled="state.busy || !state.loaded" @click="openReading">阅读设置… <kbd>Ctrl+,</kbd></button>
         </div></details>
       </nav>
       <span class="window-document">{{ current?.title || 'frowd' }}</span>
+      <button ref="readingButton" class="reading-button" :disabled="state.busy || !state.loaded" :aria-expanded="readingOpen" aria-label="阅读设置" @click="openReading">阅读</button>
     </header>
 
     <div class="workspace">
@@ -61,7 +63,7 @@
           </section>
         </template>
         <section v-else class="outline-list" aria-label="当前文稿大纲">
-          <button v-for="heading in outline" :key="heading.start" :style="{paddingLeft: (10 + 12 * (heading.level - 1)) + 'px'}" @click="reveal(heading.start)">{{ heading.title.replace(/^#+\s*/, '') }}</button>
+          <button v-for="heading in outline" :key="heading.start" :disabled="state.busy" :style="{paddingLeft: (10 + 12 * (heading.level - 1)) + 'px'}" @click="reveal(heading)">{{ heading.title }}</button>
           <p v-if="!outline.length" class="empty-list">当前文稿没有标题</p>
         </section>
         <div class="sidebar-footer">{{ state.documents.length }} 个页面 · {{ shelved.length }} 个已收起</div>
@@ -100,10 +102,12 @@
             @input="nameInput" @compositionstart="nameStart" @compositionend="nameEnd" @blur="finishName" @keydown.enter="nameEnter" />
           <span v-else class="file-name" :title="current.path">{{ current.title }}</span>
           <span class="save-state" role="status" aria-label="保存状态">{{ state.saveState }}</span>
+          <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
       </main>
     </div>
 
+    <ReadingSettings v-if="readingOpen" ref="readingPanel" :preferences="readingPreferences" :error="readingError" @change="updateReading" @close="closeReading" />
     <div v-if="contextDocument" class="context-backdrop" @click.self="contextPage = null">
       <div class="page-context" role="menu" :aria-label="'页面操作 ' + contextDocument.title">
         <span class="context-title">{{ contextDocument.title }}</span>
@@ -132,7 +136,10 @@ import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {DocumentSearch} from './documents/search.mjs'
 import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
-import {scanHeadings} from './upstream/lib/heading-fold'
+import ReadingSettings from './reading/ReadingSettings.vue'
+import {analyzeReading} from './reading/analysis.mjs'
+import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
+import './reading/reading.css'
 import {startPageMotion} from './pageMotion.js'
 import html2canvas from 'html2canvas'
 
@@ -141,6 +148,14 @@ const editor=ref(null),editorPanel=ref(null),pageAnchor=ref(null),findInput=ref(
 const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('rendered')
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
 const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
+const initialReading=loadReadingPreferences()
+const readingPreferences=ref(initialReading.preferences),readingError=ref(initialReading.error),readingOpen=ref(false),readingPanel=ref(null),readingButton=ref(null)
+const readingAnalysis=ref({headings:[],wordCount:0,characterCount:0})
+const themeMedia=matchMedia('(prefers-color-scheme: dark)'),systemDark=ref(themeMedia.matches)
+const readingTheme=computed(()=>resolvedReadingTheme(readingPreferences.value,systemDark.value))
+let analysisTimer
+function themeChanged(event){systemDark.value=event.matches}
+watch(readingTheme,value=>{document.documentElement.dataset.readingTheme=value;document.documentElement.style.colorScheme=value},{immediate:true})
 const dropTarget=ref(null),dropAfter=ref(false)
 const findState=reactive({open:false,query:'',replacement:'',count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,pending:null,mode:'rendered'})
 let findSerial=0
@@ -152,13 +167,15 @@ const opened=computed(()=>state.documents?.filter(d=>!d.shelved)||[])
 const shelved=computed(()=>state.documents?.filter(d=>d.shelved)||[])
 const matches=docs=>docs.filter(d=>d.title.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase()))
 const filteredOpened=computed(()=>matches(opened.value)),filteredShelved=computed(()=>matches(shelved.value))
-const outline=computed(()=>scanHeadings(state.markdown||''))
+const outline=computed(()=>readingAnalysis.value.headings)
 const contextDocument=computed(()=>state.documents?.find(d=>d.id===contextPage.value))
 const api={...documentsApi,shelve:async id=>{
  const snapshot=await documentsApi.shelve(id)
  if(id===state.activeId&&!media.matches){
-  const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),capture:async()=> {
-   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,ignoreElements:element=>element.classList.contains('crepe-drop-cursor'),backgroundColor:'#fffefa',allowTaint:false,useCORS:true})
+  readingOpen.value=false;await nextTick()
+  const colors=getComputedStyle(editorPanel.value)
+  const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),backgroundColor:colors.backgroundColor,backdropColor:colors.getPropertyValue('--reading-surface').trim(),capture:async()=> {
+   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,ignoreElements:element=>element.classList.contains('crepe-drop-cursor'),backgroundColor:getComputedStyle(editorPanel.value).backgroundColor,allowTaint:false,useCORS:true})
    return canvas.toDataURL('image/png')
   },isCurrent:()=>state.activeId===id&&!disposed})
   cancelMotion=flight.cancel;await flight.finished;cancelMotion=null
@@ -187,6 +204,22 @@ const port={
 }
 const coordinator=new DocumentCoordinator(api,port,state)
 const search=new DocumentSearch(api,state,()=>coordinator.searchLive())
+watch(()=>[state.activeId,state.markdown],([id,markdown],previous)=>{
+ clearTimeout(analysisTimer)
+ if(id!==previous?.[0])readingAnalysis.value={headings:[],wordCount:0,characterCount:0}
+ analysisTimer=setTimeout(()=>{if(!disposed&&state.activeId===id)readingAnalysis.value=analyzeReading(markdown||'')},180)
+},{immediate:true})
+function updateReading(patch){const result=saveReadingPreferences({...readingPreferences.value,...patch});readingPreferences.value=result.preferences;readingError.value=result.error}
+async function openReading(){
+ if(state.busy||!state.loaded)return
+ closeMenus()
+ if(readingOpen.value){closeReading();return}
+ if(findState.open)closeFind()
+ if(narrow.value)sidebarOpen.value=false
+ readingOpen.value=true
+ await nextTick();readingPanel.value?.focus()
+}
+function closeReading(){readingOpen.value=false;readingButton.value?.focus()}
 let searchTimer
 watch(()=>[query.value,state.markdown,state.loaded,state.documents.map(d=>[d.id,d.title,d.revision,d.shelved].join(':')).join('|')],()=>{
  clearTimeout(searchTimer)
@@ -268,6 +301,7 @@ async function refreshFind(index=findState.index,{reveal=true}={}){
 }
 function openFind(){
  closeMenus()
+ readingOpen.value=false
  findSerial++;invalidateFindTarget()
  findState.open=true;findState.owner=null;findState.pending=null
  nextTick(()=>{findInput.value?.focus();findInput.value?.select();refreshFind(0)})
@@ -320,7 +354,27 @@ function nameEnd(event){nameComposing.value=false;nameDraft.value=event.target.v
 function finishName(event){if(nameComposing.value)return;coordinator.nameChanged(event.target.dataset.docId,event.target.value);coordinator.flushName(event.target.dataset.docId).catch(e=>coordinator.report(e))}
 function nameEnter(event){if(event.isComposing||nameComposing.value||event.keyCode===229)return;event.preventDefault();event.target.blur()}
 async function focusName(id){contextPage.value=null;await selectPage(id);await nextTick();const input=document.querySelector('.name-dock input');input?.focus();input?.select()}
-function reveal(position){editor.value?.reveal(position);if(narrow.value)sidebarOpen.value=false}
+function reveal(heading){
+ const owner=editor.value?.currentOwner?.()
+ return action(async()=>{
+  let navigated=false
+  await coordinator.run(async()=>{
+  const live=editor.value?.currentOwner?.()
+  if(!owner||live?.id!==owner.id||live.generation!==owner.generation)return
+  coordinator.capture()
+  readingAnalysis.value=analyzeReading(state.markdown||'')
+  const matches=outline.value.filter(item=>item.title===heading.title&&item.level===heading.level)
+  const target=matches.find(item=>item.index===heading.index)||(matches.length===1?matches[0]:null)
+  if(!target){state.error='大纲已更新，请重新选择标题。';return}
+  await editor.value.reveal(target.start)
+  navigated=true
+  if(narrow.value)sidebarOpen.value=false
+  await coordinator.flush()
+  })
+  const live=editor.value?.currentOwner?.()
+  if(navigated&&live?.id===owner?.id&&live?.generation===owner?.generation)editor.value.focus()
+ })
+}
 function askRemoval(doc){removalDialog.value=doc;return new Promise(resolve=>{removalResolve=resolve;nextTick(()=>document.querySelector('.remove-dialog button')?.focus())})}
 function answerRemoval(answer){removalDialog.value=null;removalResolve?.(answer);removalResolve=null}
 function removePage(id){return action(()=>coordinator.remove(id,askRemoval))}
@@ -329,9 +383,10 @@ function globalEnd(){globalComposing=false}
 function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=false}
 function shortcut(event){
  if(event.isComposing||globalComposing||removalDialog.value)return
- if(event.key==='Escape'){if(findState.open){event.preventDefault();closeFind();return}contextPage.value=null;closeMenus();if(narrow.value)sidebarOpen.value=false}
+ if(event.key==='Escape'){if(readingOpen.value){event.preventDefault();closeReading();return}if(findState.open){event.preventDefault();closeFind();return}contextPage.value=null;closeMenus();if(narrow.value)sidebarOpen.value=false}
  if(!(event.ctrlKey||event.metaKey)||event.altKey)return
  const key=event.key.toLowerCase()
+ if(key===','){event.preventDefault();openReading();return}
  if(key==='n'){event.preventDefault();action(()=>coordinator.create())}
  if(key==='o'){event.preventDefault();action(()=>coordinator.open())}
  if(key==='s'){event.preventDefault();action(()=>coordinator.save(state.activeId,event.shiftKey))}
@@ -343,8 +398,9 @@ function shortcut(event){
 async function openLink(event){const detail=event.detail;if(!current.value||detail.id&&detail.id!==current.value.id)return;try{await openDocumentLink(current.value.id,detail.href)}catch(e){coordinator.report(e)}}
 onMounted(async()=>{
  narrow.value=media.matches;sidebarOpen.value=!narrow.value;media.addEventListener('change',resize)
+ themeMedia.addEventListener('change',themeChanged)
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
 })
-onBeforeUnmount(()=>{disposed=true;search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

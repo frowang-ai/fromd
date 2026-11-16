@@ -20,11 +20,11 @@ const sourceTheme = CodeView.theme({
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: '#cbdcf1' },
 })
 const sourceHighlight = HighlightStyle.define([
-  { tag: [tags.keyword, tags.tagName], color: '#176a36' },
-  { tag: [tags.atom, tags.string], color: '#8b3e95' },
-  { tag: tags.number, color: '#9a521e' },
-  { tag: [tags.bracket, tags.operator], color: '#2463ae' },
-  { tag: tags.comment, color: '#7a8490', fontStyle: 'italic' },
+  { tag: [tags.keyword, tags.tagName], color: 'var(--writing-code-keyword, #176a36)' },
+  { tag: [tags.atom, tags.string], color: 'var(--writing-code-string, #8b3e95)' },
+  { tag: tags.number, color: 'var(--writing-code-number, #9a521e)' },
+  { tag: [tags.bracket, tags.operator], color: 'var(--writing-code-operator, #2463ae)' },
+  { tag: tags.comment, color: 'var(--writing-code-comment, #7a8490)', fontStyle: 'italic' },
 ])
 
 export function blockFormulaView(initial, view, getPos) {
