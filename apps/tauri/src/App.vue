@@ -136,7 +136,7 @@ import {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vu
 import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {documentsApi,onHostClose,openDocumentLink,browserTestHost,setImeGuard,onImeGuardBlocked} from './documents/host.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
@@ -162,6 +162,9 @@ const findState=reactive({open:false,query:'',replacement:'',matchCase:false,cou
 let findSerial=0
 let dragging=null
 let globalComposing=false,compositionTarget=null,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
+let imeSequence=Date.now()*1000,imeFrame,imeDispose
+const imeHint='请先完成输入法候选，再重试页面操作。'
+const imeLayoutObserver=new MutationObserver(scheduleImeGuard)
 const media=matchMedia('(max-width: 760px)')
 const current=computed(()=>state.documents?.find(d=>d.id===state.activeId)||null)
 const opened=computed(()=>state.documents?.filter(d=>!d.shelved)||[])
@@ -391,11 +394,25 @@ function reveal(heading){
 function askRemoval(doc){removalDialog.value=doc;return new Promise(resolve=>{removalResolve=resolve;nextTick(()=>document.querySelector('.remove-dialog button')?.focus())})}
 function answerRemoval(answer){removalDialog.value=null;removalResolve?.(answer);removalResolve=null}
 function removePage(id){return action(()=>coordinator.remove(id,askRemoval))}
-function globalStart(event){globalComposing=true;compositionTarget=event.target}
-function globalEnd(){globalComposing=false;compositionTarget=null}
+function updateImeGuard(){
+ const regions=globalComposing?Array.from(document.querySelectorAll('.app-shell button,.app-shell summary')).filter(el=>!compositionTarget?.contains(el)).map(el=>el.getBoundingClientRect()).filter(r=>r.width>0&&r.height>0).map(({left,top,right,bottom})=>({left,top,right,bottom})):[]
+ const sequence=++imeSequence
+ setImeGuard({sequence,viewportWidth:innerWidth,regions}).catch(error=>{if(!disposed&&sequence===imeSequence)state.error=error.message||String(error)})
+}
+function scheduleImeGuard(){cancelAnimationFrame(imeFrame);if(globalComposing&&!disposed)imeFrame=requestAnimationFrame(updateImeGuard)}
+function releaseImeGuard(){
+ cancelAnimationFrame(imeFrame)
+ const sequence=++imeSequence
+ setImeGuard({sequence,viewportWidth:innerWidth,regions:[]}).catch(error=>{if(!disposed&&sequence===imeSequence)state.error=error.message||String(error)})
+}
+function globalStart(event){
+ globalComposing=true;compositionTarget=event.target;updateImeGuard()
+ imeLayoutObserver.observe(document.querySelector('.app-shell'),{subtree:true,childList:true,attributes:true,attributeFilter:['class','style','hidden','open','disabled']})
+}
+function globalEnd(){globalComposing=false;compositionTarget=null;imeLayoutObserver.disconnect();releaseImeGuard();if(state.error===imeHint)state.error=''}
 function preserveCompositionFocus(event){
- // Windows IMEs can commit raw preedit on blur, before click reaches the
- // coordinator's composition wait. Keep focus; the click still queues its action.
+ // DOM fallback for non-native hosts. Windows additionally intercepts presses
+ // before WebView2 can end composition; those presses are deliberately not replayed.
  if(!globalComposing||!compositionTarget?.contains(document.activeElement))return
  if(!compositionTarget.contains(event.target)&&event.target.closest?.('button, summary'))event.preventDefault()
 }
@@ -418,8 +435,10 @@ async function openLink(event){const detail=event.detail;if(!current.value||deta
 onMounted(async()=>{
  narrow.value=media.matches;sidebarOpen.value=!narrow.value;media.addEventListener('change',resize)
  themeMedia.addEventListener('change',themeChanged)
+ window.addEventListener('resize',scheduleImeGuard);window.addEventListener('blur',releaseImeGuard);window.addEventListener('focus',scheduleImeGuard)
+ try{imeDispose=await onImeGuardBlocked(()=>{if(globalComposing)state.error=imeHint})}catch(error){state.error=String(error)}
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
 })
-onBeforeUnmount(()=>{disposed=true;clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;imeLayoutObserver.disconnect();releaseImeGuard();imeDispose?.();window.removeEventListener('resize',scheduleImeGuard);window.removeEventListener('blur',releaseImeGuard);window.removeEventListener('focus',scheduleImeGuard);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

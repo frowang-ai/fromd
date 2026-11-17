@@ -77,6 +77,17 @@ its net edit as one group. An authoritative external refresh invalidates old
 history. CRLF offsets are mapped to textarea LF coordinates without rewriting the
 stored Markdown merely for navigation.
 
+On Windows, pending IME candidates are protected from clicks on application
+buttons and menus by an app-owned native child window, before WebView2 can
+confirm raw preedit. Finish or cancel the candidate, then click the command
+again; the intercepted press is not replayed. Source/body/name input remains
+focused. Button regions follow layout changes and the guard clears on composition
+end, app focus loss, and window destruction. This does not intercept other apps,
+system title-bar controls, or calls that bypass mouse hit testing. The manifest's
+Windows compatibility declaration is required for layered child windows.
+Browser composition tests cover DOM focus/ownership; physical Windows IME
+acceptance must separately verify candidate retention and same-profile restart.
+
 Full-text search uses the existing SQLite drafts and overlays live unsaved editor
 text. It is literal, Unicode exact and ASCII case-insensitive, capped at 256 query
 characters and 100 matching pages. Each page returns its first body hit or a title

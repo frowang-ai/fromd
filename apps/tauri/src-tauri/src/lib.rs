@@ -2,6 +2,7 @@ use frowd_documents::filename::suggested_name;
 mod document_links;
 mod file_import_host;
 mod resource_host;
+mod ime_guard;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
 use serde_json::Value;
@@ -291,6 +292,12 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                ime_guard::focus_changed(*focused);
+            }
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                ime_guard::focus_changed(false);
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
                 if !state.close_confirmed.load(Ordering::SeqCst) {
@@ -302,6 +309,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            ime_guard::set_ime_guard,
             file_import_host::choose_document_import,
             file_import_host::prepare_document_import_resources,
             file_import_host::commit_document_import,
