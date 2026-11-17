@@ -48,3 +48,25 @@ for(const command of ['switch','create']){
   await expect(input).toHaveValue(committed)
  })
 }
+
+test('native IME button regions follow sidebar and tab scrolling',async({page})=>{
+ const documents=Array.from({length:35},(_,i)=>({id:'d'+i,title:'Test page '+i,markdown:'Synthetic',shelved:false}))
+ await page.addInitScript(installMockHost,{documents,activeId:'d0'})
+ await page.goto('/?testHost=1')
+ await expect(page.locator('.loading-state')).toHaveCount(0)
+ await expect(page.getByRole('status',{name:'字数统计'})).toContainText('1 字词')
+ await page.getByText('视图',{exact:true}).click()
+ await page.locator('.menu-popup button').filter({hasText:'源码'}).click()
+ const input=page.getByRole('textbox',{name:'Markdown 源码',exact:true})
+ await input.focus();await input.dispatchEvent('compositionstart',{data:'c'})
+ await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.imeGuard?.regions.length||0)).toBeGreaterThan(0)
+ for(const [scroller,target,axis] of [['.sidebar','.page-title','scrollTop'],['.tabs','.tab-title','scrollLeft']]){
+  const previous=await page.evaluate(()=>window.__FROWD_TEST_HOST__.imeGuard.sequence)
+  await page.locator(scroller).evaluate((el,axis)=>{el[axis]=127},axis)
+  await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.imeGuard.sequence),{timeout:1500}).toBeGreaterThan(previous)
+  const rect=await page.locator(target).nth(7).evaluate(el=>{const {left,top,right,bottom}=el.getBoundingClientRect();return {left,top,right,bottom}})
+  await expect.poll(()=>page.evaluate(rect=>window.__FROWD_TEST_HOST__.imeGuard.regions.some(r=>Object.keys(rect).every(key=>r[key]===rect[key])),rect)).toBe(true)
+ }
+ await input.dispatchEvent('compositionend',{data:''})
+ await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.imeGuard.regions.length)).toBe(0)
+})

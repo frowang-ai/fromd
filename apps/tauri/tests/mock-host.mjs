@@ -22,6 +22,7 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
+   case 'set_ime_guard': h.imeGuard=structuredClone(args);return;
 
    case 'choose_document_import':{
     const choice=h.importChoice;if(!choice)return {cancelled:true};
