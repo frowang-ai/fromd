@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :data-theme="readingTheme" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
+  <div class="app-shell" :data-theme="readingTheme" :style="readingStyle(readingPreferences)" @mousedown.capture="preserveCompositionFocus" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
     <header class="app-header">
       <div class="brand"><img src="./assets/icon.png" alt="" /><span>frowd</span></div>
       <nav class="app-menu" aria-label="应用菜单">
@@ -161,7 +161,7 @@ const dropTarget=ref(null),dropAfter=ref(false)
 const findState=reactive({open:false,query:'',replacement:'',matchCase:false,count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,pending:null,mode:'rendered'})
 let findSerial=0
 let dragging=null
-let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
+let globalComposing=false,compositionTarget=null,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
 const media=matchMedia('(max-width: 760px)')
 const current=computed(()=>state.documents?.find(d=>d.id===state.activeId)||null)
 const opened=computed(()=>state.documents?.filter(d=>!d.shelved)||[])
@@ -213,6 +213,7 @@ watch(()=>[state.activeId,state.markdown],([id,markdown],previous)=>{
 function updateReading(patch){const result=saveReadingPreferences({...readingPreferences.value,...patch});readingPreferences.value=result.preferences;readingError.value=result.error}
 async function openReading(){
  if(state.busy||!state.loaded)return
+ if(globalComposing){state.error='请先完成输入法组合输入，再重试。';return}
  closeMenus()
  if(readingOpen.value){closeReading();return}
  if(findState.open)closeFind()
@@ -310,6 +311,7 @@ async function refreshFind(index=findState.index,{reveal=true}={}){
  }
 }
 function openFind(){
+ if(globalComposing){state.error='请先完成输入法组合输入，再重试。';return}
  closeMenus()
  readingOpen.value=false
  findSerial++;invalidateFindTarget()
@@ -389,8 +391,14 @@ function reveal(heading){
 function askRemoval(doc){removalDialog.value=doc;return new Promise(resolve=>{removalResolve=resolve;nextTick(()=>document.querySelector('.remove-dialog button')?.focus())})}
 function answerRemoval(answer){removalDialog.value=null;removalResolve?.(answer);removalResolve=null}
 function removePage(id){return action(()=>coordinator.remove(id,askRemoval))}
-function globalStart(){globalComposing=true}
-function globalEnd(){globalComposing=false}
+function globalStart(event){globalComposing=true;compositionTarget=event.target}
+function globalEnd(){globalComposing=false;compositionTarget=null}
+function preserveCompositionFocus(event){
+ // Windows IMEs can commit raw preedit on blur, before click reaches the
+ // coordinator's composition wait. Keep focus; the click still queues its action.
+ if(!globalComposing||!compositionTarget?.contains(document.activeElement))return
+ if(!compositionTarget.contains(event.target)&&event.target.closest?.('button, summary'))event.preventDefault()
+}
 function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=false}
 function shortcut(event){
  if(event.isComposing||globalComposing||removalDialog.value)return

@@ -187,6 +187,7 @@ test('rich-body composition completes before switching and retains committed fin
  const body=page.locator('.ProseMirror');await body.click();await page.keyboard.press('Control+End')
  await body.dispatchEvent('compositionstart',{data:'zhong'});await page.keyboard.insertText(' 正文中文提交')
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await page.waitForTimeout(80)
+ await expect(body).toBeFocused()
  await expect(body).toHaveAttribute('contenteditable','true')
  await body.dispatchEvent('compositionend',{data:'正文中文提交'})
  await expect(page.locator('.tab.selected')).toContainText('公式推导')

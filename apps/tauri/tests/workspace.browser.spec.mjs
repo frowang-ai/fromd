@@ -65,10 +65,12 @@ test('floating rename stays in viewport after scrolling and does not change H1',
 test('IME name composition completes on old doc before switching and never renames the new one',async({page})=>{
  await boot(page);
  const input=page.getByRole('textbox',{name:'当前页面名称',exact:true});
+ await input.focus();
  await input.dispatchEvent('compositionstart',{data:'pin'});
  await input.evaluate(el=>{el.value='中文合成名称';el.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true,data:'名称'}))});
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();
  await page.waitForTimeout(80);
+ await expect(input).toBeFocused();
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
  expect(await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').getAttribute('contenteditable')).toBe('true');
  await input.dispatchEvent('compositionend',{data:'中文合成名称'});
@@ -302,6 +304,21 @@ test('tab drop waits for title IME completion before freezing and persisting reo
  expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reorder_documents??0)).toBe(0);
  await expect(page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible')).toHaveAttribute('contenteditable','true');
  await input.dispatchEvent('compositionend',{data:'排序中文名'});
+ await expect(page.locator('.tab-title')).toHaveText(['第三页','排序中文名','公式推导']);
+ expect((await stored(page)).title).toBe('排序中文名');
+});
+test('drag from a tab button preserves focused title composition and works when retried after commit',async({page})=>{
+ await boot(page,{documents:reorderDocs});
+ const input=page.getByRole('textbox',{name:'当前页面名称',exact:true});
+ await input.focus();await input.dispatchEvent('compositionstart',{data:'pin'});
+ await dragBefore(page,'c','a');
+ await expect(input).toBeFocused();
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reorder_documents??0)).toBe(0);
+ await input.evaluate(el=>{el.value='排序中文名';el.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:'排序中文名'}))});
+ await expect(page.locator('.tab-title')).toHaveText(['排序中文名','公式推导','第三页']);
+ // Cancelling the focus-taking mousedown also cancels that native drag. There is
+ // no delayed reorder to replay unexpectedly; a fresh drag remains available.
+ await dragBefore(page,'c','a');
  await expect(page.locator('.tab-title')).toHaveText(['第三页','排序中文名','公式推导']);
  expect((await stored(page)).title).toBe('排序中文名');
 });
