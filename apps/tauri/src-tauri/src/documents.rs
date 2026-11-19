@@ -898,7 +898,8 @@ pub mod search;
 #[path = "assets.rs"]
 mod assets;
 pub use assets::{
-    ResourceInfo, ResourceInput, ResourceReference, MAX_ATTACHMENT_BYTES, MAX_IMPORT_BYTES,
+    validate_raster_image, ResourceInfo, ResourceInput, ResourceReference,
+    MAX_ATTACHMENT_BYTES, MAX_IMAGE_BYTES, MAX_IMPORT_BYTES,
 };
 
 #[path = "file_import.rs"]

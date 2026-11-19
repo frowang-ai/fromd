@@ -257,6 +257,17 @@ export class DocumentCoordinator {
       return result;
     });
   }
+  exportPdf() {
+    return this.run(async () => {
+      await this.flush();
+      const doc = this.current();
+      if (!doc) throw Error('请先打开要导出的页面。');
+      const buffer = this.buffers.get(doc.id);
+      // Copy identity/body/title/revision while this command owns the frozen
+      // editor. Neither a queued page switch nor an autosave can change the job.
+      return this.api.exportPdf({ id: doc.id, title: doc.title, markdown: buffer.markdown, revision: buffer.revision });
+    });
+  }
   findTarget(target, query, checkContent = false, matchCase = false) {
     const owner = this.port.capture();
     if (!target || target.cancelled || !query || target.query !== query || !owner || owner.id !== target.id || owner.generation !== target.generation || (owner.viewState?.mode && owner.viewState.mode !== target.mode)) { throw Error('查找结果已失效，请重新查找。'); }

@@ -8,6 +8,13 @@ and [final validation record](VALIDATION_ROUND_ONE.md) for the tested commit,
 results and remaining native checks. [VALIDATION_V1.md](VALIDATION_V1.md) preserves
 the earlier company/browser evidence.
 
+Windows now supports **File → 导出 PDF…** through native WebView2 PrintToPdf.
+The complete document is rendered with embedded document-authorized images and
+KaTeX fonts, then saved atomically after a successful print. See
+[Windows PDF export](PDF_EXPORT.md) for resource limits, failure handling and the
+isolated native test entry point. The round-one validation above remains its
+historical record.
+
 The platform foundation derives from fixed SoloMD v5.0.21, commit
 `0b30523c70387b046018f857c7bf90bcdc40f54c`. `LICENSE.SOLOMD` and
 `upstream-reference/modules.json` preserve provenance; `upstream-reference/pm-selection.json`
@@ -220,7 +227,7 @@ Physical Windows IME, OS clipboard, native picker behavior, real-user migration,
 installer execution and mobile runtime/builds are not accepted by these checks.
 Synthetic composition and clipboard tests only establish their tested automation
 paths. Android needs SDK/NDK/JDK and a device/emulator; iOS needs Mac/Xcode.
-PDF/Office export remains later implementation on this baseline. The Windows
+Office export remains later implementation. The Windows
 installer build route is documented above; installer execution, public release,
 online update, automatic user-data migration and all-platform completion are not
 claimed by the round-one checks.

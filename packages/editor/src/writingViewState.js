@@ -4,11 +4,16 @@ import { EditorSelection } from '@codemirror/state'
 // Only live node views are registered. Sleeping sessions retain plain descriptors,
 // never a DOM node, CodeMirror view or the previous view's event closures.
 const views = new WeakMap()
-export function registerEmbeddedView(view, dom, getPos, capture, restore, focus) {
+export function registerEmbeddedView(view, dom, getPos, capture, restore, focus, editable) {
   let entries = views.get(view)
   if (!entries) views.set(view, entries = new Map())
-  entries.set(dom, { getPos, capture, restore, focus })
+  entries.set(dom, { getPos, capture, restore, focus, editable })
   return () => entries.delete(dom)
+}
+// Readonly transitions do not necessarily update any document node. Notify live
+// embedded controls from the same lifecycle that changes the editor's lock.
+export function updateEmbeddedViewEditability(view) {
+  for (const entry of views.get(view)?.values() || []) entry.editable?.(view.editable)
 }
 export function captureEmbeddedViews(view) {
   return [...(views.get(view)?.values() || [])].flatMap(entry => {

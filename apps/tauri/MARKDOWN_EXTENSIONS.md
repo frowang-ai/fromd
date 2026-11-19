@@ -1,0 +1,45 @@
+# Markdown 渲染扩展
+
+现用 Milkdown/ProseMirror 正文与共享 PDF 文档支持 Mermaid、脚注和 GitHub 提示块。
+仍通过「视图 → 源码」编辑完整 Markdown，不增加编辑模式或常驻工具栏。
+
+````markdown
+```mermaid
+flowchart LR
+  A[开始] --> B[完成]
+```
+
+正文引用[^named]，可以重复引用[^named]。
+
+[^named]: 第一段脚注，支持 **格式** 和 [链接](https://example.com)。
+
+    缩进四个空格可继续第二段。
+
+> [!NOTE]
+> 这里写提示内容。
+````
+
+Mermaid 在正文显示图表，点击「编辑图表源码」使用原有代码块编辑器修改；
+完成后可收起源码。编辑、撤销、切页与保存保留代码块本身，图表只是派生预览。
+语法未完成或不支持时显示局部反馈，源码不丢失。支持常用 flowchart/graph、sequenceDiagram、
+classDiagram、stateDiagram、erDiagram、gantt、pie、journey、gitGraph、mindmap、timeline 等离线图表。
+每图最多 50,000 字符、500 条边。HTML 标签、配置/frontmatter 指令、点击动作、
+图片和图标资源语法暂不支持；中文 flowchart 等图表标签已覆盖。当前锁定 Mermaid 12.3 的 Sankey CSV 节点名需使用 ASCII，中文说明可写在图表外。依赖随应用打包，不使用 CDN 或在线字体。
+
+脚注引用显示命名标签，定义在其原有位置可直接编辑，未引用定义也保留。
+需要修改引用名或新增定义时可使用源码模式。脚注里的链接沿用普通点击编辑、Ctrl 点击打开。
+保存时保留标准 `[^id]` 定义；正文编辑后可能沿用现有序列化器统一缩进与空行。
+
+提示块支持 `[!NOTE]`、`[!TIP]`、`[!IMPORTANT]`、`[!WARNING]`、`[!CAUTION]`，
+标记单独占引用块第一行。正文保留可编辑标记，并以颜色和边线区分；普通引用沿用原行为。
+
+共享 `buildPdfDocument({markdown,title,resolveImage})` 保持原签名，兼容同步图片 resolver，
+也接受 Promise。它从完整 Markdown 构造文档，等待所有 Mermaid 图表完成，
+输出经过专用清洗、带 viewBox 和尺寸的内联 SVG；不依赖编辑器是否滚动到图表。
+脚注和提示块同样进入打印文档，未引用脚注定义也包含在内。
+图表有错误时整个导出失败并说明原因，不将空白或占位图当作成功。
+此能力不改变 Tauri 原生 PDF 菜单/打印接线，也不放宽原始 HTML/SVG 的清洗规则。
+
+浏览器回归入口：`apps/tauri/tests/markdown-extensions.browser.spec.mjs`，
+包含实际图表可见性、编辑/源码往返、跨页 undo/redo、保存读回、局部错误、
+脚注链接交互、完整打印文档及无外部资源请求检查。

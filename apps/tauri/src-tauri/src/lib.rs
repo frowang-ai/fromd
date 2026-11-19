@@ -2,6 +2,7 @@ use frowd_documents::filename::suggested_name;
 mod document_links;
 mod file_import_host;
 mod resource_host;
+mod pdf;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
 use serde_json::Value;
@@ -267,6 +268,8 @@ fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 pub fn run() {
     tauri::Builder::default()
+        .manage(pdf::PdfState::default())
+        .register_uri_scheme_protocol("frowd-pdf", pdf::document_response)
         .register_asynchronous_uri_scheme_protocol("frowd-resource", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -291,6 +294,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() != "main" { return; }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
                 if !state.close_confirmed.load(Ordering::SeqCst) {
@@ -302,6 +306,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            pdf::pdf_images,
+            pdf::export_pdf,
             file_import_host::choose_document_import,
             file_import_host::prepare_document_import_resources,
             file_import_host::commit_document_import,

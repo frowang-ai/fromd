@@ -5,6 +5,8 @@
 import MarkdownIt from 'markdown-it'
 import texmath from 'markdown-it-texmath'
 import katex from 'katex'
+import footnote from 'markdown-it-footnote'
+import { markdownAlerts } from './extensions.js'
 import { fixAutolinkCjkBoundary } from './autolinkCjk.js'
 
 /**
@@ -18,6 +20,7 @@ export function createMarkdownRenderer() {
     breaks: true, // 转换段落里的 '\n' 到 <br>
     highlight: function (str, lang) {
       // 代码高亮（可选：可以集成 highlight.js）
+      if (/^mermaid$/i.test(lang)) lang = 'mermaid'
       return `<pre class="language-${lang}"><code>${escapeHtml(str)}</code></pre>`
     }
   })
@@ -35,6 +38,56 @@ export function createMarkdownRenderer() {
       displayMode: false
     }
   })
+  md.use(footnote).use(markdownAlerts)
+  // Match the GFM parser's identifier case folding, while retaining the actual
+  // definition label. This only changes print token matching, never stored text.
+  const identifier = label => label.replace(/[\t\n\r ]+/g, ' ').replace(/^ | $/g, '').toLowerCase().toUpperCase()
+  md.core.ruler.before('inline', 'frowd-footnote-labels', state => {
+    const labels = new Map()
+    for (const token of state.tokens) if (token.type === 'footnote_reference_open') {
+      const label = token.meta.label, key = identifier(label)
+      if (!labels.has(key)) labels.set(key, label)
+    }
+    state.env.frowdFootnoteLabels = labels
+  })
+  md.inline.ruler.at('footnote_ref', (state, silent) => {
+    const start = state.pos
+    if (state.src.slice(start, start + 2) !== '[^') return false
+    const end = state.src.indexOf(']', start + 2)
+    if (end < 0 || end >= state.posMax || end === start + 2) return false
+    const label = state.src.slice(start + 2, end)
+    if (/[\t\n\r ]/.test(label)) return false
+    const defined = state.env.frowdFootnoteLabels?.get(identifier(label))
+    if (defined === undefined) return false
+    if (!silent) {
+      const notes = state.env.footnotes
+      notes.list ||= []
+      let id = notes.refs[`:${defined}`]
+      if (id < 0) {
+        id = notes.list.length; notes.refs[`:${defined}`] = id
+        notes.list.push({ label: defined, count: 0 })
+      }
+      const subId = notes.list[id].count++
+      state.push('footnote_ref', '', 0).meta = { id, subId, label }
+    }
+    state.pos = end + 1
+    return true
+  })
+  // Print the complete source, including definitions with no remaining reference
+  // after an edit. markdown-it-footnote normally discards those definitions.
+  md.core.ruler.before('footnote_tail', 'frowd-unused-footnotes', state => {
+    const notes = state.env.footnotes
+    if (!notes?.refs) return
+    notes.list ||= []
+    for (const [key, id] of Object.entries(notes.refs)) {
+      if (id >= 0) continue
+      notes.refs[key] = notes.list.length
+      notes.list.push({ label: key.slice(1), count: 0 })
+    }
+  })
+  const footnoteAnchor = md.renderer.rules.footnote_anchor
+  md.renderer.rules.footnote_anchor = (tokens, index, options, env, self) =>
+    env.footnotes.list[tokens[index].meta.id].count === 0 ? '' : footnoteAnchor(tokens, index, options, env, self)
 
   // 自动链接的 CJK 边界修正：linkify 之后把首个 CJK 字符起的部分剥出链接
   // （背景与实现见 ./autolinkCjk.js）

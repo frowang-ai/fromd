@@ -1,6 +1,7 @@
 import {resourcePacket,relativeImage} from './resources.mjs';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { preparePdfDocument } from './pdf.mjs';
 
 // Only a loopback Vite development test can inject the in-memory IPC double.
 // Release bundles tree-shake this branch. No browser document authority is used.
@@ -34,6 +35,10 @@ export const documentsApi = {
   reorder: (ids, layoutRevision) => call('reorder_documents', { ids, layoutRevision }),
   open: () => call('open_document'),
   save: (id, saveAs = false) => call('save_document', { id, saveAs }),
+  exportPdf: async snapshot => {
+    const html = await preparePdfDocument(snapshot, (id, revision, references) => call('pdf_images', { id, revision, references }));
+    return call('export_pdf', { id: snapshot.id, revision: snapshot.revision, html });
+  },
   remove: (id, decision) => call('remove_document', { id, decision }),
   undo: () => call('undo_remove'),
   checkpoint: () => call('checkpoint'),

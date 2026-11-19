@@ -9,6 +9,7 @@
           <button :disabled="state.busy || !state.loaded" @click="action(() => coordinator.importFile())">导入 TXT / HTML…</button>
           <button :disabled="!current" @click="action(() => coordinator.save())">保存 <kbd>Ctrl+S</kbd></button>
           <button :disabled="!current" @click="action(() => coordinator.save(state.activeId, true))">另存为… <kbd>Ctrl+Shift+S</kbd></button>
+          <button :disabled="!current || state.busy || !state.loaded" @click="action(() => coordinator.exportPdf())">导出 PDF…</button>
           <button :disabled="!current || state.busy" @click="insertResource(null, 'image')">插入图片…</button>
           <button :disabled="!current || state.busy" @click="insertResource(null, 'attachment')">插入附件…</button>
           <button :disabled="!current" @click="removePage(state.activeId)">移除当前页面</button>
