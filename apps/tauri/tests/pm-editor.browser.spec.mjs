@@ -156,12 +156,17 @@ test('raw syntax search retains its source range and the View menu stays the onl
 })
 
 test('HTML paste in a text cell preserves rich marks, other cells and undo',async({page})=>{
+ const targetCell=page.locator('.ProseMirror table.children td').filter({hasText:'这里有'})
+ await expect(targetCell).toHaveCount(1)
  const a=await point(page,'加粗文字',2);await page.mouse.click(a.x,a.y)
  await page.locator('.ProseMirror').evaluate(el=>{
   const clipboardData=new DataTransfer();clipboardData.setData('text/plain','插入');clipboardData.setData('text/html','<strong>插入</strong>')
   el.dispatchEvent(new ClipboardEvent('paste',{clipboardData,bubbles:true,cancelable:true}))
  })
- await expect(page.locator('.ProseMirror strong')).toContainText('插入')
+ const insertedStrong=targetCell.locator('strong').filter({hasText:'插入'})
+ await expect(insertedStrong).toHaveCount(1)
+ await expect(insertedStrong).toContainText('插入')
+ expect((await page.locator('.ProseMirror table.children').textContent()).match(/插入/g)).toHaveLength(1)
  const text=(await capture(page)).markdown;expect(text).toContain(plain);expect(text).toContain(other)
  await expect(page.locator('.ProseMirror tr')).toHaveCount(4)
  await expect(page.locator('.ProseMirror td,.ProseMirror th')).toHaveCount(8)
