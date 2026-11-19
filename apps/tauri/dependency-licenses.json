@@ -71,6 +71,13 @@
   },
   "packages": [
     {
+      "name": "@antfu/install-pkg",
+      "version": "2.1.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@antfu/install-pkg"
+    },
+    {
       "name": "@babel/helper-string-parser",
       "version": "7.27.1",
       "license": "MIT",
@@ -125,6 +132,48 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/@babel/types"
+    },
+    {
+      "name": "@braintree/sanitize-url",
+      "version": "7.1.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@braintree/sanitize-url"
+    },
+    {
+      "name": "@chevrotain/cst-dts-gen",
+      "version": "13.2.0",
+      "license": "Apache-2.0",
+      "kind": "runtime",
+      "location": "node_modules/@chevrotain/cst-dts-gen"
+    },
+    {
+      "name": "@chevrotain/gast",
+      "version": "13.2.0",
+      "license": "Apache-2.0",
+      "kind": "runtime",
+      "location": "node_modules/@chevrotain/gast"
+    },
+    {
+      "name": "@chevrotain/regexp-to-ast",
+      "version": "13.2.0",
+      "license": "Apache-2.0",
+      "kind": "runtime",
+      "location": "node_modules/@chevrotain/regexp-to-ast"
+    },
+    {
+      "name": "@chevrotain/types",
+      "version": "13.2.0",
+      "license": "Apache-2.0",
+      "kind": "runtime",
+      "location": "node_modules/@chevrotain/types"
+    },
+    {
+      "name": "@chevrotain/utils",
+      "version": "13.2.0",
+      "license": "Apache-2.0",
+      "kind": "runtime",
+      "location": "node_modules/@chevrotain/utils"
     },
     {
       "name": "@codemirror/autocomplete",
@@ -379,6 +428,20 @@
       "location": "packages/editor"
     },
     {
+      "name": "@iconify/types",
+      "version": "2.0.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@iconify/types"
+    },
+    {
+      "name": "@iconify/utils",
+      "version": "3.1.7",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@iconify/utils"
+    },
+    {
       "name": "@jridgewell/sourcemap-codec",
       "version": "1.6.0",
       "license": "MIT",
@@ -510,6 +573,13 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/@marijn/find-cluster-break"
+    },
+    {
+      "name": "@mermaid-js/parser",
+      "version": "2.0.1",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@mermaid-js/parser"
     },
     {
       "name": "@milkdown/components",
@@ -701,6 +771,223 @@
       "location": "apps/tauri/node_modules/.pnpm/@tauri-apps+cli@2.12.1/node_modules/@tauri-apps/cli"
     },
     {
+      "name": "@types/d3-array",
+      "version": "3.2.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-array"
+    },
+    {
+      "name": "@types/d3-axis",
+      "version": "3.0.6",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-axis"
+    },
+    {
+      "name": "@types/d3-brush",
+      "version": "3.0.6",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-brush"
+    },
+    {
+      "name": "@types/d3-chord",
+      "version": "3.0.6",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-chord"
+    },
+    {
+      "name": "@types/d3-color",
+      "version": "3.1.3",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-color"
+    },
+    {
+      "name": "@types/d3-contour",
+      "version": "3.0.6",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-contour"
+    },
+    {
+      "name": "@types/d3-delaunay",
+      "version": "6.0.4",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-delaunay"
+    },
+    {
+      "name": "@types/d3-dispatch",
+      "version": "3.0.7",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-dispatch"
+    },
+    {
+      "name": "@types/d3-drag",
+      "version": "3.0.7",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-drag"
+    },
+    {
+      "name": "@types/d3-dsv",
+      "version": "3.0.7",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-dsv"
+    },
+    {
+      "name": "@types/d3-ease",
+      "version": "3.0.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-ease"
+    },
+    {
+      "name": "@types/d3-fetch",
+      "version": "3.0.7",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-fetch"
+    },
+    {
+      "name": "@types/d3-force",
+      "version": "3.0.10",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-force"
+    },
+    {
+      "name": "@types/d3-format",
+      "version": "3.0.4",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-format"
+    },
+    {
+      "name": "@types/d3-geo",
+      "version": "3.1.1",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-geo"
+    },
+    {
+      "name": "@types/d3-hierarchy",
+      "version": "3.1.7",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-hierarchy"
+    },
+    {
+      "name": "@types/d3-interpolate",
+      "version": "3.0.4",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-interpolate"
+    },
+    {
+      "name": "@types/d3-path",
+      "version": "3.1.1",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-path"
+    },
+    {
+      "name": "@types/d3-polygon",
+      "version": "3.0.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-polygon"
+    },
+    {
+      "name": "@types/d3-quadtree",
+      "version": "3.0.6",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-quadtree"
+    },
+    {
+      "name": "@types/d3-random",
+      "version": "3.0.4",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-random"
+    },
+    {
+      "name": "@types/d3-scale-chromatic",
+      "version": "3.1.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-scale-chromatic"
+    },
+    {
+      "name": "@types/d3-scale",
+      "version": "4.0.9",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-scale"
+    },
+    {
+      "name": "@types/d3-selection",
+      "version": "3.0.12",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-selection"
+    },
+    {
+      "name": "@types/d3-shape",
+      "version": "3.2.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-shape"
+    },
+    {
+      "name": "@types/d3-time-format",
+      "version": "4.0.3",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-time-format"
+    },
+    {
+      "name": "@types/d3-time",
+      "version": "3.0.4",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-time"
+    },
+    {
+      "name": "@types/d3-timer",
+      "version": "3.0.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-timer"
+    },
+    {
+      "name": "@types/d3-transition",
+      "version": "3.0.9",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-transition"
+    },
+    {
+      "name": "@types/d3-zoom",
+      "version": "3.0.9",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3-zoom"
+    },
+    {
+      "name": "@types/d3",
+      "version": "7.4.3",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/d3"
+    },
+    {
       "name": "@types/debug",
       "version": "4.1.13",
       "license": "MIT",
@@ -713,6 +1000,13 @@
       "license": "MIT",
       "kind": "build/test",
       "location": "apps/tauri/node_modules/.pnpm/@types+estree@1.0.8/node_modules/@types/estree"
+    },
+    {
+      "name": "@types/geojson",
+      "version": "7946.0.16",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@types/geojson"
     },
     {
       "name": "@types/hast",
@@ -797,6 +1091,13 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/@types/unist"
+    },
+    {
+      "name": "@upsetjs/venn.js",
+      "version": "2.0.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/@upsetjs/venn.js"
     },
     {
       "name": "@vitejs/plugin-vue",
@@ -981,6 +1282,13 @@
       "location": "node_modules/character-entities"
     },
     {
+      "name": "chevrotain",
+      "version": "13.2.0",
+      "license": "Apache-2.0",
+      "kind": "runtime",
+      "location": "node_modules/chevrotain"
+    },
+    {
       "name": "clsx",
       "version": "2.1.1",
       "license": "MIT",
@@ -1003,10 +1311,31 @@
     },
     {
       "name": "commander",
+      "version": "7.2.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/d3-dsv/node_modules/commander"
+    },
+    {
+      "name": "commander",
       "version": "8.3.0",
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/katex/node_modules/commander"
+    },
+    {
+      "name": "cose-base",
+      "version": "1.0.3",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/cose-base"
+    },
+    {
+      "name": "cose-base",
+      "version": "2.2.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/cytoscape-fcose/node_modules/cose-base"
     },
     {
       "name": "crelt",
@@ -1030,6 +1359,286 @@
       "location": "node_modules/csstype"
     },
     {
+      "name": "cytoscape-cose-bilkent",
+      "version": "4.1.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/cytoscape-cose-bilkent"
+    },
+    {
+      "name": "cytoscape-fcose",
+      "version": "2.2.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/cytoscape-fcose"
+    },
+    {
+      "name": "cytoscape",
+      "version": "3.35.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/cytoscape"
+    },
+    {
+      "name": "d3-array",
+      "version": "2.12.1",
+      "license": "BSD-3-Clause",
+      "kind": "runtime",
+      "location": "node_modules/d3-sankey/node_modules/d3-array"
+    },
+    {
+      "name": "d3-array",
+      "version": "3.2.5",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-array"
+    },
+    {
+      "name": "d3-axis",
+      "version": "3.0.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-axis"
+    },
+    {
+      "name": "d3-brush",
+      "version": "3.0.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-brush"
+    },
+    {
+      "name": "d3-chord",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-chord"
+    },
+    {
+      "name": "d3-color",
+      "version": "3.1.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-color"
+    },
+    {
+      "name": "d3-contour",
+      "version": "4.0.3",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-contour"
+    },
+    {
+      "name": "d3-delaunay",
+      "version": "6.0.6",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-delaunay"
+    },
+    {
+      "name": "d3-dispatch",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-dispatch"
+    },
+    {
+      "name": "d3-drag",
+      "version": "3.0.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-drag"
+    },
+    {
+      "name": "d3-dsv",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-dsv"
+    },
+    {
+      "name": "d3-ease",
+      "version": "3.0.2",
+      "license": "BSD-3-Clause",
+      "kind": "runtime",
+      "location": "node_modules/d3-ease"
+    },
+    {
+      "name": "d3-fetch",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-fetch"
+    },
+    {
+      "name": "d3-force",
+      "version": "3.0.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-force"
+    },
+    {
+      "name": "d3-format",
+      "version": "3.1.3",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-format"
+    },
+    {
+      "name": "d3-geo",
+      "version": "3.1.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-geo"
+    },
+    {
+      "name": "d3-hierarchy",
+      "version": "3.1.3",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-hierarchy"
+    },
+    {
+      "name": "d3-interpolate",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-interpolate"
+    },
+    {
+      "name": "d3-path",
+      "version": "1.0.9",
+      "license": "BSD-3-Clause",
+      "kind": "runtime",
+      "location": "node_modules/d3-sankey/node_modules/d3-path"
+    },
+    {
+      "name": "d3-path",
+      "version": "3.1.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-path"
+    },
+    {
+      "name": "d3-polygon",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-polygon"
+    },
+    {
+      "name": "d3-quadtree",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-quadtree"
+    },
+    {
+      "name": "d3-random",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-random"
+    },
+    {
+      "name": "d3-sankey",
+      "version": "0.12.3",
+      "license": "BSD-3-Clause",
+      "kind": "runtime",
+      "location": "node_modules/d3-sankey"
+    },
+    {
+      "name": "d3-scale-chromatic",
+      "version": "3.1.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-scale-chromatic"
+    },
+    {
+      "name": "d3-scale",
+      "version": "4.0.3",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-scale"
+    },
+    {
+      "name": "d3-selection",
+      "version": "3.0.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-selection"
+    },
+    {
+      "name": "d3-shape",
+      "version": "1.3.7",
+      "license": "BSD-3-Clause",
+      "kind": "runtime",
+      "location": "node_modules/d3-sankey/node_modules/d3-shape"
+    },
+    {
+      "name": "d3-shape",
+      "version": "3.2.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-shape"
+    },
+    {
+      "name": "d3-time-format",
+      "version": "4.1.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-time-format"
+    },
+    {
+      "name": "d3-time",
+      "version": "3.1.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-time"
+    },
+    {
+      "name": "d3-timer",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-timer"
+    },
+    {
+      "name": "d3-transition",
+      "version": "3.0.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-transition"
+    },
+    {
+      "name": "d3-zoom",
+      "version": "3.0.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-zoom"
+    },
+    {
+      "name": "d3",
+      "version": "7.9.2",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3"
+    },
+    {
+      "name": "dagre-d3-es",
+      "version": "7.0.14",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/dagre-d3-es"
+    },
+    {
+      "name": "dayjs",
+      "version": "1.11.23",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/dayjs"
+    },
+    {
       "name": "de-indent",
       "version": "1.0.2",
       "license": "MIT",
@@ -1049,6 +1658,13 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/decode-named-character-reference"
+    },
+    {
+      "name": "delaunator",
+      "version": "5.1.0",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/delaunator"
     },
     {
       "name": "dequal",
@@ -1072,6 +1688,20 @@
       "location": "node_modules/dompurify"
     },
     {
+      "name": "dompurify",
+      "version": "3.4.18",
+      "license": "(MPL-2.0 OR Apache-2.0)",
+      "kind": "runtime",
+      "location": "node_modules/mermaid/node_modules/dompurify"
+    },
+    {
+      "name": "elkjs",
+      "version": "0.12.1",
+      "license": "EPL-2.0 OR GPL-3.0-or-later",
+      "kind": "runtime",
+      "location": "node_modules/elkjs"
+    },
+    {
       "name": "entities",
       "version": "4.5.0",
       "license": "BSD-2-Clause",
@@ -1084,6 +1714,13 @@
       "license": "BSD-2-Clause",
       "kind": "build/test",
       "location": "apps/tauri/node_modules/.pnpm/entities@7.0.1/node_modules/entities"
+    },
+    {
+      "name": "es-toolkit",
+      "version": "1.53.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/es-toolkit"
     },
     {
       "name": "esbuild",
@@ -1121,6 +1758,13 @@
       "location": "apps/tauri/node_modules/.pnpm/fdir@6.5.0_picomatch@4.0.4/node_modules/fdir"
     },
     {
+      "name": "hachure-fill",
+      "version": "0.5.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/hachure-fill"
+    },
+    {
       "name": "he",
       "version": "1.2.0",
       "license": "MIT",
@@ -1133,6 +1777,34 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "apps/tauri/node_modules/.pnpm/html2canvas@1.4.1/node_modules/html2canvas"
+    },
+    {
+      "name": "iconv-lite",
+      "version": "0.6.3",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/iconv-lite"
+    },
+    {
+      "name": "import-meta-resolve",
+      "version": "4.2.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/import-meta-resolve"
+    },
+    {
+      "name": "internmap",
+      "version": "1.0.1",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/d3-sankey/node_modules/internmap"
+    },
+    {
+      "name": "internmap",
+      "version": "2.0.3",
+      "license": "ISC",
+      "kind": "runtime",
+      "location": "node_modules/internmap"
     },
     {
       "name": "is-plain-obj",
@@ -1150,10 +1822,38 @@
     },
     {
       "name": "katex",
+      "version": "0.18.10",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/mermaid/node_modules/katex"
+    },
+    {
+      "name": "katex",
       "version": "0.19.1",
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/@milkdown/crepe/node_modules/katex"
+    },
+    {
+      "name": "khroma",
+      "version": "2.1.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/khroma"
+    },
+    {
+      "name": "layout-base",
+      "version": "1.0.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/layout-base"
+    },
+    {
+      "name": "layout-base",
+      "version": "2.0.1",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/cytoscape-fcose/node_modules/layout-base"
     },
     {
       "name": "linkify-it",
@@ -1184,6 +1884,13 @@
       "location": "node_modules/magic-string"
     },
     {
+      "name": "markdown-it-footnote",
+      "version": "4.0.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/markdown-it-footnote"
+    },
+    {
       "name": "markdown-it-texmath",
       "version": "1.0.0",
       "license": "MIT",
@@ -1203,6 +1910,13 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/markdown-table"
+    },
+    {
+      "name": "marked",
+      "version": "16.4.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/marked"
     },
     {
       "name": "mdast-util-definitions",
@@ -1301,6 +2015,13 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/mdurl"
+    },
+    {
+      "name": "mermaid",
+      "version": "12.3.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/mermaid"
     },
     {
       "name": "micromark-core-commonmark",
@@ -1562,11 +2283,25 @@
       "location": "node_modules/orderedmap"
     },
     {
+      "name": "package-manager-detector",
+      "version": "1.9.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/package-manager-detector"
+    },
+    {
       "name": "path-browserify",
       "version": "1.0.1",
       "license": "MIT",
       "kind": "build/test",
       "location": "apps/tauri/node_modules/.pnpm/path-browserify@1.0.1/node_modules/path-browserify"
+    },
+    {
+      "name": "path-data-parser",
+      "version": "0.1.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/path-data-parser"
     },
     {
       "name": "picocolors",
@@ -1595,6 +2330,20 @@
       "license": "Apache-2.0",
       "kind": "build/test",
       "location": "apps/tauri/node_modules/.pnpm/playwright@1.63.0/node_modules/playwright"
+    },
+    {
+      "name": "points-on-curve",
+      "version": "0.2.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/points-on-curve"
+    },
+    {
+      "name": "points-on-path",
+      "version": "0.2.1",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/points-on-path"
     },
     {
       "name": "postcss",
@@ -1772,6 +2521,13 @@
       "location": "node_modules/remark"
     },
     {
+      "name": "robust-predicates",
+      "version": "3.0.3",
+      "license": "Unlicense",
+      "kind": "runtime",
+      "location": "node_modules/robust-predicates"
+    },
+    {
       "name": "rollup",
       "version": "4.60.1",
       "license": "MIT",
@@ -1784,6 +2540,27 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/rope-sequence"
+    },
+    {
+      "name": "roughjs",
+      "version": "4.6.6",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/roughjs"
+    },
+    {
+      "name": "rw",
+      "version": "1.3.3",
+      "license": "BSD-3-Clause",
+      "kind": "runtime",
+      "location": "node_modules/rw"
+    },
+    {
+      "name": "safer-buffer",
+      "version": "2.1.2",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/safer-buffer"
     },
     {
       "name": "source-map-js",
@@ -1807,11 +2584,25 @@
       "location": "node_modules/style-mod"
     },
     {
+      "name": "stylis",
+      "version": "4.4.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/stylis"
+    },
+    {
       "name": "text-segmentation",
       "version": "1.0.3",
       "license": "MIT",
       "kind": "runtime",
       "location": "apps/tauri/node_modules/.pnpm/text-segmentation@1.0.3/node_modules/text-segmentation"
+    },
+    {
+      "name": "tinyexec",
+      "version": "1.3.1",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/tinyexec"
     },
     {
       "name": "tinyglobby",
@@ -1826,6 +2617,13 @@
       "license": "MIT",
       "kind": "runtime",
       "location": "node_modules/trough"
+    },
+    {
+      "name": "ts-dedent",
+      "version": "2.3.0",
+      "license": "MIT",
+      "kind": "runtime",
+      "location": "node_modules/ts-dedent"
     },
     {
       "name": "typescript",

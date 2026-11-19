@@ -1,4 +1,6 @@
 import { renderMarkdown } from './index.js'
+import { renderMermaid } from './mermaid.js'
+import { extensionCss } from './extensions.js'
 
 const pdfCss = `
   @page { size: A4; margin: 18mm; }
@@ -41,9 +43,17 @@ const pdfCss = `
 export async function buildPdfDocument({ markdown, title = '文档', resolveImage }) {
   const doc = document.implementation.createHTMLDocument(title)
   doc.documentElement.lang = 'zh-CN'
-  const style = doc.createElement('style'); style.textContent = pdfCss; doc.head.append(style)
+  const style = doc.createElement('style'); style.textContent = pdfCss + extensionCss; doc.head.append(style)
   const article = doc.createElement('article'); article.className = 'markdown-body'
   article.innerHTML = renderMarkdown(markdown)
+  // Diagram code still passes through the unchanged Markdown sanitizer first;
+  // only the local renderer's generated SVG uses the dedicated SVG sanitizer.
+  for (const code of article.querySelectorAll('pre > code.language-mermaid, pre.language-mermaid > code')) {
+    const figure = doc.createElement('figure'); figure.className = 'writing-mermaid-figure'
+    try { figure.innerHTML = await renderMermaid(code.textContent) }
+    catch (error) { throw new Error(`Mermaid 图表无法导出：${error.message}`) }
+    code.parentElement.replaceWith(figure)
+  }
   for (const item of article.querySelectorAll('li')) {
     const content = item.firstElementChild?.tagName === 'P' ? item.firstElementChild : item
     const first = content.firstChild
@@ -55,7 +65,7 @@ export async function buildPdfDocument({ markdown, title = '文档', resolveImag
   }
   await Promise.all([...article.querySelectorAll('img')].map(async image => {
     const original = image.getAttribute('src')
-    const src = resolveImage ? resolveImage(original) : original
+    const src = resolveImage ? await resolveImage(original) : original
     if (!src) throw new Error('文档中有图片不可用，请检查后重新导出。')
     if (src.startsWith('data:image/')) { image.src = src; return }
     const url = new URL(src, document.baseURI)
