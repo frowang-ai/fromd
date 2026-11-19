@@ -26,7 +26,8 @@
     "tauri:web": "npm --prefix apps/tauri run build",
     "tauri:check": "cargo check --manifest-path apps/tauri/src-tauri/Cargo.toml --locked",
     "tauri:dev": "npm --prefix apps/tauri run tauri -- dev",
-    "tauri:build": "npm --prefix apps/tauri run tauri -- build --no-bundle"
+    "tauri:build": "npm --prefix apps/tauri run tauri -- build --no-bundle",
+    "tauri:installer": "npm --prefix apps/tauri run tauri -- build --bundles nsis --target x86_64-pc-windows-msvc -- --locked"
   },
   "dependencies": {
     "@frowang/editor": "*",

@@ -29,14 +29,45 @@
   },
   "mainBinaryName": "frowd-tauri",
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": false,
+    "useLocalToolsDir": true,
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"
     ],
     "license": "MIT",
+    "licenseFile": "../../../LICENSE",
+    "resources": {
+      "../../../LICENSE": "licenses/LICENSE",
+      "../../../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md",
+      "../LICENSE.SOLOMD": "licenses/LICENSE.SOLOMD",
+      "../dependency-licenses.json": "licenses/dependency-licenses.json",
+      "../node_modules/@tauri-apps/api/LICENSE-MIT": "licenses/TAURI-LICENSE-MIT",
+      "../node_modules/@tauri-apps/api/LICENSE-APACHE-2.0": "licenses/TAURI-LICENSE-APACHE-2.0"
+    },
     "publisher": "Fro",
-    "category": "Productivity"
+    "category": "Productivity",
+    "shortDescription": "frowd Markdown editor",
+    "copyright": "Copyright (c) Frowang contributors",
+    "windows": {
+      "allowDowngrades": false,
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "displayLanguageSelector": true,
+        "startMenuFolder": "frowd (Tauri)",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "installerHooks": "nsis/installer-hooks.nsh",
+        "compression": "lzma"
+      }
+    }
   },
   "plugins": {}
 }

@@ -28,6 +28,7 @@ The Tauri app's own Vite commands are invoked through these scripts:
 | `npm run tauri:dev` | Start the native Tauri/Rust + WebView2 development client |
 | `npm run tauri:check` | Check the Rust host |
 | `npm run tauri:build` | Build a release executable with `--no-bundle` |
+| `npm run tauri:installer` | Build an unsigned Windows x64 NSIS Setup.exe; no install or publication |
 | `npm run test:tauri` | Tauri Node tests |
 | `npm run test:tauri:browser` | Browser tests with mock native IPC |
 | `npm run test:tauri:native` | Real debug executable / WebView2 / SQLite tests |
@@ -36,6 +37,12 @@ The release command creates `apps/tauri/src-tauri/target/release/frowd-tauri.exe
 it does not install, publish, associate files or enable an updater. App identity
 is `com.frowang.frowd.tauri.v1`. Existing Electron installations and real profiles
 are not migrated or replaced.
+
+Windows packaging now has a separate [installer guide and manual checklist](WINDOWS_INSTALLER.md).
+It uses the Tauri identity, a separate Start menu folder and an optional desktop
+shortcut that is unchecked by default. Missing WebView2 is handled through the
+official online bootstrapper. Installer execution and the final combined feature
+package remain separate acceptance steps; no signed release or updater is enabled.
 
 ## Preserved workspace and module ownership
 
@@ -213,5 +220,7 @@ Physical Windows IME, OS clipboard, native picker behavior, real-user migration,
 installer execution and mobile runtime/builds are not accepted by these checks.
 Synthetic composition and clipboard tests only establish their tested automation
 paths. Android needs SDK/NDK/JDK and a device/emulator; iOS needs Mac/Xcode.
-PDF/Office export remains later implementation. No installer, public release,
-online update, automatic user-data migration or all-platform completion is claimed.
+PDF/Office export remains later implementation on this baseline. The Windows
+installer build route is documented above; installer execution, public release,
+online update, automatic user-data migration and all-platform completion are not
+claimed by the round-one checks.

@@ -13,10 +13,12 @@ Setext大纲、查找大小写选项、HTML图片另存及稳定性修复。
 | `npm run tauri:web` | Tauri 前端类型检查与构建，不启动原生窗口 |
 | `npm run tauri:dev` | Tauri/Rust + WebView2 开发客户端 |
 | `npm run tauri:build` | Tauri release 可执行文件，no-bundle，不安装或发布 |
+| `npm run tauri:installer` | Tauri Windows x64 NSIS 安装包，仅本地构建，不执行安装或发布 |
 | `npm run test:tauri:native` | 真实 debug WebView2 回归；先完成 debug no-bundle 构建 |
 | `npm run dev` / `npm run build` | 保留的旧 Electron 工程，不是 Tauri 入口 |
 
 本轮范围与隔离运行方式见[整合说明](apps/tauri/ROUND_ONE_20261116.md)，
+Windows 安装包构建及用户手工清单见[安装说明](apps/tauri/WINDOWS_INSTALLER.md)。
 最终构建、浏览器和原生验收以[本轮验证记录](apps/tauri/VALIDATION_ROUND_ONE.md)为准。
 根 Node 74/74、Tauri Node 85/85、Rust domain 43/43、Tauri 浏览器162/162、
 共享编辑器15/15及真实 debug WebView2桌面3/3已通过，包括关闭重启、图片落盘与阅读偏好恢复。
