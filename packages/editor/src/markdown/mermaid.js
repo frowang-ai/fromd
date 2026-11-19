@@ -14,7 +14,11 @@ export function validateMermaid(source) {
   if (source.length > 50000) throw Error('图表源码超过 50,000 字符，请拆分图表。')
   const code = source.replace(/^\s*%%[^\n]*$/gm, '').trim()
   if (!/^(?:graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie|journey|gitGraph|mindmap|timeline|quadrantChart|xychart(?:-beta)?|sankey(?:-beta)?|requirementDiagram|block-beta|packet-beta)\b/.test(code)) throw Error('此图表类型暂不支持离线预览。')
-  if (/%%\s*\{|^\s*---|<\s*[a-z!/?]|&(?:lt;|#)|\\|!\[|(?:url\s*\(|@import|@font-face|\b(?:img|image|icon)["']?\s*:|\bshape\s*:\s*["']?(?:image|icon)|\bimage\s*\(|::icon\s*\(|^\s*click\s)/im.test(source)) {
+  // Attribute-free br is plain line-break syntax in Mermaid's SVG labels.
+  // Exclude only that syntax from validation; render/store the author's source
+  // unchanged, with strict security and htmlLabels:false still in force.
+  const withoutBreaks = source.replace(/<br\s*\/?>/gi, '')
+  if (/<\s*[a-z!/?]/i.test(withoutBreaks) || /%%\s*\{|^\s*---|&(?:lt;|#)|\\|!\[|(?:url\s*\(|@import|@font-face|\b(?:img|image|icon)["']?\s*:|\bshape\s*:\s*["']?(?:image|icon)|\bimage\s*\(|::icon\s*\(|^\s*click\s)/im.test(source)) {
     throw Error('图表不支持 HTML、配置指令、点击动作或外部资源。')
   }
   return source

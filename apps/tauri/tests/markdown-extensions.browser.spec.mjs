@@ -21,6 +21,69 @@ async function bodyEdit(page, text = '追加') {
   await page.keyboard.press('End'); await page.keyboard.insertText(text)
 }
 
+const linebreakDiagram = `flowchart LR
+    A[桌面界面] --> B[本机后端<br/>随桌面程序运行]
+    B --> C[Rust CLI<br/>每次调用后退出]
+    C --> D[记忆内核与 SQLite]`
+
+async function expectLinebreakDiagram(svg) {
+  await expect(svg).toBeVisible()
+  const nodes = await svg.locator('g.node').evaluateAll(nodes => nodes.map(node => [...node.querySelectorAll('.text-outer-tspan')].map(line => ({
+    text: line.textContent.replace(/\s/g, ''), y: line.getBoundingClientRect().y, height: line.getBoundingClientRect().height,
+  }))))
+  expect(nodes.map(lines => lines.map(line => line.text).join(''))).toEqual(['桌面界面', '本机后端随桌面程序运行', 'RustCLI每次调用后退出', '记忆内核与SQLite'])
+  expect(nodes[1].map(line => line.text)).toEqual(['本机后端', '随桌面程序运行'])
+  expect(nodes[2].map(line => line.text)).toEqual(['RustCLI', '每次调用后退出'])
+  for (const lines of nodes) {
+    expect(lines.every(line => line.height > 0)).toBe(true)
+    for (let i = 1; i < lines.length; i++) expect(lines[i].y).toBeGreaterThan(lines[i - 1].y)
+  }
+  const arrows = svg.locator('path[marker-end]')
+  await expect(arrows).toHaveCount(3)
+  expect(await arrows.evaluateAll(paths => paths.every(path => {
+    const marker = path.getAttribute('marker-end').match(/url\(#([\w-]+)\)/)?.[1]
+    return path.getTotalLength() > 0 && getComputedStyle(path).stroke !== 'none' &&
+      !![...path.ownerSVGElement.querySelectorAll('marker')].find(el => el.id === marker)?.querySelector('path')
+  }))).toBe(true)
+}
+
+test('用户原图的普通 br 换行在正文和 PDF 中显示，源码往返不变', async ({ page, context, baseURL }) => {
+  const markdown = '```mermaid\n' + linebreakDiagram + '\n```\n'
+  const external = [], origin = new URL(baseURL).origin
+  await context.route(url => /^https?:$/.test(url.protocol) && url.origin !== origin, route => { external.push(route.request().url()); return route.abort() })
+  await boot(page, markdown)
+  const svg = page.locator('.writing-mermaid-svg')
+  await expectLinebreakDiagram(svg)
+  expect(await capture(page)).toBe(markdown)
+  const source = await mode(page, true); await expect(source).toHaveValue(markdown)
+  await mode(page, false); await expect(svg).toBeVisible()
+  expect(await capture(page)).toBe(markdown)
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => page.evaluate(() => window.__FROWD_TEST_HOST__.rows.get('a').savedText)).toBe(markdown)
+  await page.screenshot({ path: 'output/mermaid-linebreaks-body.png', fullPage: true })
+  const html = await page.evaluate(async ({ pdfModule, markdown }) => (await import(pdfModule)).buildPdfDocument({ markdown }), { pdfModule, markdown })
+  const print = await context.newPage(); await print.setContent(html); await print.emulateMedia({ media: 'print' })
+  const printed = print.locator('.writing-mermaid-svg')
+  await expectLinebreakDiagram(printed)
+  await print.screenshot({ path: 'output/mermaid-linebreaks-print.png', fullPage: true })
+  expect(external).toEqual([])
+  await print.close()
+})
+
+test('br 写法与大小写变体在正文与 PDF 中均生成多行 SVG', async ({ page, context }) => {
+  const variants = ['<br>', '<br/>', '<br />', '<BR>', '<Br/>', '<BR />']
+  const markdown = variants.map(br => '```mermaid\n' + linebreakDiagram.replaceAll('<br/>', br) + '\n```\n').join('\n')
+  await boot(page, markdown)
+  await expect(page.locator('.writing-mermaid-svg')).toHaveCount(variants.length)
+  for (const svg of await page.locator('.writing-mermaid-svg').all()) await expectLinebreakDiagram(svg)
+  expect(await capture(page)).toBe(markdown)
+  const html = await page.evaluate(async ({ pdfModule, markdown }) => (await import(pdfModule)).buildPdfDocument({ markdown }), { pdfModule, markdown })
+  const print = await context.newPage(); await print.setContent(html); await print.emulateMedia({ media: 'print' })
+  await expect(print.locator('.writing-mermaid-svg')).toHaveCount(variants.length)
+  for (const svg of await print.locator('.writing-mermaid-svg').all()) await expectLinebreakDiagram(svg)
+  await print.close()
+})
+
 test('Mermaid、命名重复脚注与提示块真实显示，保存读回不吞定义', async ({ page }) => {
   await boot(page)
   await expect(page.locator('.writing-mermaid-svg')).toBeVisible()
@@ -243,7 +306,7 @@ test('恶意图表不发请求，错误图表阻止完整 PDF 导出，原始 SV
   const external = []
   const origin = new URL(baseURL).origin
   await context.route(url => /^https?:$/.test(url.protocol) && url.origin !== origin, route => { external.push(route.request().url()); return route.abort() })
-  await boot(page, '结尾正文。\n\n```mermaid\nflowchart LR\nA["<img src=https://evil.example/x>"]\n```\n')
+  await boot(page, '结尾正文。\n\n```mermaid\nflowchart LR\nA["合法换行<br/><img src=https://evil.example/x>"]\n```\n')
   await expect(page.locator('.writing-mermaid-status')).toContainText('不支持 HTML')
   await expect(page.locator('.ProseMirror img')).toHaveCount(0)
   expect(external).toEqual([])
