@@ -362,3 +362,74 @@ test('native PDF exports a full Chinese A4 document with math, table, code and a
     throw error
   } finally { await cleanup(app) }
 })
+
+test('native PDF prints Mermaid flowchart/Sankey, case-folded footnotes and all five alerts', async ({}, info) => {
+  test.setTimeout(180000)
+  const { directory, profile } = await fixture()
+  let app
+  try {
+    app = await launch(profile)
+    const initial = await app.page.evaluate(() => window.__TAURI_INTERNALS__.invoke('list_metadata'))
+    await closeNormally(app);app = null
+    const markdown = await readFile(join(root, 'apps/tauri/tests/fixtures/pdf-extensions.md'), 'utf8')
+    const file = join(directory, '原生文件.md')
+    await writeFile(file, markdown)
+    await writeFile(join(directory, 'synthetic-resource.png'), await readFile(join(root, 'apps/tauri/tests/fixtures/synthetic-resource.png')))
+    seedFile(profile, initial.activeId, file, markdown)
+    const pdf = join(profile, '扩展组合.pdf')
+    await writeFile(pdf, 'previous extension target')
+    app = await launch(profile, { pdfTarget: pdf })
+    const page = app.page
+    await expect(body(page).locator('.writing-mermaid-svg')).toHaveCount(2)
+    await expect.poll(() => body(page).locator('.writing-mermaid-svg path').count()).toBeGreaterThan(3)
+    await page.getByText('文件', { exact: true }).click()
+    await page.getByRole('button', { name: '导出 PDF…', exact: true }).click()
+    await Promise.race([
+      expect.poll(async () => (await readFile(pdf)).subarray(0, 5).toString(), { timeout: 100000 }).toBe('%PDF-'),
+      page.getByRole('alert').waitFor({ state: 'visible', timeout: 100000 }).then(async () => { throw Error(await page.getByRole('alert').innerText()) }),
+    ])
+    await expect.poll(() => body(page).evaluate(element => Boolean(element.closest('[inert]')))).toBe(false)
+    const metadata = (await execute('pdfinfo', [pdf], { windowsHide: true })).stdout
+    const pages = Number(metadata.match(/Pages:\s+(\d+)/)?.[1])
+    expect(pages).toBeGreaterThanOrEqual(2)
+    const extracted = info.outputPath('extensions-pdf-text.txt')
+    await execute('pdftotext', ['-enc', 'UTF-8', pdf, extracted], { windowsHide: true })
+    const text = (await readFile(extracted, 'utf8')).replace(/\s+/g, '')
+    for(const expected of ['原生扩展组合验收', '中文起点', '原生PDF', 'Input', 'Process', 'Output', 'Recycle', 'Loss',
+      'NOTE提示内容', 'TIP提示内容', 'IMPORTANT提示内容', 'WARNING提示内容', 'CAUTION提示内容', '中文表格',
+      '大小写归一脚注第一段', '这是脚注第二段', '另一条脚注定义', '未引用定义也要进入原生PDF', 'EXTENSIONEND'])expect(text).toContain(expected)
+    expect(text.split('大小写归一脚注第一段').length - 1).toBe(1)
+    expect(text).not.toMatch(/\[\^case\]/i)
+    const fonts = (await execute('pdffonts', [pdf], { windowsHide: true })).stdout
+    expect(fonts).toContain('KaTeX')
+    const images = (await execute('pdfimages', ['-list', pdf], { windowsHide: true })).stdout
+    expect(images).toMatch(/\bimage\b/)
+    // Save actual native PDF rasterizations for graph/flow-line visual review.
+    await execute('pdftoppm', ['-png', '-scale-to', '1400', pdf, join(directory, 'extensions-page')], { windowsHide: true })
+    await writeFile(join(directory, 'extensions-pdf-result.json'), JSON.stringify({ pdf, pages, metadata, fonts, images }, null, 2))
+
+    const successfulPdf = await readFile(pdf)
+    await setMode(page, 'source')
+    await source(page).fill('# 错误图表\n\n```mermaid\nflowchart LR\nA[\n```\n')
+    const createdWorkers = [], context = app.browser.contexts()[0]
+    const observeWorker = worker => createdWorkers.push(worker.url())
+    context.on('page', observeWorker)
+    try {
+      await page.getByText('文件', { exact: true }).click()
+      await page.getByRole('button', { name: '导出 PDF…', exact: true }).click()
+      await expect(page.getByRole('alert')).toContainText('Mermaid 图表无法导出')
+      await expect.poll(() => source(page).evaluate(element => Boolean(element.closest('[inert]')))).toBe(false)
+    } finally { context.off('page', observeWorker) }
+    expect(createdWorkers).toEqual([])
+    expect(await readFile(pdf)).toEqual(successfulPdf)
+    expect(context.pages()).toHaveLength(1)
+    expect((await readdir(profile)).filter(name => name.startsWith('.frowd-pdf-'))).toEqual([])
+    await closeNormally(app);app = null
+  } catch (error) {
+    if (app) {
+      await app.page.screenshot({ path: info.outputPath('extensions-pdf-failure.png') }).catch(() => {})
+      await writeFile(info.outputPath('extensions-pdf-ui.txt'), await app.page.locator('body').innerText().catch(() => '')).catch(() => {})
+    }
+    throw error
+  } finally { await cleanup(app) }
+})

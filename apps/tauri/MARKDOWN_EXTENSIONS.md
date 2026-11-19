@@ -24,7 +24,7 @@ Mermaid 在正文显示图表，点击「编辑图表源码」使用原有代码
 语法未完成或不支持时显示局部反馈，源码不丢失。支持常用 flowchart/graph、sequenceDiagram、
 classDiagram、stateDiagram、erDiagram、gantt、pie、journey、gitGraph、mindmap、timeline 等离线图表。
 每图最多 50,000 字符、500 条边。HTML 标签、配置/frontmatter 指令、点击动作、
-图片和图标资源语法暂不支持；标签可直接写中文。依赖随应用打包，不使用 CDN 或在线字体。
+图片和图标资源语法暂不支持；中文 flowchart 等图表标签已覆盖。当前锁定 Mermaid 12.3 的 Sankey CSV 节点名需使用 ASCII，中文说明可写在图表外。依赖随应用打包，不使用 CDN 或在线字体。
 
 脚注引用显示命名标签，定义在其原有位置可直接编辑，未引用定义也保留。
 需要修改引用名或新增定义时可使用源码模式。脚注里的链接沿用普通点击编辑、Ctrl 点击打开。
