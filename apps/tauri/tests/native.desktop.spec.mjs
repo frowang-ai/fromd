@@ -3,7 +3,7 @@ import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { once } from 'node:events'
 import { createServer } from 'node:net'
-import { mkdtemp, readFile, writeFile, mkdir, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { createHash } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
@@ -49,7 +49,7 @@ async function stopFailedChild(child) {
   await expect.poll(() => child.exitCode !== null || child.signalCode !== null, { timeout: 15000 }).toBe(true)
 }
 
-async function launch(profile) {
+async function launch(profile, { pdfTarget } = {}) {
   const port = await freePort()
   const child = spawn(executable, [], {
     windowsHide: true,
@@ -58,6 +58,7 @@ async function launch(profile) {
       FROWANG_USER_DATA: profile,
       WEBVIEW2_USER_DATA_FOLDER: join(profile, 'webview2'),
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`,
+      ...(pdfTarget ? { FROWD_PDF_TEST_TARGET: pdfTarget } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -278,5 +279,80 @@ test('native reading preferences and Setext outline survive restart in an isolat
     await page.screenshot({ path: info.outputPath('native-reading-dark.png') })
     await closeNormally(app)
     app = null
+  } finally { await cleanup(app) }
+})
+
+test('native PDF exports a full Chinese A4 document with math, table, code and authorized raster images', async ({}, info) => {
+  test.setTimeout(180000)
+  const { directory, profile } = await fixture()
+  let app
+  try {
+    app = await launch(profile)
+    const initial = await app.page.evaluate(() => window.__TAURI_INTERNALS__.invoke('list_metadata'))
+    await closeNormally(app);app = null
+    const file = join(directory, '原生文件.md')
+    const markdown = '# 中文PDF导出\n\n公式 $E=mc^2$\n\n$$\\int_0^1 x^2 dx = \\frac{1}{3}$$\n\n| 项目 | 数值 |\n| --- | --- |\n| 合成表格 | 42 |\n\n```js\nconst answer = 42;\n```\n\n![文档相对图片](relative.png)\n\n' +
+      Array.from({length: 80}, (_, index) => `第${index + 1}段：这是完整正文的多页排版验证。中文内容应当能够提取和复制，表格与公式应使用真实字体。`).join('\n\n') + '\n\n结束标记PDFEND'
+    await writeFile(file, markdown)
+    await writeFile(join(directory, 'relative.png'), await readFile(join(root, 'apps/tauri/tests/fixtures/synthetic-resource.png')))
+    seedFile(profile, initial.activeId, file, markdown)
+    const pdf = join(profile, '正式导出.pdf')
+    await writeFile(pdf, 'previous target')
+    app = await launch(profile, { pdfTarget: pdf })
+    await pasteImage(app.page)
+    await setMode(app.page, 'source')
+    await source(app.page).press('Control+End');await source(app.page).press('Enter');await source(app.page).pressSequentially('FINALINPUT')
+    await app.page.getByText('文件', { exact: true }).click()
+    await app.page.getByRole('button', { name: '导出 PDF…', exact: true }).click()
+    await Promise.race([
+      expect.poll(async () => (await readFile(pdf)).subarray(0, 5).toString(), { timeout: 100000 }).toBe('%PDF-'),
+      app.page.getByRole('alert').waitFor({ state: 'visible', timeout: 100000 }).then(async () => { throw Error(await app.page.getByRole('alert').innerText()) }),
+    ])
+    await expect.poll(() => source(app.page).evaluate(element => Boolean(element.closest('[inert]')))).toBe(false)
+    const metadata = (await execute('pdfinfo', [pdf], { windowsHide: true })).stdout
+    expect(Number(metadata.match(/Pages:\s+(\d+)/)?.[1])).toBeGreaterThanOrEqual(3)
+    const paper = metadata.match(/Page size:\s+([\d.]+) x ([\d.]+) pts \(A4\)/)
+    expect(paper).toBeTruthy()
+    // Chromium rounds the CSS paper dimensions to device pixels before PDF
+    // points; installed WebView2 versions can differ by a fraction of a point.
+    expect(Math.abs(Number(paper[1]) - 210 * 72 / 25.4)).toBeLessThan(1)
+    expect(Math.abs(Number(paper[2]) - 297 * 72 / 25.4)).toBeLessThan(1)
+    expect((await stat(pdf)).size).toBeGreaterThan(10000)
+    const extracted = info.outputPath('native-pdf-text.txt')
+    await execute('pdftotext', ['-enc', 'UTF-8', pdf, extracted], { windowsHide: true })
+    const text = (await readFile(extracted, 'utf8')).replace(/\s+/g, '')
+    for(const expected of ['中文PDF导出', '合成表格', 'constanswer=42;', '结束标记PDFEND', 'FINALINPUT'])expect(text).toContain(expected)
+    expect(text).not.toContain('工作栏')
+    const images = (await execute('pdfimages', ['-list', pdf], { windowsHide: true })).stdout
+    expect(images.split('\n').filter(line => /^\s*\d+\s+\d+\s+image\b/.test(line)).length).toBeGreaterThanOrEqual(2)
+    const fonts = (await execute('pdffonts', [pdf], { windowsHide: true })).stdout
+    expect(fonts).toContain('KaTeX')
+    await expect.poll(() => app.browser.contexts()[0].pages().length).toBe(1)
+    expect((await readdir(profile)).filter(name => name.startsWith('.frowd-pdf-'))).toEqual([])
+    const successfulPdf = await readFile(pdf)
+    // Exercise the native failure path independently of the shared builder:
+    // an invalid raster must fail decoding, revoke the job and retain the PDF.
+    const failure = await app.page.evaluate(async () => {
+      const invoke = window.__TAURI_INTERNALS__.invoke
+      const snapshot = await invoke('list_metadata')
+      const doc = snapshot.documents.find(doc => doc.id === snapshot.activeId)
+      try {
+        await invoke('export_pdf', { id: doc.id, revision: doc.revision,
+          html: '<!doctype html><html><body><article class="markdown-body"><img src="data:image/png;base64,broken"></article></body></html>' })
+        return 'unexpected success'
+      } catch(error) { return String(error) }
+    })
+    expect(failure).toContain('加载失败')
+    expect(await readFile(pdf)).toEqual(successfulPdf)
+    await expect.poll(() => app.browser.contexts()[0].pages().length).toBe(1)
+    expect((await readdir(profile)).filter(name => name.startsWith('.frowd-pdf-'))).toEqual([])
+    await writeFile(join(directory, 'pdf-result.json'), JSON.stringify({ pdf, metadata, images, fonts }, null, 2))
+    await closeNormally(app);app = null
+  } catch (error) {
+    if (app) {
+      await app.page.screenshot({ path: info.outputPath('native-pdf-failure.png') }).catch(() => {})
+      await writeFile(info.outputPath('native-pdf-ui.txt'), await app.page.locator('body').innerText().catch(() => '')).catch(() => {})
+    }
+    throw error
   } finally { await cleanup(app) }
 })

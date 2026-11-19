@@ -27,6 +27,26 @@ test('last input is persisted even when no delayed change notification fired',as
  assert.match(rows.get('a').markdown,/last-keystroke$/);assert.equal(port.current.id,'b');
  c.dispose();
 });
+
+test('PDF exports flushed input and title as one immutable owner before a queued page switch',async()=>{
+ const {c,port,api,state}=fixture();await c.boot();
+ const entered=deferred(),finish=deferred();let snapshot;
+ api.exportPdf=async value=>{snapshot=value;entered.resolve();await finish.promise;return {cancelled:false}};
+ port.current.markdown+=' 中文最后输入';c.nameChanged('a','PDF 标题');
+ const exporting=c.exportPdf();await entered.promise;const switching=c.activate('b');
+ assert.deepEqual(snapshot,{id:'a',title:'PDF 标题',markdown:'# a 中文最后输入',revision:1});
+ assert.equal(state.activeId,'a');assert.equal(state.busy,true);
+ finish.resolve();await exporting;await switching;
+ assert.equal(state.activeId,'b');assert.equal(snapshot.id,'a');
+});
+
+test('PDF cancellation or failure releases command ownership and preserves the document',async()=>{
+ const {c,port,api,state}=fixture();await c.boot();const original=port.current.markdown;
+ api.exportPdf=async()=>({cancelled:true});assert.deepEqual(await c.exportPdf(),{cancelled:true});
+ assert.equal(state.busy,false);assert.equal(port.current.markdown,original);
+ api.exportPdf=async()=>{throw Error('print failed')};await assert.rejects(c.exportPdf(),/print failed/);
+ assert.equal(state.busy,false);assert.equal(port.current.markdown,original);await c.activate('b');
+});
 test('a change notification cannot make the latest text look already persisted',async()=>{
  const {c,port,rows}=fixture();await c.boot();port.current.markdown+=' changed';
  c.changed({id:'a',generation:port.current.generation,markdown:port.current.markdown});

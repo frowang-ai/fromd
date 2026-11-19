@@ -22,6 +22,14 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
+   case 'pdf_images':{
+    if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');
+    const images={};for(const reference of args.references){const url=h.resourceUrl(args.id,reference);if(!url)throw Error('PDF 图片不可用');images[reference]=url}return images;
+   }
+   case 'export_pdf':{
+    if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');
+    return {cancelled:Boolean(h.pdfCancelled)};
+   }
 
    case 'choose_document_import':{
     const choice=h.importChoice;if(!choice)return {cancelled:true};

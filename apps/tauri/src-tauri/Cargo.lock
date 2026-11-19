@@ -1153,6 +1153,7 @@ dependencies = [
 name = "frowd-tauri"
 version = "0.5.0"
 dependencies = [
+ "base64 0.22.1",
  "frowd-documents",
  "percent-encoding",
  "serde",
@@ -1162,6 +1163,11 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]
