@@ -24,6 +24,7 @@ import { normalizeWritingPastedMath } from './writingMathCompatibility.js'
 import { normalizeWritingMarkdown } from './writingMarkdownCompatibility.js'
 import { isAllowedResourceUrl } from './markdown/sanitize.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
+import { installWritingMarkdownViews, writingMarkdownExtensions, mermaidCodeLanguage } from './writingMarkdownExtensions.js'
 import { installWritingListKeys, writingListLabels } from './writingListKeys.js'
 import { installWritingListViews } from './writingListView.js'
 import { describeWritingDocument, installWritingClipboard, snapshotPasteEvent } from './writingClipboard.js'
@@ -39,6 +40,7 @@ import '@milkdown/crepe/theme/classic.css'
 import 'katex/dist/katex.min.css'
 import './writingLists.css'
 import './writingTextStyles.css'
+import './writingMarkdownExtensions.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean })
 const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
@@ -243,7 +245,7 @@ onMounted(async () => {
       },
       featureConfigs: {
         [Crepe.Feature.Placeholder]: { text: '从这里开始写…', mode: 'doc' },
-        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言', theme: writingCodeTheme },
+        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言', theme: writingCodeTheme, languages: [mermaidCodeLanguage] },
       },
     })
     // Replace the generic-transaction-only synchronizer; input rules carry
@@ -251,7 +253,7 @@ onMounted(async () => {
     await editor.editor.remove(syncListOrderPlugin)
     await configureWritingTables(editor.editor)
     if (disposed) return
-    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils))
+    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils)).use(writingMarkdownExtensions)
     editor.editor.use(imageSchema.extendSchema(previous => ctx => {
       const schema = previous(ctx)
       return { ...schema, parseDOM: schema.parseDOM.map(rule => rule.tag === 'img[src]' ? {
@@ -312,6 +314,7 @@ onMounted(async () => {
     if (props.linkNavigation) disposeLinks = installWritingLinks(v, { root: root.value, ctx: editor.editor.ctx, getOwner: () => activeSession, onOpen: value => emit('open-link', value) })
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view())
+    installWritingMarkdownViews(view())
     installWritingListViews(view())
     installWritingListKeys(view())
     clipboard=installWritingClipboard(view(), {

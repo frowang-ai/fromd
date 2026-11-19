@@ -1,0 +1,24 @@
+.writing-editor .writing-mermaid { margin: 1em 0; }
+.writing-editor .writing-mermaid-figure { margin: .5em 0; }
+.writing-editor .writing-mermaid .milkdown-code-block[hidden] { display: none; }
+.writing-editor .writing-mermaid-toggle { color: #65758a; background: transparent; border: 1px solid #aaa5; border-radius: 4px; padding: 3px 8px; font: inherit; font-size: 12px; line-height: 1.5; cursor: pointer; }
+.writing-editor .writing-mermaid-toggle:focus-visible { outline: 2px solid #356ca5; }
+.writing-editor .writing-mermaid-status { font-size: .85em; color: #9a6328; }
+.writing-editor .writing-mermaid-status:empty { display: none; }
+.writing-editor .writing-footnote-reference { color: #356ca5; font-size: .8em; }
+.writing-editor .writing-footnote-definition { display: flex; gap: .8em; padding: .5em 0; border-top: 1px solid #8884; font-size: .9em; }
+.writing-editor .writing-footnote-definition dt { color: #356ca5; font-weight: 600; }
+.writing-editor .writing-footnote-definition dd { flex: 1; min-width: 0; margin: 0; }
+.writing-editor .writing-footnote-definition dd > p:first-child { margin-top: 0; }
+@media print {
+  .writing-mermaid-toggle, .writing-mermaid .milkdown-code-block { display: none; }
+}
+.writing-editor .writing-alert { --alert-color: #356ca5; border-left: 3px solid var(--alert-color); padding: .1em 1em; margin: 1em 0; color: inherit; background: color-mix(in srgb, var(--alert-color) 5%, transparent); }
+.writing-editor .writing-alert[data-alert="TIP"] { --alert-color: #34764d; }
+.writing-editor .writing-alert[data-alert="IMPORTANT"] { --alert-color: #8256ac; }
+.writing-editor .writing-alert[data-alert="WARNING"] { --alert-color: #966617; }
+.writing-editor .writing-alert[data-alert="CAUTION"] { --alert-color: #b74444; }
+.writing-editor .writing-alert > p:first-child { margin-top: .4em; }
+.writing-editor .writing-alert-marker { color: var(--alert-color); font-weight: 650; }
+.writing-editor .milkdown .ProseMirror blockquote.writing-alert::before { display: none; }
+.writing-editor .writing-mermaid-svg { display: block; max-width: 100%; height: auto; margin: .7em auto; background: #fff; color: #222; }

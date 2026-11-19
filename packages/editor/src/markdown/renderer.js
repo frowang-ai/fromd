@@ -5,6 +5,8 @@
 import MarkdownIt from 'markdown-it'
 import texmath from 'markdown-it-texmath'
 import katex from 'katex'
+import footnote from 'markdown-it-footnote'
+import { markdownAlerts } from './extensions.js'
 import { fixAutolinkCjkBoundary } from './autolinkCjk.js'
 
 /**
@@ -18,6 +20,7 @@ export function createMarkdownRenderer() {
     breaks: true, // 转换段落里的 '\n' 到 <br>
     highlight: function (str, lang) {
       // 代码高亮（可选：可以集成 highlight.js）
+      if (/^mermaid$/i.test(lang)) lang = 'mermaid'
       return `<pre class="language-${lang}"><code>${escapeHtml(str)}</code></pre>`
     }
   })
@@ -35,6 +38,22 @@ export function createMarkdownRenderer() {
       displayMode: false
     }
   })
+  md.use(footnote).use(markdownAlerts)
+  // Print the complete source, including definitions with no remaining reference
+  // after an edit. markdown-it-footnote normally discards those definitions.
+  md.core.ruler.before('footnote_tail', 'frowd-unused-footnotes', state => {
+    const notes = state.env.footnotes
+    if (!notes?.refs) return
+    notes.list ||= []
+    for (const [key, id] of Object.entries(notes.refs)) {
+      if (id >= 0) continue
+      notes.refs[key] = notes.list.length
+      notes.list.push({ label: key.slice(1), count: 0 })
+    }
+  })
+  const footnoteAnchor = md.renderer.rules.footnote_anchor
+  md.renderer.rules.footnote_anchor = (tokens, index, options, env, self) =>
+    env.footnotes.list[tokens[index].meta.id].count === 0 ? '' : footnoteAnchor(tokens, index, options, env, self)
 
   // 自动链接的 CJK 边界修正：linkify 之后把首个 CJK 字符起的部分剥出链接
   // （背景与实现见 ./autolinkCjk.js）

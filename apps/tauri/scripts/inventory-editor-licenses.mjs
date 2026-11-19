@@ -5,6 +5,15 @@ import {createRequire} from 'node:module'
 import {fileURLToPath} from 'node:url'
 const app=resolve(dirname(fileURLToPath(import.meta.url)),'..'),root=resolve(app,'../..')
 const read=file=>JSON.parse(readFileSync(file,'utf8'))
+function license(pkg,file){
+ if(pkg.license)return pkg.license
+ // Some runtime packages omit SPDX metadata but include their MIT license.
+ for(const name of ['license','LICENSE','LICENSE.md']){
+  const path=resolve(dirname(file),name)
+  if(existsSync(path)&&/^(?:The )?MIT License\b/.test(readFileSync(path,'utf8').trim()))return 'MIT'
+ }
+ return 'unspecified'
+}
 function locate(name,from){
  for(const base of createRequire(from).resolve.paths(name)||[]){
   const file=resolve(base,name,'package.json')
@@ -17,7 +26,7 @@ function visit(name,from,kind){
  const file=locate(name,from);if(!file){missing.push({name,kind});return null}
  const pkg=read(file),key=pkg.name+'@'+pkg.version
  if(seen.has(key))return pkg
- seen.add(key);packages.push({name:pkg.name,version:pkg.version,license:pkg.license||'unspecified',kind,location:relative(root,dirname(file)).split('\\').join('/')})
+ seen.add(key);packages.push({name:pkg.name,version:pkg.version,license:license(pkg,file),kind,location:relative(root,dirname(file)).split('\\').join('/')})
  for(const child of Object.keys(pkg.dependencies||{}))visit(child,file,kind)
  return pkg
 }
