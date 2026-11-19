@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url'
 const execute = promisify(execFile)
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 // FROWANG_USER_DATA is intentionally supported only by the debug application.
-const executable = join(root, 'apps/tauri/src-tauri/target/debug/frowd-tauri.exe')
+const executable = process.env.FROWD_NATIVE_EXE || join(root, 'apps/tauri/src-tauri/target/debug/frowd-tauri.exe')
 const evidence = join(root, 'output/tauri-native-profiles')
 const body = page => page.getByRole('textbox', { name: 'Markdown 正文', exact: true })
 const source = page => page.getByRole('textbox', { name: 'Markdown 源码', exact: true })
@@ -83,7 +83,7 @@ async function launch(profile, { pdfTarget } = {}) {
     const context = browser.contexts()[0]
     const page = context.pages()[0] || await context.waitForEvent('page')
     await expect(page.locator('.loading-state')).toHaveCount(0)
-    await expect(body(page)).toBeVisible()
+    await expect(page.locator('.ProseMirror:visible, .pm-port > .markdown-source:visible')).toBeVisible()
     expect(await page.evaluate(() => Boolean(window.__TAURI_INTERNALS__ && !window.__FROWD_TEST_HOST__))).toBe(true)
     expect((await stat(join(profile, 'webview2'))).isDirectory()).toBe(true)
     expect((await stat(join(profile, 'drafts.sqlite'))).isFile()).toBe(true)
@@ -149,6 +149,69 @@ function seedFile(profile, id, file, markdown) {
       .run('原生文件.md', file, markdown, hash, hash, hash, id)
   } finally { db.close() }
 }
+
+test('native titlebar controls, WebView zoom and final-input close preserve the isolated draft', async ({}, info) => {
+  const {profile,directory}=await fixture()
+  let app
+  try {
+    app=await launch(profile)
+    const page=app.page
+    const native=(command,args={})=>page.evaluate(({command,args})=>window.__TAURI_INTERNALS__.invoke(command,{label:'main',...args}),{command,args})
+    const initialPid=app.child.pid
+    await page.getByRole('button',{name:'最大化窗口',exact:true}).click()
+    await expect.poll(()=>native('plugin:window|is_maximized')).toBe(true)
+    await page.getByRole('button',{name:'还原窗口',exact:true}).click()
+    await expect.poll(()=>native('plugin:window|is_maximized')).toBe(false)
+    const windowHandle=(await execute('powershell.exe',['-NoProfile','-NonInteractive','-Command',`(Get-Process -Id ${app.child.pid}).MainWindowHandle.ToInt64()`],{windowsHide:true})).stdout.trim()
+    expect(Number(windowHandle)).toBeGreaterThan(0)
+    await page.getByRole('button',{name:'最小化窗口',exact:true}).click()
+    await expect.poll(()=>native('plugin:window|is_minimized')).toBe(true)
+    await execute('powershell.exe',['-NoProfile','-NonInteractive','-Command',`
+Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class FrowdRestore { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr window, int command); }'
+[FrowdRestore]::ShowWindow([IntPtr]::new(${windowHandle}),9)
+`],{windowsHide:true})
+    await expect.poll(()=>native('plugin:window|is_minimized')).toBe(false)
+    await body(page).click()
+    const initialWidth=await page.evaluate(()=>innerWidth)
+    await page.keyboard.press('Control+=')
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','110')
+    await expect.poll(()=>page.evaluate(()=>innerWidth)).toBeLessThan(initialWidth)
+    await page.keyboard.down('Control')
+    await page.mouse.wheel(0,-100)
+    await page.keyboard.up('Control')
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','120')
+    await expect.poll(async()=>Math.abs((await page.evaluate(()=>innerWidth))-initialWidth/1.2)).toBeLessThan(2)
+    await page.keyboard.press('Control+0')
+    await expect.poll(()=>page.evaluate(()=>innerWidth)).toBe(initialWidth)
+    await page.keyboard.press('Control+/');await expect(source(page)).toBeVisible()
+    await source(page).fill('# 原生标题栏验收\n\n正常关闭前最后输入')
+    if(process.env.FROWD_NATIVE_HMR==='1'){
+      const stylesheet=join(root,'apps/tauri/src/styles.css'),original=await readFile(stylesheet,'utf8')
+      const config=JSON.parse(await readFile(join(root,'apps/tauri/src-tauri/tauri.conf.json'),'utf8'))
+      const origin=new URL(process.env.FROWD_NATIVE_DEV_ORIGIN||config.build.devUrl).origin
+      const logs=[]
+      const observe=message=>{if(message.text().includes('vite'))logs.push(message.text())}
+      page.on('console',observe)
+      try{
+        expect(await page.evaluate(()=>location.origin)).toBe(origin)
+        await writeFile(stylesheet,original+'\n:root { --frowd-hmr-probe: native-live; }\n')
+        await expect.poll(()=>page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--frowd-hmr-probe').trim())).toBe('native-live')
+        expect(processAlive(initialPid)).toBe(true)
+        expect(app.child.pid).toBe(initialPid)
+        await expect(source(page)).toHaveValue('# 原生标题栏验收\n\n正常关闭前最后输入')
+      } finally {await writeFile(stylesheet,original);page.off('console',observe)}
+      await writeFile(join(directory,'hmr.json'),JSON.stringify({pid:initialPid,logs,origin,native:true,mock:false},null,2))
+    }
+    await page.screenshot({path:info.outputPath('native-titlebar.png')})
+    const exited=once(app.child,'exit')
+    await page.getByRole('button',{name:'关闭窗口',exact:true}).click()
+    await expect.poll(()=>app.child.exitCode,{timeout:20000}).toBe(0)
+    await exited;await app.browser.close().catch(()=>{});app=null
+    app=await launch(profile)
+    await expect(source(app.page)).toHaveValue('# 原生标题栏验收\n\n正常关闭前最后输入')
+    await closeNormally(app);app=null
+  } finally {await cleanup(app)}
+})
 
 test('native WebView2 authoring, search, managed image and normal-close SQLite recovery', async ({}, info) => {
   const { directory, profile } = await fixture()

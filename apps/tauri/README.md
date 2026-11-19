@@ -53,8 +53,13 @@ package remain separate acceptance steps; no signed release or updater is enable
 
 ## Preserved workspace and module ownership
 
-The page/outline workbar, title-only shelf, both minus controls, expand-all,
-ordered tabs, floating docId-bound name/save dock and narrow drawer remain.
+The page/outline workbar, title-only shelf, tab minus controls, expand-all,
+ordered tabs, upper-left docId-bound name/save dock and narrow drawer remain.
+The sidebar × closes a page through the existing save/discard/cancel and undo
+flow; the tab minus continues to shelve it. Page menus open at the pointer or
+sidebar button and remain within the viewport. The single Windows titlebar
+contains the app menus and native minimize/maximize/normal-close controls.
+See [desktop feedback and development preview](DESKTOP_FEEDBACK.md).
 Shelving uses the existing 450 ms collapse motion; restoration displays the page
 directly. SQLite remains the authority for local documents, identity and layout.
 

@@ -1,7 +1,7 @@
 <template>
-  <div class="app-shell" :data-theme="readingTheme" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
-    <header class="app-header">
-      <div class="brand"><img src="./assets/icon.png" alt="" /><span>frowd</span></div>
+  <div class="app-shell" :data-theme="readingTheme" :data-zoom="zoom" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
+    <header class="app-header" @mousedown="titlebarDrag">
+      <div class="brand"><img src="./assets/icon.png" alt="" /><span>frowd</span><small v-if="previewWindow">开发预览</small></div>
       <nav class="app-menu" aria-label="应用菜单">
         <details ref="fileMenu"><summary>文件</summary><div class="menu-popup">
           <button @click="action(() => coordinator.create())">新建页面 <kbd>Ctrl+N</kbd></button>
@@ -19,13 +19,21 @@
         </div></details>
         <details><summary>视图</summary><div class="menu-popup">
           <button :disabled="!current" @click="setMode('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
-          <button :disabled="!current" @click="setMode('source')">源码 <kbd>Ctrl+Shift+M</kbd><span v-if="mode === 'source'">✓</span></button>
+          <button :disabled="!current" @click="setMode('source')">源码 <kbd>Ctrl+/</kbd><span v-if="mode === 'source'">✓</span></button>
+          <button :disabled="zoom >= 200" @click="changeZoom(10)">放大 <kbd>Ctrl++</kbd></button>
+          <button :disabled="zoom <= 50" @click="changeZoom(-10)">缩小 <kbd>Ctrl+-</kbd></button>
+          <button @click="changeZoom(0, true)">实际大小（{{ zoom }}%） <kbd>Ctrl+0</kbd></button>
           <button @click="sidebarOpen = !sidebarOpen; closeMenus()">{{ sidebarOpen ? '隐藏' : '显示' }}工作栏</button>
           <button :disabled="state.busy || !state.loaded" @click="openReading">阅读设置… <kbd>Ctrl+,</kbd></button>
         </div></details>
       </nav>
       <span class="window-document">{{ current?.title || 'frowd' }}</span>
       <button ref="readingButton" class="reading-button" :disabled="state.busy || !state.loaded" :aria-expanded="readingOpen" aria-label="阅读设置" @click="openReading">阅读</button>
+      <div v-if="nativeWindow" class="window-controls">
+        <button aria-label="最小化窗口" title="最小化" @click="windowAction(minimizeWindow)">−</button>
+        <button :aria-label="maximized ? '还原窗口' : '最大化窗口'" :title="maximized ? '还原' : '最大化'" @click="windowAction(toggleMaximizeWindow)">{{ maximized ? '❐' : '□' }}</button>
+        <button class="window-close" aria-label="关闭窗口" title="关闭" @click="windowAction(closeWindow)">×</button>
+      </div>
     </header>
 
     <div class="workspace">
@@ -46,19 +54,19 @@
           </section>
           <section v-show="!query.trim()" class="page-group" aria-label="已展开页面">
             <div class="group-heading"><span>已展开 {{ opened.length }}</span><button class="expand-all" :disabled="!shelved.length || state.busy" @click="action(() => coordinator.layout('expand'))">全部展开</button></div>
-            <div v-for="doc in filteredOpened" :key="doc.id" class="page-row" :class="{ active: doc.id === state.activeId }" :data-page-id="doc.id" @contextmenu.prevent="contextPage = doc.id">
+            <div v-for="doc in filteredOpened" :key="doc.id" class="page-row" :class="{ active: doc.id === state.activeId }" :data-page-id="doc.id" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
               <button class="page-title" :disabled="state.busy || !state.loaded" @click="selectPage(doc.id)"><span class="page-symbol">▤</span>{{ doc.title }}</button>
-              <button class="row-minus" :disabled="state.busy || !state.loaded" :aria-label="'侧栏收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
-              <button class="row-more" :disabled="state.busy || !state.loaded" :aria-label="'页面菜单 ' + doc.title" @click="contextPage = contextPage === doc.id ? null : doc.id">⋯</button>
+              <button class="row-close" :disabled="state.busy || !state.loaded" :aria-label="'关闭页面 ' + doc.title" title="关闭页面" @click.stop="removePage(doc.id)">×</button>
+              <button class="row-more" :disabled="state.busy || !state.loaded" :aria-label="'页面菜单 ' + doc.title" aria-haspopup="menu" :aria-expanded="contextPage === doc.id" @click.stop="openContext($event,doc.id,true)">⋯</button>
             </div>
             <p v-if="!filteredOpened.length" class="empty-list">{{ query ? '没有匹配页面' : '没有已展开页面' }}</p>
           </section>
           <section v-show="!query.trim()" class="page-group shelved-group" aria-label="已收起页面">
             <div class="group-heading"><span>已收起 {{ shelved.length }}</span></div>
-            <div v-for="doc in filteredShelved" :key="doc.id" class="page-row shelved-row" :data-page-id="doc.id">
+            <div v-for="doc in filteredShelved" :key="doc.id" class="page-row shelved-row" :data-page-id="doc.id" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
               <button class="page-title" :disabled="state.busy || !state.loaded" @click="selectPage(doc.id)"><span class="page-symbol">▤</span>{{ doc.title }}</button>
               <span class="restore-icon" aria-hidden="true">↗</span>
-              <button class="row-more" :disabled="state.busy || !state.loaded" :aria-label="'页面菜单 ' + doc.title" @click="contextPage = contextPage === doc.id ? null : doc.id">⋯</button>
+              <button class="row-more" :disabled="state.busy || !state.loaded" :aria-label="'页面菜单 ' + doc.title" aria-haspopup="menu" :aria-expanded="contextPage === doc.id" @click.stop="openContext($event,doc.id,true)">⋯</button>
             </div>
             <p v-if="!filteredShelved.length" class="empty-list">{{ query ? '没有匹配页面' : '暂无收起页面' }}</p>
           </section>
@@ -74,7 +82,7 @@
         <div class="tabbar">
           <button ref="pageAnchor" class="workbar-toggle" aria-label="显示页面工作栏" @click="sidebarOpen = !sidebarOpen">◫</button>
           <div class="tabs" aria-label="已展开标签">
-            <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover.prevent="overTab($event,doc.id)" @drop.prevent="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="contextPage = doc.id">
+            <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover.prevent="overTab($event,doc.id)" @drop.prevent="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
               <button :disabled="state.busy || !state.loaded" class="tab-title" :title="doc.path || doc.title" @click="selectPage(doc.id)">{{ doc.title }}</button>
               <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
             </div>
@@ -93,11 +101,6 @@
           <button :disabled="!findState.count || state.busy" @click="replaceOne">替换</button><button :disabled="!findState.count || findState.limited || state.busy" @click="replaceAll">全部替换</button>
           <button aria-label="关闭查找替换" @click="closeFind">×</button>
         </div>
-        <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
-          <ProseMirrorPort ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
-          <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
-          <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
-        </div>
         <div v-if="current" class="name-dock" data-html2canvas-ignore="true" :inert="editingLocked">
           <span aria-hidden="true">♧</span>
           <input v-if="!current.path" :key="current.id" :data-doc-id="current.id" :value="nameDraft" aria-label="当前页面名称" placeholder="未命名笔记"
@@ -106,12 +109,16 @@
           <span class="save-state" role="status" aria-label="保存状态">{{ state.saveState }}</span>
           <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
+        <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
+          <ProseMirrorPort ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
+          <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
+        </div>
       </main>
     </div>
 
     <ReadingSettings v-if="readingOpen" ref="readingPanel" :preferences="readingPreferences" :error="readingError" @change="updateReading" @close="closeReading" />
-    <div v-if="contextDocument" class="context-backdrop" @click.self="contextPage = null">
-      <div class="page-context" role="menu" :aria-label="'页面操作 ' + contextDocument.title">
+      <div v-if="contextDocument" ref="contextMenu" class="page-context" role="menu" :style="{left:contextPosition.x+'px',top:contextPosition.y+'px'}" :aria-label="'页面操作 ' + contextDocument.title" @keydown="contextKey">
         <span class="context-title">{{ contextDocument.title }}</span>
         <button role="menuitem" v-if="!contextDocument.path" @click="focusName(contextPage)">改名</button>
         <button role="menuitem" v-if="!contextDocument.shelved" @click="collapse(contextPage)">收起</button>
@@ -119,7 +126,6 @@
         <button role="menuitem" @click="contextLayout('shelveAll')">收起全部页面</button>
         <button role="menuitem" @click="removePage(contextPage)">移除页面…</button>
       </div>
-    </div>
     <div v-if="removalDialog" class="modal-backdrop">
       <section class="remove-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-title" @keydown.esc.prevent="answerRemoval('cancel')">
         <h2 id="remove-title">{{ removalDialog.path ? '保留文件修改？' : '保留这篇笔记？' }}</h2>
@@ -144,11 +150,14 @@ import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readi
 import './reading/reading.css'
 import {startPageMotion} from './pageMotion.js'
 import html2canvas from 'html2canvas'
+import {nativeWindow,previewWindow,minimizeWindow,toggleMaximizeWindow,closeWindow,dragWindow,observeMaximized,setPageZoom} from './window.mjs'
 
 const state=reactive({})
 const editor=ref(null),editorPanel=ref(null),pageAnchor=ref(null),findInput=ref(null)
 const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('rendered')
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
+const contextMenu=ref(null),contextPosition=reactive({x:0,y:0}),zoom=ref(100),maximized=ref(false)
+let contextOrigin=null,contextRequest=0,zoomTimer,zoomFlight=false,zoomApplied=100,windowDispose
 const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
 const initialReading=loadReadingPreferences()
 const readingPreferences=ref(initialReading.preferences),readingError=ref(initialReading.error),readingOpen=ref(false),readingPanel=ref(null),readingButton=ref(null)
@@ -326,6 +335,71 @@ function replaceEnter(event){if(event.isComposing||findState.composing||findStat
 function replaceOne(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{const result=await coordinator.replaceFind(findState.query,findState.replacement,findState.index,false,target,findState.matchCase);findState.index=result.index<0?0:result.index;await refreshFind(findState.index)}finally{target.pinned=false}})}
 function replaceAll(){action(async()=>{if(!findState.owner||findState.owner.cancelled){await refreshFind(findState.index)}const target=findState.owner;if(!target)throw Error('查找结果已失效，请重新查找。');target.pinned=true;try{await coordinator.replaceFind(findState.query,findState.replacement,findState.index,true,target,findState.matchCase);findState.index=0;await refreshFind(0)}finally{target.pinned=false}})}
 function closeMenus(){document.querySelectorAll('.app-menu details').forEach(d=>d.open=false)}
+function closeContext(restore=false){
+ contextRequest++;contextPage.value=null
+ if(restore&&contextOrigin?.isConnected)contextOrigin.focus()
+}
+function contextResize(){closeContext()}
+async function openContext(event,id,anchor=false,keyboard=false){
+ if(state.busy||!state.loaded)return
+ if(anchor&&contextPage.value===id){closeContext(true);return}
+ closeMenus()
+ const token=++contextRequest
+ contextOrigin=event.target.closest('button')||event.currentTarget.querySelector('button')
+ const rect=(anchor?event.currentTarget:contextOrigin)?.getBoundingClientRect()
+ const atAnchor=anchor||keyboard||event.clientX===0&&event.clientY===0
+ const x=atAnchor?rect?.left||0:event.clientX,y=atAnchor?rect?.bottom||0:event.clientY
+ contextPage.value=id
+ await nextTick()
+ if(token!==contextRequest||!contextMenu.value)return
+ const menu=contextMenu.value.getBoundingClientRect()
+ const scale=nativeWindow?1:zoom.value/100
+ contextPosition.x=Math.max(4,Math.min(x,innerWidth-menu.width-4))/scale
+ contextPosition.y=Math.max(4,Math.min(y,innerHeight-menu.height-4))/scale
+ contextMenu.value.querySelector('button')?.focus()
+}
+function contextTrigger(event,id){
+ if(event.key==='ContextMenu'||event.key==='F10'&&event.shiftKey){event.preventDefault();event.stopPropagation();openContext(event,id,false,true)}
+}
+function contextKey(event){
+ if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeContext(true);return}
+ if(event.key==='Tab'){closeContext();return}
+ const items=Array.from(contextMenu.value?.querySelectorAll('button:not(:disabled)')||[])
+ const index=items.indexOf(document.activeElement)
+ if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){
+  event.preventDefault()
+  items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus()
+ }
+}
+function outsideMenus(event){
+ if(contextPage.value&&!event.target.closest('.page-context,.row-more'))closeContext()
+ if(!event.target.closest('.app-menu'))closeMenus()
+}
+async function windowAction(work){try{await work()}catch(error){coordinator.report(error)}}
+function titlebarDrag(event){
+ if(!nativeWindow||event.button!==0||event.target.closest('button,input,summary,details,nav'))return
+ event.preventDefault()
+ windowAction(event.detail===2?toggleMaximizeWindow:dragWindow)
+}
+function changeZoom(delta,reset=false){
+ closeMenus();closeContext()
+ zoom.value=reset?100:Math.max(50,Math.min(200,zoom.value+delta))
+ clearTimeout(zoomTimer);zoomTimer=setTimeout(applyZoom,16)
+}
+async function applyZoom(){
+ if(zoomFlight||disposed)return
+ const requested=zoom.value
+ if(requested===zoomApplied)return
+ zoomFlight=true
+ try{await setPageZoom(requested);zoomApplied=requested}
+ catch(error){zoom.value=zoomApplied;coordinator.report(error)}
+ finally{zoomFlight=false;if(zoomApplied!==zoom.value&&!disposed)zoomTimer=setTimeout(applyZoom,16)}
+}
+function zoomWheel(event){
+ if(!event.ctrlKey||event.altKey)return
+ event.preventDefault();event.stopPropagation()
+ if(event.deltaY!==0)changeZoom(event.deltaY<0?10:-10)
+}
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
 function externalFileGesture(event){return Array.from(event.dataTransfer?.types||[]).some(type=>type.toLowerCase()==='files')}
@@ -394,25 +468,36 @@ function globalStart(){globalComposing=true}
 function globalEnd(){globalComposing=false}
 function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=false}
 function shortcut(event){
- if(event.isComposing||globalComposing||removalDialog.value)return
- if(event.key==='Escape'){if(readingOpen.value){event.preventDefault();closeReading();return}if(findState.open){event.preventDefault();closeFind();return}contextPage.value=null;closeMenus();if(narrow.value)sidebarOpen.value=false}
+ if(event.isComposing||event.keyCode===229||globalComposing||removalDialog.value)return
+ if(event.key==='Escape'){if(contextPage.value){event.preventDefault();event.stopPropagation();closeContext(true);return}if(readingOpen.value){event.preventDefault();closeReading();return}if(findState.open){event.preventDefault();closeFind();return}closeMenus();if(narrow.value)sidebarOpen.value=false}
  if(!(event.ctrlKey||event.metaKey)||event.altKey)return
  const key=event.key.toLowerCase()
+ if(key==='/'||event.code==='Slash'){
+  event.preventDefault();event.stopImmediatePropagation()
+  if(current.value&&!state.busy)setMode(mode.value==='source'?'rendered':'source')
+  return
+ }
+ if(['+','=','-','0'].includes(key)||['NumpadAdd','NumpadSubtract','Numpad0'].includes(event.code)){
+  event.preventDefault();event.stopImmediatePropagation()
+  changeZoom(key==='-'||event.code==='NumpadSubtract'?-10:10,key==='0'||event.code==='Numpad0');return
+ }
  if(key===','){event.preventDefault();openReading();return}
  if(key==='n'){event.preventDefault();action(()=>coordinator.create())}
  if(key==='o'){event.preventDefault();action(()=>coordinator.open())}
  if(key==='s'){event.preventDefault();action(()=>coordinator.save(state.activeId,event.shiftKey))}
  if(key==='f'){event.preventDefault();openFind()}
  if(key==='h'){event.preventDefault();openFind()}
- if(key==='m'&&event.shiftKey){event.preventDefault();setMode(mode.value==='source'?'rendered':'source')}
  if(key==='tab'&&opened.value.length){event.preventDefault();const index=opened.value.findIndex(d=>d.id===state.activeId);selectPage(opened.value[(index+(event.shiftKey?-1:1)+opened.value.length)%opened.value.length].id)}
 }
 async function openLink(event){const detail=event.detail;if(!current.value||detail.id&&detail.id!==current.value.id)return;try{await openDocumentLink(current.value.id,detail.href)}catch(e){coordinator.report(e)}}
 onMounted(async()=>{
  narrow.value=media.matches;sidebarOpen.value=!narrow.value;media.addEventListener('change',resize)
  themeMedia.addEventListener('change',themeChanged)
+ window.addEventListener('pointerdown',outsideMenus,true);window.addEventListener('wheel',zoomWheel,{capture:true,passive:false});window.addEventListener('resize',contextResize)
+ if(nativeWindow)setPageZoom(100).catch(error=>coordinator.report(error))
+ if(nativeWindow)observeMaximized(value=>maximized.value=value).then(dispose=>{if(disposed)dispose();else windowDispose=dispose}).catch(error=>coordinator.report(error))
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
 })
-onBeforeUnmount(()=>{disposed=true;clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;windowDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

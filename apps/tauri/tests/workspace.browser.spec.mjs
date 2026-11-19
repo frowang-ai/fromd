@@ -20,11 +20,11 @@ async function menu(page,title){await page.getByText('视图',{exact:true}).clic
 async function remove(page,title='方案讨论'){
  await page.getByRole('button',{name:'页面菜单 '+title,exact:true}).click();await page.getByRole('menuitem',{name:'移除页面…'}).click();
 }
-test('confirmed shell has menus, two minus entries, name-only shelf and ordered expand-all',async({page})=>{
+test('shell has separate tab-shelve and sidebar-close controls, name-only shelf and ordered expand-all',async({page})=>{
  await boot(page);
  await expect(page.locator('.sidebar-switch button')).toHaveText(['页面','大纲']);
  await expect(page.getByRole('button',{name:'标签收起 方案讨论',exact:true})).toBeVisible();
- await expect(page.getByRole('button',{name:'侧栏收起 方案讨论',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'关闭页面 方案讨论',exact:true})).toBeVisible();
  await expect(page.locator('.shelved-group img,.shelved-group canvas')).toHaveCount(0);
  const boxes=await page.locator('.page-search,.group-heading .expand-all').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
  expect(boxes[1]).toBeGreaterThan(boxes[0]);
@@ -41,8 +41,8 @@ test('last input survives immediate page switch, rich/source modes share text an
  expect((await stored(page)).markdown).not.toContain('源码追加');
  expect((await stored(page)).markdown).toContain('即时最后输入');
 });
-test('both minus controls shelve without removing; expanding all preserves active page and order',async({page})=>{
- await boot(page);await page.getByRole('button',{name:'侧栏收起 公式推导',exact:true}).click();
+test('tab minus controls shelve without removing; expanding all preserves active page and order',async({page})=>{
+ await boot(page);await page.getByRole('button',{name:'标签收起 公式推导',exact:true}).click();
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
  await page.getByRole('button',{name:'标签收起 方案讨论',exact:true}).click();
  await expect(page.locator('.empty-desktop')).toBeVisible();
@@ -59,7 +59,7 @@ test('floating rename stays in viewport after scrolling and does not change H1',
  await expect(page.locator('.tab.selected')).toContainText('独立草稿名');
  await expect.poll(async()=> (await stored(page)).title).toBe('独立草稿名');
  expect((await stored(page)).markdown.startsWith('# 正文标题不变')).toBe(true);
- const box=await input.boundingBox();expect(box.y).toBeLessThan(860);expect(box.y).toBeGreaterThan(700);
+ const box=await input.boundingBox();expect(box.y).toBeGreaterThan(90);expect(box.y).toBeLessThan(170);
  await page.screenshot({path:evidence+'floating-name-scrolled.png',fullPage:true});
 });
 test('IME name composition completes on old doc before switching and never renames the new one',async({page})=>{

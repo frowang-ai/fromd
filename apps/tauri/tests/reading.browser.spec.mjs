@@ -17,7 +17,7 @@ async function settings(page){
   if(await button.getAttribute('aria-expanded')!=='true')await button.click()
   await expect(setting(page,'正文字号')).toBeVisible()
 }
-async function sourceMode(page){await page.keyboard.press('Control+Shift+M');await expect(source(page)).toBeVisible()}
+async function sourceMode(page){await page.keyboard.press('Control+/');await expect(source(page)).toBeVisible()}
 const pageErrors=new WeakMap()
 test.beforeEach(async({page})=>{const errors=[];pageErrors.set(page,errors);page.on('pageerror',error=>errors.push(error.message))})
 test.afterEach(async({page})=>expect(pageErrors.get(page)).toEqual([]))
@@ -49,7 +49,7 @@ test('statistics follow source/rich edits and page ownership, retaining literal 
   await sourceMode(page)
   await source(page).fill('# 统计\n\n你好 world 123\n\nhello... (c)')
   await expect(count(page)).toHaveText('8 字词 · 23 字符')
-  await page.keyboard.press('Control+Shift+M')
+  await page.keyboard.press('Control+/')
   await body(page).press('Control+End');await page.keyboard.insertText(' again')
   await expect(count(page)).toHaveText('9 字词 · 28 字符')
   await page.locator('.tab-title').filter({hasText:'公式推导'}).click()
