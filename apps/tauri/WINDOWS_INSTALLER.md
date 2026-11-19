@@ -55,6 +55,7 @@ npm run tauri:installer
   外部另存的 Markdown、图片与附件不属于卸载清理对象。卸载前自行备份需要保留的资料。
 - 安装目录内 `licenses/` 带有应用 MIT 许可证、第三方声明、SoloMD 来源许可证、
   Tauri API 的 MIT/Apache 许可证及编辑依赖清单。
+  共 7 份文件，其中 `TAURI-THIRD-PARTY-NOTICES.md` 补充 html2canvas 及其四个间接依赖的原始 LICENSE。
 
 WebView2 使用 Evergreen Runtime。安装器检查现有 Runtime，已存在时复用；
 缺失时通过 Tauri 官方 `downloadBootstrapper` 路线下载微软引导程序并安装，

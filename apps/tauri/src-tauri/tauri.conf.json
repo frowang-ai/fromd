@@ -42,6 +42,7 @@
     "resources": {
       "../../../LICENSE": "licenses/LICENSE",
       "../../../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md",
+      "../THIRD_PARTY_NOTICES.md": "licenses/TAURI-THIRD-PARTY-NOTICES.md",
       "../LICENSE.SOLOMD": "licenses/LICENSE.SOLOMD",
       "../dependency-licenses.json": "licenses/dependency-licenses.json",
       "../node_modules/@tauri-apps/api/LICENSE-MIT": "licenses/TAURI-LICENSE-MIT",
