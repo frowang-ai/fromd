@@ -553,6 +553,25 @@ fn all_supported_raster_formats_decode_and_incorrect_extension_is_not_trusted() 
             .write_to(&mut buffer, format)
             .unwrap();
         assert_eq!(kind(buffer.get_ref(), "spoof.txt", true).unwrap().1, mime);
+        assert_eq!(validate_raster_image(buffer.get_ref()).unwrap(), mime);
+    }
+}
+#[test]
+fn transient_raster_validation_reuses_dimension_and_pixel_limits() {
+    for (width, height, reason) in [(12001u32, 1u32, "尺寸超过限制"), (8000, 6000, "4000 万像素")] {
+        let mut bytes = png();
+        // A small PNG with a valid IHDR CRC advertising oversized dimensions.
+        // No enormous pixel buffer is allocated to create this hostile fixture.
+        bytes[16..20].copy_from_slice(&width.to_be_bytes());
+        bytes[20..24].copy_from_slice(&height.to_be_bytes());
+        let mut crc = !0u32;
+        for byte in &bytes[12..29] {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 { crc = (crc >> 1) ^ (0xedb88320 & 0u32.wrapping_sub(crc & 1)); }
+        }
+        bytes[29..33].copy_from_slice(&(!crc).to_be_bytes());
+        let error = validate_raster_image(&bytes).unwrap_err().to_string();
+        assert!(error.contains(reason), "{error}");
     }
 }
 #[cfg(windows)]

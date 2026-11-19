@@ -44,3 +44,17 @@ test('an unauthorized image fails before the native save or print command', asyn
   expect(await page.evaluate(() => window.__FROWD_TEST_HOST__.entered.export_pdf ?? 0)).toBe(0);
   await expect(page.locator('.ProseMirror:visible')).toHaveAttribute('contenteditable', 'true');
 });
+
+test('source inline PNG renders normally and stays embedded through the PDF menu', async ({ page }) => {
+  await page.addInitScript(installMockHost, { markdown: '# 原文内嵌图片' });
+  await page.goto('/?testHost=1');await expect(page.locator('.ProseMirror:visible')).toBeVisible();
+  await page.getByText('视图', { exact: true }).click();await page.getByRole('button', { name: /^源码/ }).click();
+  const data = 'data:image/png;base64,' + png;
+  await page.getByRole('textbox', { name: 'Markdown 源码', exact: true }).fill(`# 原文内嵌图片\n\n![inline](${data})`);
+  await page.getByText('视图', { exact: true }).click();await page.getByRole('button', { name: /^正文/ }).click();
+  await expect.poll(() => page.locator('.ProseMirror img[src^="data:image/png;base64,"]').evaluate(image => image.naturalWidth)).toBe(240);
+  await page.getByText('文件', { exact: true }).click();await page.getByRole('button', { name: '导出 PDF…', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__FROWD_TEST_HOST__.entered.export_pdf ?? 0)).toBe(1);
+  const html = await page.evaluate(() => window.__FROWD_TEST_HOST__.calls.find(call => call.command === 'export_pdf').args.html);
+  expect(await page.evaluate(html => new DOMParser().parseFromString(html, 'text/html').querySelector('img').getAttribute('src'), html)).toBe(data);
+});

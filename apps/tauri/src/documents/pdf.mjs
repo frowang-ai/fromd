@@ -18,6 +18,8 @@ export async function preparePdfDocument(snapshot, readImages) {
   const fragment = document.createElement('template');
   fragment.innerHTML = renderMarkdown(snapshot.markdown);
   const references = [...new Set([...fragment.content.querySelectorAll('img')].map(image => image.getAttribute('src')))];
+  // Native preparation distinguishes transient base64 rasters from docId-scoped
+  // file references, validates both, and applies their combined export budget.
   const images = await readImages(snapshot.id, snapshot.revision, references);
   const html = await buildPdfDocument({
     markdown: snapshot.markdown, title: snapshot.title,

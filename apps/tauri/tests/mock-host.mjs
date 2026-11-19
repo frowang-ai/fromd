@@ -24,7 +24,9 @@ export function installMockHost(options = {}) {
   switch(command){
    case 'pdf_images':{
     if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');
-    const images={};for(const reference of args.references){const url=h.resourceUrl(args.id,reference);if(!url)throw Error('PDF 图片不可用');images[reference]=url}return images;
+    // Typed inline fixture echo only; real byte/decoder limits belong to Rust
+    // and the native PDF regression, not this in-memory service double.
+    const images={};for(const reference of args.references){const url=/^data:image\/(png|jpeg|gif|webp);base64,/i.test(reference)?reference:h.resourceUrl(args.id,reference);if(!url)throw Error('PDF 图片不可用');images[reference]=url}return images;
    }
    case 'export_pdf':{
     if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');

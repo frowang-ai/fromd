@@ -299,6 +299,12 @@ test('native PDF exports a full Chinese A4 document with math, table, code and a
     const pdf = join(profile, '正式导出.pdf')
     await writeFile(pdf, 'previous target')
     app = await launch(profile, { pdfTarget: pdf })
+    const inlineImage = 'data:image/png;base64,' + (await readFile(join(root, 'apps/tauri/tests/fixtures/synthetic-resource.png'))).toString('base64')
+    await setMode(app.page, 'source')
+    await source(app.page).fill(markdown + `\n\n![原文内嵌图片](${inlineImage})`)
+    await setMode(app.page, 'rendered')
+    const inline = body(app.page).locator('img[src^="data:image/png;base64,"]')
+    await expect.poll(() => inline.evaluate(image => ({ width: image.naturalWidth, height: image.naturalHeight }))).toEqual({ width: 240, height: 80 })
     await pasteImage(app.page)
     await setMode(app.page, 'source')
     await source(app.page).press('Control+End');await source(app.page).press('Enter');await source(app.page).pressSequentially('FINALINPUT')
@@ -324,7 +330,7 @@ test('native PDF exports a full Chinese A4 document with math, table, code and a
     for(const expected of ['中文PDF导出', '合成表格', 'constanswer=42;', '结束标记PDFEND', 'FINALINPUT'])expect(text).toContain(expected)
     expect(text).not.toContain('工作栏')
     const images = (await execute('pdfimages', ['-list', pdf], { windowsHide: true })).stdout
-    expect(images.split('\n').filter(line => /^\s*\d+\s+\d+\s+image\b/.test(line)).length).toBeGreaterThanOrEqual(2)
+    expect(images.split('\n').filter(line => /^\s*\d+\s+\d+\s+image\b/.test(line)).length).toBeGreaterThanOrEqual(3)
     const fonts = (await execute('pdffonts', [pdf], { windowsHide: true })).stdout
     expect(fonts).toContain('KaTeX')
     await expect.poll(() => app.browser.contexts()[0].pages().length).toBe(1)

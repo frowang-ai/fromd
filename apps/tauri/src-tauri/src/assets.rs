@@ -11,7 +11,7 @@ use std::{
     io::{Cursor, Read},
 };
 
-const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
+pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
 pub const MAX_IMPORT_BYTES: usize = 50 * 1024 * 1024;
 const MAX_OBJECT_BYTES: u64 = 512 * 1024 * 1024;
@@ -176,6 +176,11 @@ fn kind(bytes: &[u8], name: &str, required: bool) -> Result<(String, String)> {
         .filter(|e| safe_ext(e))
         .unwrap_or_else(|| "bin".into());
     Ok((ext, "application/octet-stream".into()))
+}
+// A transient export image must obey exactly the same raster decoder policy as
+// managed/file images, without importing it into the persistent resource store.
+pub fn validate_raster_image(bytes: &[u8]) -> Result<String> {
+    kind(bytes, "image", true).map(|(_, mime)| mime)
 }
 pub(super) fn bounded_read(path: &Path, max: usize) -> Result<Vec<u8>> {
     let info = fs::metadata(path)?;

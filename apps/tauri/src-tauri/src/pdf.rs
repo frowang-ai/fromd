@@ -6,6 +6,9 @@ use std::{collections::HashMap, io::{Read, Write}, sync::Arc, time::Duration};
 use tauri::{UriSchemeContext, WebviewWindow};
 
 const MAX_HTML: usize = 96 * 1024 * 1024;
+const MAX_PDF_IMAGES: usize = 256;
+const MAX_PDF_IMAGE_BYTES: usize = 50 * 1024 * 1024;
+const MAX_INLINE_ENCODED: usize = frowd_documents::MAX_IMAGE_BYTES.div_ceil(3) * 4;
 const CSP: &str = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
 
 #[derive(Default)]
@@ -27,23 +30,55 @@ fn check_revision(app: &tauri::AppHandle, id: &str, revision: i64) -> Result<(),
     Ok(())
 }
 
+fn inline_image(reference: &str) -> Result<(Vec<u8>, String), String> {
+    // Bound allocation before base64 decoding. Only four raster MIME headers
+    // are accepted; no percent decoding, URL/file fetch, or SVG fallback.
+    if reference.len() > MAX_INLINE_ENCODED + 32 { return Err("PDF 内嵌图片最多 10 MiB。".into()); }
+    let (header, encoded) = reference.split_once(',').ok_or("PDF 内嵌图片编码无效。")?;
+    let declared = match header.to_ascii_lowercase().as_str() {
+        "data:image/png;base64" => "image/png",
+        "data:image/jpeg;base64" => "image/jpeg",
+        "data:image/gif;base64" => "image/gif",
+        "data:image/webp;base64" => "image/webp",
+        _ => return Err("PDF 内嵌图片只支持 PNG/JPEG/GIF/WebP 的 base64 编码。".into()),
+    };
+    if encoded.len() > MAX_INLINE_ENCODED { return Err("PDF 内嵌图片最多 10 MiB。".into()); }
+    let bytes = STANDARD.decode(encoded).map_err(|_| "PDF 内嵌图片 base64 编码无效。")?;
+    let mime = frowd_documents::validate_raster_image(&bytes).map_err(|e| format!("PDF 内嵌图片不可用：{e}"))?;
+    if mime != declared { return Err("PDF 内嵌图片声明格式与实际图片不一致。".into()); }
+    Ok((bytes, mime))
+}
+
+fn image_total(total: usize, next: usize) -> Result<usize, String> {
+    total.checked_add(next).filter(|bytes| *bytes <= MAX_PDF_IMAGE_BYTES)
+        .ok_or_else(|| "一次 PDF 图片合计最多 50 MiB。".into())
+}
+
+fn prepare_images(references: Vec<String>, mut read_file: impl FnMut(&str) -> Result<(Vec<u8>, String), String>) -> Result<HashMap<String, String>, String> {
+    if references.len() > MAX_PDF_IMAGES { return Err("一次 PDF 最多包含 256 张不同图片。".into()); }
+    let mut images = HashMap::new();
+    let mut total = 0usize;
+    for reference in references {
+        let (bytes, mime) = if reference.get(..5).is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:")) {
+            inline_image(&reference)?
+        } else {
+            read_file(&reference)?
+        };
+        total = image_total(total, bytes.len())?;
+        images.insert(reference, format!("data:{mime};base64,{}", STANDARD.encode(bytes)));
+    }
+    Ok(images)
+}
+
 #[tauri::command]
 pub(super) async fn pdf_images(id: String, revision: i64, references: Vec<String>, window: WebviewWindow, app: tauri::AppHandle) -> Result<HashMap<String, String>, String> {
     main_only(&window)?;
-    if references.len() > 256 { return Err("一次 PDF 最多包含 256 张不同图片。".into()); }
+    if references.len() > MAX_PDF_IMAGES { return Err("一次 PDF 最多包含 256 张不同图片。".into()); }
     tauri::async_runtime::spawn_blocking(move || {
         check_revision(&app, &id, revision)?;
         let state = app.state::<AppState>();
         let store = lock(&state)?;
-        let mut images = HashMap::new();
-        let mut total = 0usize;
-        for reference in references {
-            let (bytes, mime) = store.resource_image(&id, &reference).map_err(|e| format!("PDF 图片不可用（{reference}）：{e}"))?;
-            total += bytes.len();
-            if total > 50 * 1024 * 1024 { return Err("一次 PDF 图片合计最多 50 MiB。".into()); }
-            images.insert(reference, format!("data:{mime};base64,{}", STANDARD.encode(bytes)));
-        }
-        Ok(images)
+        prepare_images(references, |reference| store.resource_image(&id, reference).map_err(|e| format!("PDF 文件图片不可用：{e}")))
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -173,6 +208,38 @@ use native::windows_print;
 #[cfg(test)]
 mod tests {
     use super::*;
+    const PNG: &[u8] = include_bytes!("../../tests/fixtures/synthetic-resource.png");
+    #[test]
+    fn inline_raster_is_validated_without_file_access_and_shares_the_image_budget() {
+        let data = format!("data:image/png;base64,{}", STANDARD.encode(PNG));
+        let mut files = Vec::new();
+        let images = prepare_images(vec![data.clone(), "relative.png".into()], |reference| {
+            files.push(reference.to_owned()); Ok((PNG.to_vec(), "image/png".into()))
+        }).unwrap();
+        assert_eq!(files, ["relative.png"]);
+        assert_eq!(images[&data], data);
+        assert_eq!(images["relative.png"], data);
+        assert!(prepare_images(vec![data; 257], |_| panic!("count must be bounded before file access")).is_err());
+        let total = image_total(MAX_PDF_IMAGE_BYTES - PNG.len(), PNG.len()).unwrap();
+        assert_eq!(total, MAX_PDF_IMAGE_BYTES);
+        assert!(image_total(total, 1).is_err());
+    }
+    #[test]
+    fn inline_raster_rejects_bad_encoding_mime_svg_and_oversize_without_echoing_data() {
+        for data in [
+            "data:image/png;base64,not-base64-SECRET".to_owned(),
+            format!("data:image/jpeg;base64,{}", STANDARD.encode(PNG)),
+            "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=".to_owned(),
+            format!("data:image/png;base64,{}", STANDARD.encode(b"<svg>SECRET</svg>")),
+            format!("data:image/png;base64,{}", STANDARD.encode(&PNG[..32])),
+            format!("data:image/png;base64,{}", "A".repeat(MAX_INLINE_ENCODED + 4)),
+        ] {
+            let error = inline_image(&data).unwrap_err();
+            assert!(!error.contains("SECRET"));assert!(!error.contains("data:"));assert!(error.len() < 256);
+        }
+        let mut oversized = PNG.to_vec();oversized.resize(frowd_documents::MAX_IMAGE_BYTES + 1, 0);
+        assert!(inline_image(&format!("data:image/png;base64,{}", STANDARD.encode(oversized))).unwrap_err().contains("10 MiB"));
+    }
     #[test]
     fn atomic_pdf_replaces_only_a_successful_result() {
         let dir = tempfile::tempdir().unwrap();
