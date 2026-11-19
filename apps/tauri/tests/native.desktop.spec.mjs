@@ -164,6 +164,15 @@ test('native WebView2 authoring, search, managed image and normal-close SQLite r
     const before = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('list_metadata'))
     const originalId = before.activeId
     await page.getByRole('button', { name: '新建页面', exact: true }).click()
+    let createdId
+    await expect.poll(async () => {
+      createdId = (await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('list_metadata'))).activeId
+      return Boolean(createdId && createdId !== originalId)
+    }).toBe(true)
+    await expect(nameInput(page)).toHaveAttribute('data-doc-id', createdId)
+    await expect.poll(() => nameInput(page).evaluate(element => Boolean(element.closest('[inert]')))).toBe(false)
+    await expect.poll(() => body(page).evaluate(element => Boolean(element.closest('[inert]')))).toBe(false)
+    await expect(body(page)).toHaveAttribute('contenteditable', 'true')
     await nameInput(page).fill('第二页')
     await nameInput(page).press('Enter')
     await body(page).fill('第二页正文')
