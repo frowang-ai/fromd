@@ -127,10 +127,95 @@ test('无图文稿不加载 Mermaid 运行时，首次图表按需加载', async
   expect(runtimeRequests.length).toBeGreaterThan(0)
 })
 
-test('共享 PDF 等待全部图表、脚注和提示块，生成文档无脚本或外部资源', async ({ page, context }) => {
+test('源码修改后 Mermaid 按钮跟随正文解锁，展开状态和选区跨页恢复', async ({ page }) => {
+  await boot(page)
+  const source = await mode(page, true)
+  await source.fill(sample.replace('flowchart LR', 'flowchart LR '))
+  await mode(page, false)
+  await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable', 'true')
+  const toggle = page.getByRole('button', { name: '编辑图表源码', exact: true })
+  await expect(toggle).toBeEnabled()
+  await toggle.click()
+  const code = page.locator('.writing-mermaid .cm-content')
+  await expect(code).toBeVisible(); await code.click(); await page.keyboard.press('Control+Home')
+  await page.keyboard.press('ArrowRight'); await page.keyboard.press('Shift+ArrowRight')
+  const before = await page.locator('.pm-port').evaluate(el => el.__vueParentComponent.exposed.capture().pm.embedded.find(x => x.kind === 'mermaid'))
+  expect(before.anchor).not.toBe(before.head)
+  await page.locator('.tab-title').filter({ hasText: '公式推导' }).click()
+  await page.locator('.tab-title').filter({ hasText: '方案讨论' }).click()
+  await expect(code).toBeVisible()
+  await expect(page.getByRole('button', { name: '完成图表编辑', exact: true })).toBeEnabled()
+  const after = await page.locator('.pm-port').evaluate(el => el.__vueParentComponent.exposed.capture().pm.embedded.find(x => x.kind === 'mermaid'))
+  expect(after).toMatchObject({ anchor: before.anchor, head: before.head })
+})
+
+test('展开的 Mermaid 源码及选区在临时只读切页期间恢复', async ({ page }) => {
+  await boot(page)
+  await page.getByRole('button', { name: '编辑图表源码', exact: true }).click()
+  const code = page.locator('.writing-mermaid .cm-content')
+  await code.click(); await page.keyboard.press('Control+Home'); await page.keyboard.press('Shift+ArrowRight')
+  await page.locator('.tab-title').filter({ hasText: '公式推导' }).click()
+  await page.locator('.tab-title').filter({ hasText: '方案讨论' }).click()
+  await expect(code).toBeVisible()
+  await expect(page.getByRole('button', { name: '完成图表编辑', exact: true })).toBeEnabled()
+  const current = await page.locator('.pm-port').evaluate(el => el.__vueParentComponent.exposed.capture().pm.embedded.find(x => x.kind === 'mermaid'))
+  expect(current).toMatchObject({ anchor: 0, head: 1 })
+  await expect(code).not.toHaveAttribute('aria-readonly', 'true')
+  await code.press('End'); await page.keyboard.insertText(' 恢复后编辑')
+  expect(await capture(page)).toContain('恢复后编辑')
+})
+
+test('脚注 identifier 大小写在正文与打印中一致，源码仍保留原拼写', async ({ page }) => {
+  const markdown = '正文[^A]重复[^a]。\n\n[^a]: 注释。\n'
+  await boot(page, markdown)
+  await expect(page.locator('.writing-footnote-reference')).toHaveCount(2)
+  expect(await capture(page)).toBe(markdown)
+  const result = await page.evaluate(async ({ pdfModule, markdown }) => {
+    const { buildPdfDocument } = await import(pdfModule)
+    const doc = new DOMParser().parseFromString(await buildPdfDocument({ markdown }), 'text/html')
+    return { refs: [...doc.querySelectorAll('.footnote-ref a')].map(a => a.getAttribute('href')), text: doc.body.textContent, definitions: doc.querySelectorAll('.footnote-item').length }
+  }, { pdfModule, markdown })
+  expect(result.refs).toHaveLength(2); expect(new Set(result.refs).size).toBe(1)
+  expect(result.definitions).toBe(1); expect(result.text).not.toContain('[^A]'); expect(result.text).toContain('注释。')
+})
+
+test('Sankey 流线在正文与打印中实际着色，paint 引用留在同一 SVG', async ({ page, context }) => {
+  const markdown = '```mermaid\nsankey-beta\n\nA,B,10\n```\n'
+  await boot(page, markdown)
+  await expect(page.locator('.writing-mermaid-svg')).toBeVisible()
+  async function paint(target) {
+    return target.locator('svg.writing-mermaid-svg').evaluate(async svg => {
+      const path = svg.querySelector('path'), point = path.getPointAtLength(path.getTotalLength() / 2)
+      const box = svg.viewBox.baseVal, canvas = document.createElement('canvas')
+      canvas.width = box.width; canvas.height = box.height
+      const image = new Image(); image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg))
+      await image.decode()
+      const ctx = canvas.getContext('2d'); ctx.fillStyle = 'white'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.drawImage(image, 0, 0)
+      const pixel = [...ctx.getImageData(point.x - box.x, point.y - box.y, 1, 1).data]
+      const ids = new Set([...svg.querySelectorAll('[id]')].map(el => el.id)), missing = []
+      for (const el of [svg, ...svg.querySelectorAll('*')]) for (const attr of el.attributes) {
+        for (const match of attr.value.matchAll(/url\(["']?#([^\s)'"\s]+)["']?\)/g)) if (!ids.has(match[1])) missing.push(match[1])
+      }
+      return { pixel, missing, gradients: svg.querySelectorAll('linearGradient stop').length }
+    })
+  }
+  const body = await paint(page)
+  expect(body.pixel.slice(0, 3).some(v => v < 235)).toBe(true)
+  expect(body.missing).toEqual([]); expect(body.gradients).toBeGreaterThan(0)
+  const html = await page.evaluate(async ({ pdfModule, markdown }) => (await import(pdfModule)).buildPdfDocument({ markdown }), { pdfModule, markdown })
+  const print = await context.newPage(); await print.setContent(html); await print.emulateMedia({ media: 'print' })
+  await expect(print.locator('.writing-mermaid-svg')).toBeVisible()
+  const printed = await paint(print)
+  expect(printed.pixel.slice(0, 3).some(v => v < 235)).toBe(true); expect(printed.missing).toEqual([])
+  await print.screenshot({ path: 'output/markdown-extensions-sankey-print.png', fullPage: true })
+  await print.close()
+})
+
+test('共享 PDF 等待全部图表、脚注和提示块，生成文档无脚本或外部资源', async ({ page, context, baseURL }) => {
   await boot(page)
   const external = []
-  await context.route(/^https?:\/\/(?!127\.0\.0\.1:1441)/, route => { external.push(route.request().url()); return route.abort() })
+  const origin = new URL(baseURL).origin
+  await context.route(url => /^https?:$/.test(url.protocol) && url.origin !== origin, route => { external.push(route.request().url()); return route.abort() })
   const html = await page.evaluate(async ({ markdown, pdfModule }) => {
     const { buildPdfDocument } = await import(pdfModule)
     return buildPdfDocument({ markdown, title: '合成导出' })
@@ -154,9 +239,10 @@ test('共享 PDF 等待全部图表、脚注和提示块，生成文档无脚本
   await print.close()
 })
 
-test('恶意图表不发请求，错误图表阻止完整 PDF 导出，原始 SVG 边界不放宽', async ({ page, context }) => {
+test('恶意图表不发请求，错误图表阻止完整 PDF 导出，原始 SVG 边界不放宽', async ({ page, context, baseURL }) => {
   const external = []
-  await context.route(/^https?:\/\/(?!127\.0\.0\.1:1441)/, route => { external.push(route.request().url()); return route.abort() })
+  const origin = new URL(baseURL).origin
+  await context.route(url => /^https?:$/.test(url.protocol) && url.origin !== origin, route => { external.push(route.request().url()); return route.abort() })
   await boot(page, '结尾正文。\n\n```mermaid\nflowchart LR\nA["<img src=https://evil.example/x>"]\n```\n')
   await expect(page.locator('.writing-mermaid-status')).toContainText('不支持 HTML')
   await expect(page.locator('.ProseMirror img')).toHaveCount(0)

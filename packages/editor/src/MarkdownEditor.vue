@@ -14,7 +14,7 @@ import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { Fragment, Slice } from '@milkdown/kit/prose/model'
 import { closeHistory } from '@milkdown/kit/prose/history'
-import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
+import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView, updateEmbeddedViewEditability } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import * as utils from '@milkdown/kit/utils'
 import { noteScriptPlugins } from './compatibility/noteScriptMarks.js'
@@ -117,7 +117,10 @@ function clearSession() {
   try { setState(EditorState.create({ schema: view().state.schema, plugins: allPlugins })); original = ''; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown() }
   finally { switching = false }
 }
-function setEditable(value) { editor?.setReadonly(!value) }
+function setEditable(value) {
+  editor?.setReadonly(!value)
+  if (created) updateEmbeddedViewEditability(view())
+}
 function revealMarkdown(offset, needle = '') {
   if (!created || !activeSession) return false
   const v = view(), markdown = getMarkdown()

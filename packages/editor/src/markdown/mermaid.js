@@ -1,9 +1,9 @@
 import DOMPurify from 'dompurify'
 
 let runtime, queue = Promise.resolve(), serial = 0
-const styleProperties = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'opacity', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-anchor', 'dominant-baseline', 'alignment-baseline', 'visibility', 'display']
-const svgTags = ['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'defs', 'marker', 'clipPath', 'title', 'desc']
-const svgAttributes = ['id', 'class', 'xmlns', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'dx', 'dy', 'points', 'transform', 'fill', 'fill-rule', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'text-anchor', 'dominant-baseline', 'marker-start', 'marker-mid', 'marker-end', 'markerWidth', 'markerHeight', 'markerUnits', 'orient', 'refX', 'refY', 'clip-path', 'clipPathUnits', 'preserveAspectRatio', 'role', 'aria-labelledby', 'aria-describedby', 'style']
+const styleProperties = ['fill', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-opacity', 'stop-color', 'stop-opacity', 'opacity', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'text-anchor', 'dominant-baseline', 'alignment-baseline', 'visibility', 'display']
+const svgTags = ['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'defs', 'marker', 'clipPath', 'linearGradient', 'stop', 'title', 'desc']
+const svgAttributes = ['id', 'class', 'xmlns', 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'x2', 'y1', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'dx', 'dy', 'points', 'transform', 'fill', 'fill-rule', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'text-anchor', 'dominant-baseline', 'marker-start', 'marker-mid', 'marker-end', 'markerWidth', 'markerHeight', 'markerUnits', 'orient', 'refX', 'refY', 'clip-path', 'clipPathUnits', 'gradientUnits', 'gradientTransform', 'offset', 'stop-color', 'stop-opacity', 'preserveAspectRatio', 'role', 'aria-labelledby', 'aria-describedby', 'style']
 
 // Refuse executable/config/resource syntax BEFORE Mermaid creates its measuring
 // DOM. Post-render sanitizing alone cannot prevent a measuring <img> request.
@@ -33,11 +33,12 @@ async function getRuntime() {
   return runtime
 }
 
-function localPaint(value) {
+function localPaint(value, ids) {
   // Browsers may resolve a local marker URL against document.baseURI.
   return value.replace(/url\(["']?([^\s)'"]+)["']?\)/g, (_, target) => {
     const fragment = target.slice(target.lastIndexOf('#'))
     if (!/^#[\w-]+$/.test(fragment)) throw Error('图表含不支持的资源引用。')
+    if (!ids.has(fragment.slice(1))) throw Error('图表资源必须定义在同一张 SVG 中。')
     if (!target.startsWith('#')) {
       const url = new URL(target, document.baseURI), base = new URL(document.baseURI)
       url.hash = ''; base.hash = ''
@@ -54,16 +55,17 @@ function printableSvg(svg, stage) {
   stage.innerHTML = svg
   const original = stage.querySelector('svg')
   if (!original || !original.hasAttribute('viewBox')) throw Error('图表缺少可打印尺寸。')
+  const ids = new Set([original.id, ...[...original.querySelectorAll('[id]')].map(el => el.id)])
   for (const element of [original, ...original.querySelectorAll('*')]) {
     if (!svgTags.some(tag => tag.toLowerCase() === element.localName.toLowerCase())) continue
     const computed = getComputedStyle(element)
     element.removeAttribute('style')
     for (const property of styleProperties) {
-      const value = localPaint(computed.getPropertyValue(property))
+      const value = localPaint(computed.getPropertyValue(property), ids)
       if (value && !/[<>\\@]/.test(value)) element.style.setProperty(property, value)
     }
     for (const attribute of ['marker-start', 'marker-mid', 'marker-end', 'clip-path', 'fill', 'stroke']) {
-      if (element.hasAttribute(attribute)) element.setAttribute(attribute, localPaint(element.getAttribute(attribute)))
+      if (element.hasAttribute(attribute)) element.setAttribute(attribute, localPaint(element.getAttribute(attribute), ids))
     }
   }
   const clean = DOMPurify(window).sanitize(original.outerHTML, {
@@ -73,6 +75,11 @@ function printableSvg(svg, stage) {
   })
   const result = clean.querySelector('svg'), box = result?.getAttribute('viewBox')?.trim().split(/[ ,]+/).map(Number)
   if (!result || box?.length !== 4 || !box.every(Number.isFinite) || box[2] <= 0 || box[3] <= 0) throw Error('图表尺寸无效。')
+  // A target removed by sanitizing cannot remain as a dangling paint reference.
+  const retainedIds = new Set([result.id, ...[...result.querySelectorAll('[id]')].map(el => el.id)])
+  for (const element of [result, ...result.querySelectorAll('*')]) for (const attribute of element.attributes) {
+    if (/url\(/.test(attribute.value)) localPaint(attribute.value, retainedIds)
+  }
   result.setAttribute('width', String(box[2])); result.setAttribute('height', String(box[3]))
   result.setAttribute('class', 'writing-mermaid-svg'); result.setAttribute('role', 'img')
   result.style.maxWidth = '100%'; result.style.height = 'auto'

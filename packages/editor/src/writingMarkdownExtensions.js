@@ -52,8 +52,8 @@ function mermaidBlockView(initial, base, view, getPos) {
   const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'writing-mermaid-toggle'
   const status = document.createElement('p'); status.className = 'writing-mermaid-status'; status.setAttribute('role', 'status')
   base.dom.hidden = true; dom.append(preview, status, toggle, base.dom)
-  function open(value, focus = false) {
-    if (value && !view.editable) return
+  function open(value, focus = false, restoring = false) {
+    if (value && !view.editable && !restoring) return
     editing = value; base.dom.hidden = !value; toggle.textContent = value ? '完成图表编辑' : '编辑图表源码'
     if (focus && value) base.setSelection?.(0, 0)
     else if (focus) view.focus()
@@ -79,9 +79,16 @@ function mermaidBlockView(initial, base, view, getPos) {
     kind: 'mermaid', anchor: cm()?.state.selection.main.anchor ?? 0, head: cm()?.state.selection.main.head ?? 0,
   } : null, snapshot => {
     if (snapshot.kind !== 'mermaid') return
-    open(true); base.setSelection?.(snapshot.anchor, snapshot.head)
-  }, () => cm()?.focus())
-  open(false); schedule()
+    // Session restoration occurs while the host is temporarily readonly. It
+    // restores UI/selection only; user edits remain behind the existing lock.
+    open(true, false, true); base.setSelection?.(snapshot.anchor, snapshot.head)
+  }, () => cm()?.focus(), editable => {
+    toggle.disabled = !editable
+    // Crepe updates its CM readonly compartment in update(), which PM may skip
+    // when only the outer view's editability changes and the node stays equal.
+    base.update?.(node)
+  })
+  open(false); toggle.disabled = !view.editable; schedule()
   return {
     dom,
     update(next, ...args) {
