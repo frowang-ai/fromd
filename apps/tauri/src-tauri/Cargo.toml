@@ -1,6 +1,6 @@
 [package]
 name = "frowd-tauri"
-version = "0.5.0"
+version = "0.5.1"
 description = "frowd document workspace derived from SoloMD v5.0.21 Tauri foundation"
 authors = ["Fro <frostianw@gmail.com>"]
 license = "MIT"

@@ -1,9 +1,12 @@
 # Windows 安装包
 
 Tauri 客户端使用官方 NSIS 流程生成 Windows x64 Setup.exe，产品名为 `frowd`，
-当前版本 `0.5.0`，应用身份为 `com.frowang.frowd.tauri.v1`。
+当前版本 `0.5.1`，应用身份为 `com.frowang.frowd.tauri.v1`。
 这是全新安装入口，不迁移旧 Electron 文档库。安装包未签名，没有自动更新服务，
 不会公开发布或注册 `.md` 默认打开方式。
+
+0.5.1 修复 Windows release 被链接为控制台程序、启动时额外弹出 Terminal 黑窗的问题。
+发行应用使用 Windows GUI subsystem，debug 构建仍保留控制台日志。旧 0.5.0 交付及其证据作为历史保留。
 
 ## 构建
 
@@ -24,14 +27,18 @@ $env:CARGO_BUILD_JOBS = '2'
 npm ci --ignore-scripts
 npx --yes pnpm@10.11.0 --dir apps/tauri install --frozen-lockfile --store-dir "$taskRoot/output/pnpm-store"
 npm run tauri:installer
+& ./apps/tauri/scripts/check-windows-artifact.ps1 -Path apps/tauri/src-tauri/target/x86_64-pc-windows-msvc/release/frowd-tauri.exe -ExpectedVersion 0.5.1
 ```
 
 `tauri:installer` 执行 Tauri CLI 的 `build --bundles nsis --target x86_64-pc-windows-msvc -- --locked`，
 包含前端类型检查、Vite 构建和原生 release 编译。
-默认产物在 `apps/tauri/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/frowd_0.5.0_x64-setup.exe`；
+默认产物在 `apps/tauri/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/frowd_0.5.1_x64-setup.exe`；
 若自定义 `CARGO_TARGET_DIR`，则从该目录查找相同的 target/release 子路径。
 `bundle.useLocalToolsDir=true` 将 NSIS 下载缓存留在本项目 target 下，
 不要求安装全局 NSIS。首次构建需要下载依赖及 Tauri 官方 NSIS 工具。
+
+构建后的检查直接读取实际 PE 头及版本：release 应用必须为 x64、Subsystem=2（GUI）和指定版本，
+失败时返回非零退出码；检查 debug 产物时可传 `-ExpectedSubsystem 3`（控制台）。它不启动被检查的 exe。
 
 `npm run tauri:build` 保留 `--no-bundle`，仍只生成 release 可执行文件。
 根目录 `npm run dist:installer` 属于旧 Electron 工程，不生成这里的 Tauri 安装包。
@@ -82,5 +89,6 @@ WebView2 使用 Evergreen Runtime。安装器检查现有 Runtime，已存在时
    同时确认外部 Markdown/附件仍在。
 
 最终组合包由已审核的渲染、PDF 和安装功能源码构建；安装版手工验收仍由用户执行。
-实际构建命令、产物路径、大小、SHA256 与未验收项记录在任务的 `output/agent-pipeline/04_final_notes.md`，
-早期基线证据保留在 `03_impl_notes.md`，本地产物不纳入 Git。
+0.5.1 修正版交付到 `release/tauri-0.5.1-console-fix/`，构建命令、PE修前/后结果、产物大小与SHA256
+记录在 `output/agent-pipeline/05_console_fix_notes.md`。0.5.0 的 `04_final_notes.md` 和更早的
+`03_impl_notes.md` 保留历史性质，本地产物不纳入 Git。
