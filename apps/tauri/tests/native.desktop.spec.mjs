@@ -213,6 +213,78 @@ Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; pu
   } finally {await cleanup(app)}
 })
 
+test('native viewport capture preserves scrolled authoring pixels and the 450ms collapse lifecycle',async({},info)=>{
+ const {profile,directory}=await fixture()
+ let app
+ try{
+  app=await launch(profile)
+  const page=app.page
+  await page.emulateMedia({reducedMotion:'no-preference'})
+  const image='data:image/png;base64,'+(await readFile(join(root,'apps/tauri/tests/fixtures/synthetic-resource.png'))).toString('base64')
+  let markdown='# 合成长文\n\n'
+  for(let n=1;n<=9;n++)markdown+=`## 第${n}节\n\n合成中文事项：确认具体安排，记录执行过程和完成结果。\n\n| 项目 | 说明 | 结果 |\n| --- | --- | --- |\n| 文稿编辑 | 中文表格与列表 | 正常 |\n| 收起恢复 | 保留最后输入与阅读位置 | 正常 |\n| 自动保存 | 等待现有确认回执 | 正常 |\n\n- 第一项工作内容与检查过程。\n- 第二项工作内容与检查过程。\n\n`
+  markdown+='\n\n'+('补充说明，核对具体事项并保留最后结果。\n\n'.repeat(90))
+  markdown=markdown.slice(0,3807)+'\n\n| 可见表格 | 数值 |\n| --- | --- |\n| 原生视口 | 42 |\n\n$$E=mc^2$$\n\n![合成图片]('+image+')\n\n动效文稿结束'
+  await nameInput(page).fill('原生收起 A');await nameInput(page).press('Enter')
+  const a=(await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('list_metadata'))).activeId
+  await setMode(page,'source');await source(page).fill(markdown);await setMode(page,'rendered')
+  await page.getByRole('button',{name:'新建页面',exact:true}).click()
+  await nameInput(page).fill('原生收起 B');await nameInput(page).press('Enter');await body(page).fill('B独立正文')
+  const b=(await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('list_metadata'))).activeId
+  await page.locator(`[data-tab-id="${a}"] .tab-title`).click()
+  await expect.poll(()=>body(page).locator('img').evaluateAll(images=>images.some(i=>i.naturalWidth===240))).toBe(true)
+  await page.evaluate(()=>document.fonts.ready)
+  await page.evaluate(()=>{
+   const metrics={captures:[],frames:[],click:0,first:0,viewport:null}
+   window.__nativeCollapseMetrics=metrics
+   const raf=window.requestAnimationFrame
+   window.requestAnimationFrame=callback=>raf(time=>{
+    const canvas=document.querySelector('.page-flight'),isFrame=canvas&&callback.name==='step',start=performance.now()
+    callback(time)
+    if(isFrame){if(!metrics.first)metrics.first=start;metrics.frames.push({time,ms:performance.now()-start,progress:Number(canvas.dataset.progress)})}
+   })
+   document.addEventListener('click',event=>{if(event.target.closest('.tab-minus'))metrics.click=performance.now()},true)
+  })
+  const measurements=[]
+  for(const zoom of [100,120])for(let repeat=0;repeat<2;repeat++){
+   await page.keyboard.press('Control+0')
+   if(zoom===120){await page.keyboard.press('Control+=');await page.keyboard.press('Control+=')}
+   await expect.poll(()=>page.locator('.app-shell').getAttribute('data-zoom')).toBe(String(zoom))
+   await page.locator('.pm-scroller').evaluate(async element=>{element.scrollTop=element.scrollHeight;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))})
+   // These final inputs must be included by the existing flush, with no manual save.
+   await nameInput(page).fill('原生收起 A');await nameInput(page).press('Enter')
+   await body(page).click();await page.keyboard.press('Control+End');await page.keyboard.insertText(` 最后输入${zoom}-${repeat}`)
+   await page.evaluate(()=>{const m=window.__nativeCollapseMetrics;m.captures=[];m.frames=[];m.first=0;m.viewport={width:innerWidth,height:innerHeight,dpr:devicePixelRatio}})
+   await page.getByRole('button',{name:'标签收起 原生收起 A',exact:true}).click()
+   await expect(page.locator('.page-flight')).toBeVisible({timeout:2500})
+   if(repeat===0)await page.screenshot({path:info.outputPath(`native-collapse-${zoom}.png`)})
+   await expect(page.locator('.tab.selected')).toHaveAttribute('data-tab-id',b)
+   await expect(page.locator('.page-flight,.page-flight-backdrop')).toHaveCount(0)
+   const metrics=await page.evaluate(()=>{const m=window.__nativeCollapseMetrics;return{...m,totalMs:performance.now()-m.click,firstFrameMs:m.first-m.click}})
+   if(process.env.FROWD_CAPTURE_TIMING==='1')expect(metrics.captures).toHaveLength(1)
+   expect(metrics.frames.length).toBeGreaterThan(1)
+   expect(metrics.frames[0].progress).toBe(0);expect(metrics.frames.at(-1).progress).toBe(1)
+   measurements.push({zoom,repeat,visualEvidence:repeat===0,...metrics})
+   const saved=await page.evaluate(id=>window.__TAURI_INTERNALS__.invoke('read_document',{id}),a)
+   expect(saved.title).toBe('原生收起 A');expect(saved.markdown).toContain(`最后输入${zoom}-${repeat}`)
+   await page.locator(`[data-page-id="${a}"] .page-title`).click()
+   await expect(page.locator('.tab.selected')).toHaveAttribute('data-tab-id',a)
+   if(process.env.FROWD_CAPTURE_TIMING==='1')expect(await page.evaluate(()=>window.__nativeCollapseMetrics.captures.length)).toBe(1)
+  }
+  await writeFile(join(directory,'capture-motion-metrics.json'),JSON.stringify({native:true,mock:false,measurements},null,2))
+  // A non-active tab may be shelved without capturing the current A viewport.
+  await page.evaluate(()=>window.__nativeCollapseMetrics.captures=[])
+  await page.getByRole('button',{name:'标签收起 原生收起 B',exact:true}).click()
+  await expect(page.locator(`[data-tab-id="${b}"]`)).toHaveCount(0)
+  expect(await page.evaluate(()=>window.__nativeCollapseMetrics.captures.length)).toBe(0)
+  await closeNormally(app);app=null
+  app=await launch(profile)
+  await expect(body(app.page)).toContainText('最后输入120-1')
+  await expect(nameInput(app.page)).toHaveValue('原生收起 A')
+  await closeNormally(app);app=null
+ }finally{await cleanup(app)}
+})
+
 test('native WebView2 authoring, search, managed image and normal-close SQLite recovery', async ({}, info) => {
   const { directory, profile } = await fixture()
   let app

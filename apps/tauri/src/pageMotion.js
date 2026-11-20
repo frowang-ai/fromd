@@ -1,5 +1,5 @@
-// The native window capture includes fonts, KaTeX, images and textarea scroll,
-// without cloning editor DOM or requesting any additional document resources.
+// Windows uses the main WebView's native viewport PNG, including its current
+// fonts, images and scroll. Browser flow tests supply an explicit synthetic PNG.
 const lerp = (a, b, t) => a + (b - a) * t
 function smooth(a, b, value) {
   const x = Math.max(0, Math.min(1, (value - a) / (b - a)))

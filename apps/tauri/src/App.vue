@@ -143,13 +143,12 @@ import {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vu
 import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {documentsApi,onHostClose,openDocumentLink,browserTestHost,captureMainViewport} from './documents/host.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
 import './reading/reading.css'
 import {startPageMotion} from './pageMotion.js'
-import html2canvas from 'html2canvas'
 import {nativeWindow,previewWindow,minimizeWindow,toggleMaximizeWindow,closeWindow,dragWindow,observeMaximized,setPageZoom} from './window.mjs'
 
 const state=reactive({})
@@ -185,10 +184,7 @@ const api={...documentsApi,shelve:async id=>{
  if(id===state.activeId&&!media.matches){
   readingOpen.value=false;await nextTick()
   const colors=getComputedStyle(editorPanel.value)
-  const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),backgroundColor:colors.backgroundColor,backdropColor:colors.getPropertyValue('--reading-surface').trim(),capture:async()=> {
-   const canvas=await html2canvas(document.body,{width:innerWidth,height:innerHeight,windowWidth:innerWidth,windowHeight:innerHeight,scale:Math.min(devicePixelRatio||1,1.5,2048/innerWidth,1536/innerHeight),logging:false,ignoreElements:element=>element.classList.contains('crepe-drop-cursor'),backgroundColor:getComputedStyle(editorPanel.value).backgroundColor,allowTaint:false,useCORS:true})
-   return canvas.toDataURL('image/png')
-  },isCurrent:()=>state.activeId===id&&!disposed})
+  const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),backgroundColor:colors.backgroundColor,backdropColor:colors.getPropertyValue('--reading-surface').trim(),capture:captureMainViewport,isCurrent:()=>state.activeId===id&&!disposed})
   cancelMotion=flight.cancel;await flight.finished;cancelMotion=null
  }
  return snapshot

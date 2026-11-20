@@ -9,6 +9,7 @@ const testHost = import.meta.env.DEV && location.hostname === '127.0.0.1' &&
   new URLSearchParams(location.search).get('testHost') === '1' ? window.__FROWD_TEST_HOST__ : null;
 const call = (command, args = {}) => testHost ? testHost.invoke(command, args) : invoke(command, args);
 export const browserTestHost = Boolean(testHost);
+export const captureMainViewport = () => call('capture_main_viewport');
 export const documentsApi = {
   chooseImport:()=>call('choose_document_import'),
   prepareImportResources:(token,references)=>call('prepare_document_import_resources',{token,references}),

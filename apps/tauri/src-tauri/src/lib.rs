@@ -3,6 +3,7 @@ mod document_links;
 mod file_import_host;
 mod resource_host;
 mod pdf;
+mod capture;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
 use serde_json::Value;
@@ -269,6 +270,7 @@ fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
 pub fn run() {
     tauri::Builder::default()
         .manage(pdf::PdfState::default())
+        .manage(capture::CaptureState::default())
         .register_uri_scheme_protocol("frowd-pdf", pdf::document_response)
         .register_asynchronous_uri_scheme_protocol("frowd-resource", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -306,6 +308,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            capture::capture_main_viewport,
             pdf::pdf_images,
             pdf::export_pdf,
             file_import_host::choose_document_import,
