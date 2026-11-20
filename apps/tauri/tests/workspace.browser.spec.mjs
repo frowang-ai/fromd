@@ -165,17 +165,16 @@ test('file-backed title cannot rename disk and remove keeps the file association
  const docsAfter=await page.evaluate(()=>[...window.__FROWD_TEST_HOST__.rows.values()]);
  expect(docsAfter.find(d=>d.title==='方案讨论').path).toBe('/synthetic/original.md');
 });
-test('real collapse frame runs once and restored page displays without reverse capture',async({page})=>{
+test('shelving and restoring display the selected document without capture or animation',async({page})=>{
  await boot(page,{markdown:'# 动效合成样例\n\n只验证收起与恢复路径。'});
  await page.emulateMedia({reducedMotion:'no-preference'});
  await page.getByRole('button',{name:'标签收起 方案讨论',exact:true}).click();
- await expect(page.locator('.page-flight')).toBeVisible({timeout:2500});
- await page.screenshot({path:evidence+'collapse-frame.png'});
  await expect(page.locator('.tab.selected')).toContainText('公式推导');
  await expect(page.locator('.page-flight')).toHaveCount(0);
  await page.locator('.shelved-row .page-title').filter({hasText:'方案讨论'}).click();
  await expect(page.locator('.tab.selected')).toContainText('方案讨论');
  await expect(page.locator('.page-flight')).toHaveCount(0);
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.capture_main_viewport||0)).toBe(0);
 });
 test('close backup failure keeps the window open and successful retry commits the input',async({page})=>{
  await boot(page);await page.evaluate(()=>window.__FROWD_TEST_HOST__.fail='update_document');

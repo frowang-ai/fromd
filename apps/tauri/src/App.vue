@@ -80,7 +80,7 @@
 
       <main class="main-area">
         <div class="tabbar">
-          <button ref="pageAnchor" class="workbar-toggle" aria-label="显示页面工作栏" @click="sidebarOpen = !sidebarOpen">◫</button>
+          <button class="workbar-toggle" aria-label="显示页面工作栏" @click="sidebarOpen = !sidebarOpen">◫</button>
           <div class="tabs" aria-label="已展开标签">
             <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover.prevent="overTab($event,doc.id)" @drop.prevent="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
               <button :disabled="state.busy || !state.loaded" class="tab-title" :title="doc.path || doc.title" @click="selectPage(doc.id)">{{ doc.title }}</button>
@@ -101,7 +101,7 @@
           <button :disabled="!findState.count || state.busy" @click="replaceOne">替换</button><button :disabled="!findState.count || findState.limited || state.busy" @click="replaceAll">全部替换</button>
           <button aria-label="关闭查找替换" @click="closeFind">×</button>
         </div>
-        <div v-if="current" class="name-dock" data-html2canvas-ignore="true" :inert="editingLocked">
+        <div v-if="current" class="name-dock" :inert="editingLocked">
           <span aria-hidden="true">♧</span>
           <input v-if="!current.path" :key="current.id" :data-doc-id="current.id" :value="nameDraft" aria-label="当前页面名称" placeholder="未命名笔记"
             @focus="nameFocus" @input="nameInput" @compositionstart="nameStart" @compositionend="nameEnd" @blur="finishName" @keydown.enter="nameEnter" />
@@ -109,7 +109,7 @@
           <span class="save-state" role="status" aria-label="保存状态">{{ state.saveState }}</span>
           <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
-        <div ref="editorPanel" class="editor-panel" :class="{ empty: !current }">
+        <div class="editor-panel" :class="{ empty: !current }">
           <ProseMirrorPort ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
@@ -143,16 +143,15 @@ import {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vu
 import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,onHostClose,openDocumentLink,browserTestHost,captureMainViewport} from './documents/host.mjs'
+import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
 import './reading/reading.css'
-import {startPageMotion} from './pageMotion.js'
 import {nativeWindow,previewWindow,minimizeWindow,toggleMaximizeWindow,closeWindow,dragWindow,observeMaximized,setPageZoom} from './window.mjs'
 
 const state=reactive({})
-const editor=ref(null),editorPanel=ref(null),pageAnchor=ref(null),findInput=ref(null)
+const editor=ref(null),findInput=ref(null)
 const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('rendered')
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
 const contextMenu=ref(null),contextPosition=reactive({x:0,y:0}),zoom=ref(100),maximized=ref(false)
@@ -170,7 +169,7 @@ const dropTarget=ref(null),dropAfter=ref(false)
 const findState=reactive({open:false,query:'',replacement:'',matchCase:false,count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,pending:null,mode:'rendered'})
 let findSerial=0
 let dragging=null
-let globalComposing=false,removalResolve,viewTimer,closeDispose,cancelMotion,disposed=false
+let globalComposing=false,removalResolve,viewTimer,closeDispose,disposed=false
 const media=matchMedia('(max-width: 760px)')
 const current=computed(()=>state.documents?.find(d=>d.id===state.activeId)||null)
 const opened=computed(()=>state.documents?.filter(d=>!d.shelved)||[])
@@ -181,12 +180,7 @@ const outline=computed(()=>readingAnalysis.value.headings)
 const contextDocument=computed(()=>state.documents?.find(d=>d.id===contextPage.value))
 const api={...documentsApi,shelve:async id=>{
  const snapshot=await documentsApi.shelve(id)
- if(id===state.activeId&&!media.matches){
-  readingOpen.value=false;await nextTick()
-  const colors=getComputedStyle(editorPanel.value)
-  const flight=startPageMotion({element:editorPanel.value,anchor:pageAnchor.value,header:document.querySelector('.app-header'),backgroundColor:colors.backgroundColor,backdropColor:colors.getPropertyValue('--reading-surface').trim(),capture:captureMainViewport,isCurrent:()=>state.activeId===id&&!disposed})
-  cancelMotion=flight.cancel;await flight.finished;cancelMotion=null
- }
+ if(id===state.activeId)readingOpen.value=false
  return snapshot
 }}
 async function waitAllComposition(){
@@ -500,5 +494,5 @@ onMounted(async()=>{
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
 })
-onBeforeUnmount(()=>{disposed=true;windowDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);cancelMotion?.();clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;windowDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

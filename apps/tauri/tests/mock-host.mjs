@@ -22,14 +22,6 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
-   case 'capture_main_viewport':{
-    // Explicit synthetic bitmap for browser flow tests only. It is not a
-    // screenshot, and supplies no native fidelity/performance evidence.
-    const canvas=document.createElement('canvas');canvas.width=innerWidth;canvas.height=innerHeight;
-    const ctx=canvas.getContext('2d');ctx.fillStyle='#fffefa';ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.fillStyle='#344239';ctx.font='20px sans-serif';ctx.fillText('浏览器动效测试 · 合成画面',280,160);
-    return canvas.toDataURL('image/png');
-   }
    case 'pdf_images':{
     if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');
     // Typed inline fixture echo only; real byte/decoder limits belong to Rust

@@ -4,7 +4,7 @@
 
 本轮以 `feat/tauri-blackboard-v1` 的 `f648c93` 为基线，对照 Electron 0.5 补齐功能。
 实际客户端位于 [apps/tauri](apps/tauri/README.md)，使用 Tauri/Rust、Windows WebView2、
-共享 Milkdown/ProseMirror 与 SQLite。保留页面写作、收起/恢复、450ms收起动效、
+共享 Milkdown/ProseMirror 与 SQLite。保留页面写作、直接收起/恢复与页面列表、
 单个正文编辑器及源码模式，复用 Tauri 已有搜索和资源服务，补齐阅读设置、统计、
 Setext大纲、查找大小写选项、HTML图片另存及稳定性修复。
 
