@@ -104,7 +104,7 @@
         <div v-if="current" class="name-dock" data-html2canvas-ignore="true" :inert="editingLocked">
           <span aria-hidden="true">♧</span>
           <input v-if="!current.path" :key="current.id" :data-doc-id="current.id" :value="nameDraft" aria-label="当前页面名称" placeholder="未命名笔记"
-            @input="nameInput" @compositionstart="nameStart" @compositionend="nameEnd" @blur="finishName" @keydown.enter="nameEnter" />
+            @focus="nameFocus" @input="nameInput" @compositionstart="nameStart" @compositionend="nameEnd" @blur="finishName" @keydown.enter="nameEnter" />
           <span v-else class="file-name" :title="current.path">{{ current.title }}</span>
           <span class="save-state" role="status" aria-label="保存状态">{{ state.saveState }}</span>
           <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
@@ -158,7 +158,7 @@ const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('ren
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
 const contextMenu=ref(null),contextPosition=reactive({x:0,y:0}),zoom=ref(100),maximized=ref(false)
 let contextOrigin=null,contextRequest=0,zoomTimer,zoomFlight=false,zoomApplied=100,windowDispose
-const nameDraft=ref(''),nameComposing=ref(false),narrow=ref(false)
+const nameDraft=ref(''),nameComposing=ref(false),nameEditingId=ref(null),narrow=ref(false)
 const initialReading=loadReadingPreferences()
 const readingPreferences=ref(initialReading.preferences),readingError=ref(initialReading.error),readingOpen=ref(false),readingPanel=ref(null),readingButton=ref(null)
 const readingAnalysis=ref({headings:[],wordCount:0,characterCount:0})
@@ -430,14 +430,19 @@ function collapse(id){contextPage.value=null;return action(()=>coordinator.layou
 function contextLayout(name){const id=contextPage.value;return action(()=>coordinator.layout(name,id))}
 async function setMode(value){await action(()=>coordinator.run(async()=>{await editor.value.setMode(value);mode.value=value;await coordinator.flush()}))}
 function scheduleView(){clearTimeout(viewTimer);viewTimer=setTimeout(()=>{if(!state.busy)coordinator.flush().catch(e=>coordinator.report(e))},250)}
-watch(()=>[current.value?.id,current.value?.title],()=>{if(!nameComposing.value)nameDraft.value=current.value?.title||''},{flush:'sync'})
+watch(()=>[current.value?.id,current.value?.title],([id,title],previous)=>{
+ if(id!==previous?.[0]){nameEditingId.value=null;nameDraft.value=title||''}
+ // The host may normalize a saved title while this input still owns a raw draft.
+ else if(nameEditingId.value!==id&&!nameComposing.value)nameDraft.value=title||''
+},{flush:'sync'})
 watch(()=>[state.activeId,mode.value],()=>{if(findState.open){findState.count=0;findState.index=0;refreshFind(0,{reveal:true})}})
 watch(()=>state.markdown,()=>{if(findState.open&&findState.query&&findState.owner&&!findState.pending)refreshFind(findState.index,{reveal:false})})
 watch(()=>state.removalSequence,()=>undoDismissed.value=false)
-function nameStart(){nameComposing.value=true}
-function nameInput(event){nameDraft.value=event.target.value;if(!event.isComposing&&!nameComposing.value)coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
-function nameEnd(event){nameComposing.value=false;nameDraft.value=event.target.value;coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
-function finishName(event){if(nameComposing.value)return;coordinator.nameChanged(event.target.dataset.docId,event.target.value);coordinator.flushName(event.target.dataset.docId).catch(e=>coordinator.report(e))}
+function nameFocus(event){if(event.target.dataset.docId===current.value?.id)nameEditingId.value=event.target.dataset.docId}
+function nameStart(event){if(event.target.dataset.docId===current.value?.id){nameFocus(event);nameComposing.value=true}}
+function nameInput(event){if(event.target.dataset.docId===current.value?.id)nameDraft.value=event.target.value;if(!event.isComposing&&!nameComposing.value)coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
+function nameEnd(event){if(event.target.dataset.docId===current.value?.id){nameComposing.value=false;nameDraft.value=event.target.value}coordinator.nameChanged(event.target.dataset.docId,event.target.value)}
+function finishName(event){if(nameComposing.value)return;const id=event.target.dataset.docId;if(nameEditingId.value===id)nameEditingId.value=null;coordinator.nameChanged(id,event.target.value);coordinator.flushName(id).catch(e=>coordinator.report(e))}
 function nameEnter(event){if(event.isComposing||nameComposing.value||event.keyCode===229)return;event.preventDefault();event.target.blur()}
 async function focusName(id){contextPage.value=null;await selectPage(id);await nextTick();const input=document.querySelector('.name-dock input');input?.focus();input?.select()}
 function reveal(heading){
