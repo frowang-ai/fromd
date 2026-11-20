@@ -124,6 +124,21 @@ async function reveal(offset){
  if(mode.value==='source'){source.value.setSelectionRange(offset,offset);source.value.focus();source.value.scrollTop=Math.max(0,source.value.scrollHeight*offset/Math.max(1,markdown().length)-40)}
  else if(!engine.value.revealMarkdown(offset))emit('navigation-hint','已定位文稿；可从视图菜单打开源码查看精确位置。')
 }
+async function revealHeading(heading,expectedOwner){
+ await ready()
+ if(!owner||owner.id!==expectedOwner?.id||owner.generation!==expectedOwner.generation)return false
+ if(mode.value==='source'){
+  const position=markdown().slice(0,heading.start).replace(/\r\n?/g,'\n').length
+  selectSourceMatch(position,position)
+ }else{
+  const element=engine.value.revealHeading(heading,owner)
+  if(!element)return false
+  const host=scroller.value,rect=host.getBoundingClientRect(),scale=rect.width/host.offsetWidth
+  host.scrollTop=Math.max(0,host.scrollTop+(element.getBoundingClientRect().top-rect.top)/scale-12)
+ }
+ emit('view-change')
+ return true
+}
 async function revealMatch(location){
  await ready()
  const text=markdown(),offset=sourceOffset(text,location),sourcePosition=text.slice(0,offset).replace(/\r\n?/g,'\n').length
@@ -236,7 +251,7 @@ function end(event){
 }
 onMounted(()=>{root.value.addEventListener('compositionstart',start);root.value.addEventListener('compositionend',end);ready().then(editable).catch(()=>{})})
 onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('compositionstart',start);root.value?.removeEventListener('compositionend',end)})
-defineExpose({currentOwner,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
+defineExpose({currentOwner,revealHeading,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 </script>
 <style>
 .pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:46px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}

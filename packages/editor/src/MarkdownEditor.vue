@@ -34,6 +34,7 @@ import { configureWritingTables } from './writingTableSelection.js'
 import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
 import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
 import { markdownRange } from './writingMarkdownLocation.js'
+import {headingRange} from './writingHeadingLocation.js'
 import {prepareEndBlank as prepareEndBlankAtPoint,placeEndBlank as placeEndBlankAtPoint} from './writingEndBlank.js'
 import '@milkdown/crepe/theme/common/style.css'
 import { writingCodeTheme } from './writingCodeTheme.js'
@@ -132,6 +133,16 @@ function revealMarkdown(offset, needle = '') {
   const element = dom.nodeType === Node.ELEMENT_NODE ? dom : dom.parentElement
   element?.scrollIntoView({ block: 'start' })
   return range.exact
+}
+function revealHeading(target,owner){
+ if(!created||disposed||switching||!activeSession||owner?.id!==activeSession.id||owner.generation!==activeSession.generation)return null
+ const v=view(),markdown=getMarkdown(),ctx=editor.editor.ctx
+ const range=headingRange(v.state.doc,ctx.get(core.remarkCtx).parse(markdown),ctx.get(core.parserCtx)(markdown),markdown,target)
+ if(!range)return null
+ const element=v.nodeDOM(range.nodePos)
+ if(!(element instanceof Element))return null
+ v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc,range.from)).setMeta('addToHistory',false))
+ return element
 }
 function resourceDropPosition(clientX,clientY) {
  if(!created||!activeSession)return null
@@ -245,7 +256,7 @@ function placeEndBlank(plan){
  if(!created||disposed||switching||!activeSession||plan?.owner?.id!==activeSession.id||plan.owner.generation!==activeSession.generation)return false
  return placeEndBlankAtPoint(view(),plan)
 }
-defineExpose({ prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({

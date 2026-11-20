@@ -436,6 +436,8 @@ function finishName(event){if(nameComposing.value)return;const id=event.target.d
 function nameEnter(event){if(event.isComposing||nameComposing.value||event.keyCode===229)return;event.preventDefault();event.target.blur()}
 async function focusName(id){contextPage.value=null;await selectPage(id);await nextTick();const input=document.querySelector('.name-dock input');input?.focus();input?.select()}
 function reveal(heading){
+ const displayed=outline.value
+ if(!displayed.includes(heading))return
  const owner=editor.value?.currentOwner?.()
  return action(async()=>{
   let navigated=false
@@ -444,11 +446,15 @@ function reveal(heading){
   if(!owner||live?.id!==owner.id||live.generation!==owner.generation)return
   coordinator.capture()
   readingAnalysis.value=analyzeReading(state.markdown||'')
-  const matches=outline.value.filter(item=>item.title===heading.title&&item.level===heading.level)
-  const target=matches.find(item=>item.index===heading.index)||(matches.length===1?matches[0]:null)
+  const fresh=outline.value,matches=fresh.filter(item=>item.title===heading.title&&item.level===heading.level)
+  const unchanged=displayed.length===fresh.length&&displayed.every((item,index)=>item.title===fresh[index].title&&item.level===fresh[index].level)
+  let target=null
+  if(unchanged)target=fresh[heading.index]
+  else if(matches.length===1&&displayed.filter(item=>item.title===heading.title&&item.level===heading.level).length===1)target=matches[0]
   if(!target){state.error='大纲已更新，请重新选择标题。';return}
-  await editor.value.reveal(target.start)
-  navigated=true
+  navigated=await editor.value.revealHeading(target,owner)
+  if(!navigated){state.error='暂时无法定位这个标题，请重试。';return}
+  if(['大纲已更新，请重新选择标题。','暂时无法定位这个标题，请重试。'].includes(state.error))state.error=''
   if(narrow.value)sidebarOpen.value=false
   await coordinator.flush()
   })

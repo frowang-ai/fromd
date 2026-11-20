@@ -213,6 +213,31 @@ Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; pu
   } finally {await cleanup(app)}
 })
 
+test('native outline navigation selects and scrolls the real heading without changing authoring text',async()=>{
+ const {profile,directory}=await fixture()
+ let app
+ try{
+  app=await launch(profile)
+  const page=app.page,filler=Array.from({length:32},(_,n)=>'原生合成前文第'+n+'段，供大纲跳转验证。\n').join('\n')
+  const markdown='# 原生开始\n\n<br />\n\n'+filler+'\n## 原生精确目标\n\n'+filler
+  await nameInput(page).fill('大纲原生');await nameInput(page).press('Enter')
+  await setMode(page,'source');await source(page).fill(markdown);await setMode(page,'rendered')
+  const before=await page.locator('.pm-port').evaluate(el=>{const c=el.__vueParentComponent.exposed.capture();return{markdown:c.markdown,id:c.id,generation:c.generation}})
+  await page.getByRole('button',{name:'大纲',exact:true}).click()
+  await page.getByRole('button',{name:'原生精确目标',exact:true}).click()
+  await expect.poll(()=>page.evaluate(()=>{const n=getSelection()?.anchorNode,e=n?.nodeType===1?n:n?.parentElement;return e?.closest('h2')?.textContent})).toBe('原生精确目标')
+  const after=await page.locator('.pm-port').evaluate(el=>{const c=el.__vueParentComponent.exposed.capture(),host=el.querySelector('.pm-scroller'),h=el.querySelector('h2');return{markdown:c.markdown,id:c.id,generation:c.generation,scrollTop:host.scrollTop,heading:h.getBoundingClientRect().toJSON(),viewport:host.getBoundingClientRect().toJSON()}})
+  expect(after.markdown).toBe(before.markdown);expect(after.id).toBe(before.id);expect(after.generation).toBe(before.generation)
+  expect(after.heading.top).toBeGreaterThanOrEqual(after.viewport.top-1);expect(after.heading.bottom).toBeLessThanOrEqual(after.viewport.bottom+1)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await writeFile(join(directory,'outline-native.json'),JSON.stringify({native:true,mock:false,before,after},null,2))
+  await closeNormally(app);app=null
+  app=await launch(profile)
+  await expect(body(app.page).locator('h2')).toHaveText('原生精确目标')
+  await closeNormally(app);app=null
+ }finally{await cleanup(app)}
+})
+
 test('native end-blank clicks place a real caret at 100/120 percent and survive normal close',async()=>{
  const {profile,directory}=await fixture()
  let app
