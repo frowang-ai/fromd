@@ -1,6 +1,6 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
-  <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="emit('view-change')">
+  <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
    <MarkdownEditor ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
@@ -17,6 +17,27 @@ import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
 const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
+let endClick=null
+function cancelEndClick(){endClick=null}
+function primaryEndClick(event){return event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey}
+function endPointerDown(event){
+ cancelEndClick()
+ if(!owner||frozen.value||composing||mode.value!=='rendered'||event.isPrimary===false||!primaryEndClick(event))return
+ const target=event.target
+ if(!(target instanceof Element)||target.closest('button,a,input,textarea,[contenteditable="false"],.cm-editor,.writing-math,.writing-mermaid'))return
+ const neutral=target===scroller.value||target.matches('.ProseMirror,.writing-editor,.milkdown')||target.closest('p')?.textContent===''
+ if(!neutral)return
+ const bounds=scroller.value.getBoundingClientRect()
+ if(event.clientY<bounds.top||event.clientY>=bounds.bottom)return
+ const plan=engine.value.prepareEndBlank({x:event.clientX,y:event.clientY})
+ if(plan)endClick={owner,plan,x:event.clientX,y:event.clientY}
+}
+function endPointerMove(event){if(endClick&&Math.hypot(event.clientX-endClick.x,event.clientY-endClick.y)>5)cancelEndClick()}
+function endBlankClick(event){
+ const intent=endClick;cancelEndClick()
+ if(!intent||intent.owner!==owner||frozen.value||composing||mode.value!=='rendered'||!primaryEndClick(event)||event.detail!==1||Math.hypot(event.clientX-intent.x,event.clientY-intent.y)>5)return
+ if(engine.value.placeEndBlank(intent.plan))event.preventDefault()
+}
 const resolveImage=src=>/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)?src:resourceImageUrl(renderDocId,src)
 async function ready(){await nextTick();await engine.value.whenReady();if(disposed)throw Error('编辑器已关闭。')}
 function editable(){engine.value?.setEditable(Boolean(owner)&&!frozen.value&&mode.value==='rendered');if(root.value)root.value.inert=frozen.value;if(source.value)source.value.readOnly=frozen.value||!owner}
@@ -39,7 +60,7 @@ function capture(){
  }}
 }
 async function activate(doc){
- await ready();owner=null;renderDocId=doc.id;editable()
+ await ready();cancelEndClick();owner=null;renderDocId=doc.id;editable()
  const cached=doc.session,saved=cached?.viewState||doc.viewState
  mode.value=saved?.mode||'rendered';sourceText.value=doc.markdown
  history=cached?.sourceHistory?.text===doc.markdown?cached.sourceHistory:sourceHistory(doc.markdown)
@@ -52,7 +73,7 @@ async function activate(doc){
  scroller.value.scrollTop=saved?.scrollTop||0
  source.value.setSelectionRange(sourceRange.start,sourceRange.end);source.value.scrollTop=sourceScroll
 }
-function setFrozen(value){frozen.value=value;editable()}
+function setFrozen(value){if(value)cancelEndClick();frozen.value=value;editable()}
 function changed(event){
  if(!owner||mode.value!=='rendered'||event.id!==owner.id||event.generation!==owner.generation)return
  emit('change',event)
@@ -206,7 +227,7 @@ function utf8Bytes(text){return new TextEncoder().encode(text).byteLength}
 function replaceFind(query,replacement,index=0,all=false,matchCase=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=markdown(),found=literalMatches(text,query,matchCase),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query,matchCase);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}if(utf8Bytes(next)>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query,matchCase).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all,matchCase);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
 function prepareFileImport(source){return engine.value.prepareFileImport(source)}
 function currentOwner(){return owner?{...owner,viewState:{mode:mode.value}}:null}
-function clear(){owner=null;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
+function clear(){cancelEndClick();owner=null;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
 function focus(){if(mode.value==='source')source.value?.focus();else engine.value?.focus()}
 function start(){composing=true}
 function end(event){

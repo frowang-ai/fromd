@@ -213,6 +213,40 @@ Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; pu
   } finally {await cleanup(app)}
 })
 
+test('native end-blank clicks place a real caret at 100/120 percent and survive normal close',async()=>{
+ const {profile,directory}=await fixture()
+ let app
+ try{
+  app=await launch(profile)
+  const page=app.page,original='# 原生开头\n\n原生末段。\n'
+  await nameInput(page).fill('文末空白原生');await nameInput(page).press('Enter')
+  await setMode(page,'source');await source(page).fill(original);await setMode(page,'rendered')
+  const positions=[]
+  for(const zoom of [100,120]){
+   await page.keyboard.press('Control+0');if(zoom===120){await page.keyboard.press('Control+=');await page.keyboard.press('Control+=')}
+   await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom',String(zoom))
+   await body(page).locator('h1').click();await page.keyboard.press('Home')
+   await page.locator('.pm-scroller').evaluate(async el=>{el.scrollTop=0;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))})
+   const point=await body(page).evaluate(el=>{const rect=el.getBoundingClientRect(),last=el.lastElementChild.getBoundingClientRect(),line=parseFloat(getComputedStyle(el).lineHeight),bottom=el.closest('.pm-scroller').getBoundingClientRect().bottom;return{x:rect.left+30,y:Math.min(last.bottom+line*2.5,bottom-20),line,dpr:devicePixelRatio}})
+   await page.mouse.click(point.x,point.y)
+   const caret=await page.evaluate(()=>{const node=getSelection().anchorNode,element=node.nodeType===1?node:node.parentElement,r=element.closest('p').getBoundingClientRect();return{y:r.top+r.height/2,left:r.left}})
+   expect(Math.abs(caret.y-point.y)).toBeLessThan(point.line*1.5)
+   await page.keyboard.insertText('原生末尾输入'+zoom)
+   positions.push({zoom,point,caret})
+  }
+  await setMode(page,'source')
+  const markdown=await source(page).inputValue()
+  expect(markdown).toContain('原生末尾输入100');expect(markdown).toContain('原生末尾输入120');expect(markdown).toContain('<br />')
+  await source(page).fill(markdown+'\n');await setMode(page,'rendered')
+  await writeFile(join(directory,'end-blank-native.json'),JSON.stringify({native:true,mock:false,positions,markdown},null,2))
+  await closeNormally(app);app=null
+  app=await launch(profile)
+  await expect(body(app.page)).toContainText('原生末尾输入100');await expect(body(app.page)).toContainText('原生末尾输入120')
+  await expect(body(app.page).locator('h1')).toHaveText('原生开头')
+  await closeNormally(app);app=null
+ }finally{await cleanup(app)}
+})
+
 test('native direct shelf preserves final input and restores after restart without capture or animation',async()=>{
  const {profile,directory}=await fixture()
  let app

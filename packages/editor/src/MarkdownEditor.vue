@@ -34,6 +34,7 @@ import { configureWritingTables } from './writingTableSelection.js'
 import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
 import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
 import { markdownRange } from './writingMarkdownLocation.js'
+import {prepareEndBlank as prepareEndBlankAtPoint,placeEndBlank as placeEndBlankAtPoint} from './writingEndBlank.js'
 import '@milkdown/crepe/theme/common/style.css'
 import { writingCodeTheme } from './writingCodeTheme.js'
 import '@milkdown/crepe/theme/classic.css'
@@ -235,7 +236,16 @@ function commitResourcePaste(prepared) {
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
-defineExpose({ findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+function prepareEndBlank(point){
+ if(!created||disposed||switching||!activeSession)return null
+ const plan=prepareEndBlankAtPoint(view(),point)
+ return plan?{...plan,owner:{...activeSession}}:null
+}
+function placeEndBlank(plan){
+ if(!created||disposed||switching||!activeSession||plan?.owner?.id!==activeSession.id||plan.owner.generation!==activeSession.generation)return false
+ return placeEndBlankAtPoint(view(),plan)
+}
+defineExpose({ prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({

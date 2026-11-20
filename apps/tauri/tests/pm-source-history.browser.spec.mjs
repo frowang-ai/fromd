@@ -33,7 +33,9 @@ async function select(page,id){
  await expect(page.locator('.tab.selected')).toContainText(id==='a'?'页面 A':'页面 B')
 }
 async function appendBody(page,text){
- await body(page).click();await page.keyboard.press('Control+End');await page.keyboard.insertText(text)
+ // This helper appends to existing text; the editor's lower blank surface now
+ // deliberately starts a new paragraph when clicked.
+ await body(page).locator('p').last().click();await page.keyboard.press('Control+End');await page.keyboard.insertText(text)
 }
 async function appendSource(page,text){
  const input=source(page);await input.press('Control+End');await input.press('ArrowLeft');await page.keyboard.insertText(text)
