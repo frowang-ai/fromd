@@ -254,9 +254,11 @@ onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('c
 defineExpose({currentOwner,revealHeading,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 </script>
 <style>
-.pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:46px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}
+.pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:14px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}
 .pm-port .writing-editor .milkdown>.ProseMirror{min-height:calc(100dvh - 220px)}
-.pm-port .markdown-source{display:block;resize:none;width:100%;height:100%;border:0;background:transparent;outline:none;padding:46px 36px 108px;font:15px/1.85 Consolas,'Microsoft YaHei',monospace;tab-size:4}
+/* Skip cursor decorations before the first document block. The name dock has its own row. */
+.pm-port .writing-editor .milkdown>.ProseMirror>:nth-child(1 of :not(.ProseMirror-widget,.prosemirror-virtual-cursor)){margin-top:0}
+.pm-port .markdown-source{display:block;resize:none;width:100%;height:100%;border:0;background:transparent;outline:none;padding:14px 36px 108px;font:15px/1.85 Consolas,'Microsoft YaHei',monospace;tab-size:4}
 .pm-port .milkdown .ProseMirror .tableWrapper{overflow:visible}
 @media(max-width:760px){.pm-scroller,.pm-port .markdown-source{padding-left:22px;padding-right:22px}}
 @media print{.pm-scroller{overflow:visible;height:auto;padding-bottom:0}}
