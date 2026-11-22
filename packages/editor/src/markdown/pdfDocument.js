@@ -4,7 +4,6 @@ import { extensionCss } from './extensions.js'
 
 const pdfCss = `
   :root { --editor-font-text: -apple-system, "Segoe UI", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; --editor-font-mono: "SF Mono", Menlo, Monaco, Consolas, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace; }
-  @page { size: A4; margin: 18mm; }
   * { box-sizing: border-box; }
   body { margin: 0; background: #eeece8; color: #242321; }
   .markdown-body { width: 210mm; margin: 24px auto; padding: 18mm; background: white; box-shadow: 0 2px 12px #0001; font: 11pt/1.75 var(--editor-font-text); overflow-wrap: anywhere; }
@@ -41,10 +40,14 @@ const pdfCss = `
 
 // Build the complete sanitized document, never copy the editor's lazy DOM.
 // Resources are embedded by the caller; PDF workers must not fetch user URLs.
-export async function buildPdfDocument({ markdown, title = '文档', resolveImage }) {
+export async function buildPdfDocument({ markdown, title = '文档', resolveImage, pageLayout = 'css' }) {
+  if (!['css', 'native'].includes(pageLayout)) throw Error('Unknown PDF page layout owner');
   const doc = document.implementation.createHTMLDocument(title)
   doc.documentElement.lang = 'zh-CN'
-  const style = doc.createElement('style'); style.textContent = pdfCss + extensionCss; doc.head.append(style)
+  // Exactly one owner supplies paper size/margins. Browser/Electron consumers
+  // retain CSS A4/18mm; native printers supply them through their print settings.
+  const pageCss = pageLayout === 'css' ? '@page { size: A4; margin: 18mm; }' : '';
+  const style = doc.createElement('style'); style.textContent = pageCss + pdfCss + extensionCss; doc.head.append(style)
   const article = doc.createElement('article'); article.className = 'markdown-body'
   article.innerHTML = renderMarkdown(markdown)
   // Diagram code still passes through the unchanged Markdown sanitizer first;

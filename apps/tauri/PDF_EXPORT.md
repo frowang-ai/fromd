@@ -2,7 +2,7 @@
 
 0.5.2 保留公共导出契约，Windows 使用 WebView2 PrintToPdf，macOS 使用 WKWebView + AppKit `NSPrintOperation` 真正分页。macOS 的 A4 配置、异步回调生命周期与真机验收见 [MACOS_PACKAGING.md](MACOS_PACKAGING.md)。下文原生 WebView2 自动化证据仍专指 Windows；macOS 编译及实际分页需分别通过 CI 与 Mac 验收。
 
-从「文件 → 导出 PDF…」选择保存位置。导出当前页面的完整正文，包括尚未触发延迟保存的最后输入；不包含工作栏、标签或工具条。采用 A4 纵向和 18mm 边距，保留中文、可选择的文本、KaTeX 公式、表格、代码和图片。界面阅读主题不改变打印配色。
+从「文件 → 导出 PDF…」选择保存位置。导出当前页面的完整正文，包括尚未触发延迟保存的最后输入；不包含工作栏、标签或工具条。采用 A4 纵向和 18mm 边距，保留中文、可选择的文本、KaTeX 公式、表格、代码和图片。Tauri 两端统一由原生 print settings 提供纸张和页边距，打印 HTML 不再重复设置 CSS `@page`，避免两层边距；共享 builder 的默认 CSS 打印模式仍为 A4/18mm。界面阅读主题不改变打印配色。
 
 同一原生流程也导出 Mermaid 内联矢量图、脚注（含大小写重复引用、多段及未引用定义）和五类提示块。已通过实际 PDF 检查流程图箭头与 Sankey 流带；图表构造错误在创建打印任务前失败，保留旧目标。图表语法范围及当前 Sankey 节点名限制见 [Markdown 扩展说明](MARKDOWN_EXTENSIONS.md)。
 

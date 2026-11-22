@@ -2,9 +2,9 @@
 //! All Objective-C objects live on the main thread. Tokio only waits for replies.
 use super::*;
 use block2::RcBlock;
-use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly, AnyThread, Message, rc::Retained, runtime::{AnyObject, ProtocolObject}};
-use objc2_foundation::{MainThreadMarker, NSObject, NSObjectProtocol, NSString, NSError, NSSize};
-use objc2_app_kit::{NSPrintInfo, NSPrintOperation, NSPrintSaveJob, NSPrintSavePath, NSPrintingPaginationMode, NSPaperOrientation, NSWindow};
+use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly, MainThreadMarker, AnyThread, Message, rc::Retained, runtime::{AnyObject, ProtocolObject}};
+use objc2_foundation::{NSObject, NSObjectProtocol, NSString, NSError, NSSize, NSURL};
+use objc2_app_kit::{NSPrintInfo, NSPrintOperation, NSPrintSaveJob, NSPrintJobSavingURL, NSPrintingPaginationMode, NSPaperOrientation, NSWindow};
 use objc2_web_kit::WKWebView;
 use std::{cell::RefCell, ffi::c_void};
 use tokio::sync::oneshot;
@@ -99,7 +99,7 @@ pub(super) async fn macos_print(app: &tauri::AppHandle, label: &str, token: &str
         }
     }).await.map_err(|_| "PDF 字体或图片准备超时，未保存。")??;
 
-    let path = destination.to_str().ok_or("PDF 保存位置编码无效。")?.to_owned();
+    let path = destination.to_owned();
     let label = label.to_owned();
     let (sender, receiver) = oneshot::channel();
     let reply = Arc::new(Mutex::new(Some(sender)));
@@ -126,10 +126,16 @@ pub(super) async fn macos_print(app: &tauri::AppHandle, label: &str, token: &str
         info.setHorizontalPagination(NSPrintingPaginationMode::Fit);
         info.setVerticalPagination(NSPrintingPaginationMode::Automatic);
         info.setJobDisposition(NSPrintSaveJob);
-        info.dictionary().setObject_forKey(&NSString::from_str(&path), ProtocolObject::from_ref(NSPrintSavePath));
+        let Some(destination_url) = NSURL::from_file_path(&path) else {
+            if let Some(sender) = reply.lock().unwrap().take() { let _ = sender.send(Err("PDF 保存位置无效。".into())); }
+            return;
+        };
+        info.dictionary().setObject_forKey(&destination_url, ProtocolObject::from_ref(NSPrintJobSavingURL));
         let operation = view.printOperationWithPrintInfo(&info);
         operation.setShowsPrintPanel(false);
         operation.setShowsProgressPanel(false);
+        // Match Wry 0.57: AppKit must not block the main thread waiting for WebKit.
+        operation.setCanSpawnSeparateThread(true);
         let delegate = PrintDelegate::new(mtm, DelegateState { label: label.clone(), reply });
         PRINT_JOBS.with(|jobs| { jobs.borrow_mut().insert(label, PrintJob {
             _delegate: delegate.clone(), _operation: operation.clone(), _view: view, _window: window.clone(), _temporary: temporary,

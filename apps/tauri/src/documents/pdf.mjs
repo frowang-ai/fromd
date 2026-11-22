@@ -22,7 +22,7 @@ export async function preparePdfDocument(snapshot, readImages) {
   // file references, validates both, and applies their combined export budget.
   const images = await readImages(snapshot.id, snapshot.revision, references);
   const html = await buildPdfDocument({
-    markdown: snapshot.markdown, title: snapshot.title,
+    markdown: snapshot.markdown, title: snapshot.title, pageLayout: 'native',
     resolveImage: reference => images[reference] ?? null,
   });
   const doc = new DOMParser().parseFromString(html, 'text/html');

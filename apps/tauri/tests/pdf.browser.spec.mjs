@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { installMockHost } from './mock-host.mjs';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+const pdfModule = '/@fs/' + fileURLToPath(new URL('../../../packages/editor/src/markdown/pdfDocument.js', import.meta.url)).replaceAll('\\', '/');
 
 const png = (await readFile(new URL('./fixtures/synthetic-resource.png', import.meta.url))).toString('base64');
 const reference = '.frowd-assets/' + 'b'.repeat(64) + '.png';
@@ -31,9 +33,25 @@ test('PDF menu builds a full self-contained document with exact owner, final inp
   }, result.call.html);
   expect(parsed.text).toContain('中文导出');expect(parsed.text).toContain('final input');expect(parsed.tables).toBe(1);
   expect(parsed.image).toBe('data:image/png;base64,' + png);
+  expect(parsed.styles).not.toMatch(/@page\b/); // Both native backends own A4 and 18mm margins.
+  expect(parsed.styles).toContain('11pt/1.75');
+  expect(parsed.styles).toContain('width: auto; max-width: none; margin: 0; padding: 0;');
   expect(parsed.styles).toContain('@font-face');expect(parsed.styles).toContain('data:font/woff2;base64,');
   expect(parsed.styles).not.toMatch(/url\([^)]*\.woff/);
   expect(result.call.html).not.toContain('应用菜单');
+});
+
+test('shared PDF default keeps CSS A4/18mm while native layout has no second page margin', async ({ page }) => {
+  await page.addInitScript(installMockHost, { markdown: 'page layout probe' });
+  await page.goto('/?testHost=1');await expect(page.locator('.ProseMirror:visible')).toBeVisible();
+  const documents = await page.evaluate(async pdfModule => {
+    const { buildPdfDocument } = await import(pdfModule);
+    const markdown = '# A4\n\n中文正文';
+    return { css: await buildPdfDocument({ markdown }), native: await buildPdfDocument({ markdown, pageLayout: 'native' }) };
+  }, pdfModule);
+  expect(documents.css).toContain('@page { size: A4; margin: 18mm; }');
+  expect(documents.native).not.toMatch(/@page\b/);
+  for (const html of Object.values(documents)) { expect(html).toContain('11pt/1.75');expect(html).toContain('中文正文'); }
 });
 
 test('an unauthorized image fails before the native save or print command', async ({ page }) => {
