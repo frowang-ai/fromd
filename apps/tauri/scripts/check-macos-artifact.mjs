@@ -10,19 +10,49 @@ function plistString(xml,key){
  if(matches.length!==1)fail(`Info.plist must contain one string ${key}`)
  return matches[0][1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'")
 }
-export function machoArchitecture(bytes){
+function thinSlice(bytes){
  if(bytes.length<32)fail('Mach-O header is truncated')
  const magic=bytes.subarray(0,4).toString('hex')
- if(!['cffaedfe','feedfacf'].includes(magic))fail('Expected a thin 64-bit Mach-O executable')
+ if(!['cffaedfe','feedfacf'].includes(magic))fail('Expected a 64-bit Mach-O executable slice')
  const uint=offset=>magic==='cffaedfe'?bytes.readUInt32LE(offset):bytes.readUInt32BE(offset)
- const arch=({[0x0100000c]:'aarch64',[0x01000007]:'x86_64'})[uint(4)]
+ const cpu=uint(4),subtype=uint(8),arch=({[0x0100000c]:'aarch64',[0x01000007]:'x86_64'})[cpu]
  if(!arch||uint(12)!==2)fail('Unsupported Mach-O architecture or non-executable file type')
- return arch
+ if(!(arch==='aarch64'?[0,1,2]:[3,8]).includes(subtype&0x00ffffff))fail('Unsupported Mach-O CPU subtype')
+ if(uint(20)>bytes.length-32)fail('Mach-O load commands exceed slice bounds')
+ return {arch,cpu,subtype}
+}
+export function machoArchitectures(bytes){
+ if(bytes.length<8)fail('Mach-O header is truncated')
+ const magic=bytes.subarray(0,4).toString('hex')
+ if(!['cafebabe','bebafeca'].includes(magic))return [thinSlice(bytes).arch]
+ const uint=offset=>magic==='cafebabe'?bytes.readUInt32BE(offset):bytes.readUInt32LE(offset)
+ const count=uint(4),tableEnd=8+count*20
+ if(!count||tableEnd>bytes.length)fail('FAT Mach-O architecture table is truncated or empty')
+ const slices=[],identities=new Set()
+ for(let index=0;index<count;index++){
+  const at=8+index*20,cpu=uint(at),subtype=uint(at+4),offset=uint(at+8),size=uint(at+12),alignment=uint(at+16)
+  if(offset<tableEnd||size<32||offset+size>bytes.length)fail('FAT Mach-O slice exceeds file bounds')
+  if(alignment>31||offset%(2**alignment)!==0)fail('Invalid FAT Mach-O slice alignment')
+  const slice=thinSlice(bytes.subarray(offset,offset+size))
+  if(slice.cpu!==cpu||slice.subtype!==subtype)fail('FAT Mach-O architecture/subtype does not match slice header')
+  const identity=cpu+':'+subtype
+  if(identities.has(identity))fail('Duplicate FAT Mach-O architecture/subtype')
+  identities.add(identity);slices.push({...slice,offset,end:offset+size})
+ }
+ slices.sort((a,b)=>a.offset-b.offset)
+ for(let i=1;i<slices.length;i++)if(slices[i].offset<slices[i-1].end)fail('FAT Mach-O slices overlap')
+ return [...new Set(slices.map(slice=>slice.arch))].sort()
+}
+export function machoArchitecture(bytes){
+ const architectures=machoArchitectures(bytes)
+ return architectures.length===1?architectures[0]:'universal'
 }
 async function nonempty(path){const s=await stat(path);if(!s.isFile()||!s.size)fail(`Missing or empty artifact: ${path}`);return s.size}
 export async function checkMacosArtifact({app,dmg,arch,version='0.5.2',identifier='com.frowang.frowd.tauri.v1',minimumSystemVersion='11.0'}){
- if(!['aarch64','x86_64'].includes(arch))fail('arch must be aarch64 or x86_64')
+ if(arch==='arm64')arch='aarch64'
+ if(!['aarch64','x86_64','universal'].includes(arch))fail('arch must be aarch64, arm64, x86_64 or universal')
  const contents=join(resolve(app),'Contents'),plistPath=join(contents,'Info.plist')
+ if(process.platform==='darwin')execFileSync('/usr/bin/plutil',['-lint',plistPath],{encoding:'utf8',stdio:['ignore','pipe','pipe']})
  const plist=await readFile(plistPath)
  let xml=plist.toString('utf8')
  if(plist.subarray(0,8).toString()==='bplist00'){
@@ -33,16 +63,18 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.2',identifie
   const actual=plistString(xml,key);if(actual!==expected)fail(`${key}: expected ${expected}, got ${actual}`)
  }
  const executable=join(contents,'MacOS','frowd-tauri')
- const actualArch=machoArchitecture(await readFile(executable))
- if(actualArch!==arch)fail(`Mach-O architecture: expected ${arch}, got ${actualArch}`)
+ const architectures=machoArchitectures(await readFile(executable))
+ const actualArch=architectures.length===1?architectures[0]:'universal'
+ const expected=arch==='universal'?['aarch64','x86_64']:[arch]
+ if(!expected.every(value=>architectures.includes(value)))fail(`Mach-O architecture: expected ${arch}, got ${architectures.join(', ')}`)
  for(const file of licenseFiles)await nonempty(join(contents,'Resources','licenses',file))
  const dmgBytes=await nonempty(resolve(dmg))
- return {app:resolve(app),dmg:resolve(dmg),version,identifier,minimumSystemVersion,arch:actualArch,licenses:licenseFiles.length,dmgBytes}
+ return {app:resolve(app),dmg:resolve(dmg),version,identifier,minimumSystemVersion,arch:actualArch,architectures,licenses:licenseFiles.length,dmgBytes}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  const args=process.argv.slice(2),options={}
  try{
-  for(let i=0;i<args.length;i+=2){if(!['--app','--dmg','--arch','--version'].includes(args[i])||!args[i+1])fail('Usage: --app path.app --dmg path.dmg --arch aarch64|x86_64 [--version 0.5.2]');options[args[i].slice(2)]=args[i+1]}
+  for(let i=0;i<args.length;i+=2){if(!['--app','--dmg','--arch','--version'].includes(args[i])||!args[i+1])fail('Usage: --app path.app --dmg path.dmg --arch aarch64|arm64|x86_64|universal [--version 0.5.2]');options[args[i].slice(2)]=args[i+1]}
   if(!options.app||!options.dmg||!options.arch)fail('Required: --app, --dmg, --arch')
   console.log(JSON.stringify(await checkMacosArtifact(options),null,2))
  }catch(error){console.error(error.message);process.exitCode=1}

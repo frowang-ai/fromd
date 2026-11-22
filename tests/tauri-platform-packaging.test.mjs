@@ -31,8 +31,30 @@ test('platform overlays preserve the complete shared main window and 0.5.2 ident
  const blocks=[];for(let i=8;i<icon.length;){blocks.push(icon.subarray(i,i+4).toString());const size=icon.readUInt32BE(i+4);assert.ok(size>8);i+=size;assert.ok(i<=icon.length)}
  for(const size of ['ic07','ic08','ic09','ic10'])assert.ok(blocks.includes(size),`missing icon block ${size}`)
 })
-function macho(arch){const bytes=Buffer.alloc(32);bytes.writeUInt32LE(0xfeedfacf,0);bytes.writeUInt32LE(arch==='aarch64'?0x0100000c:0x01000007,4);bytes.writeUInt32LE(2,12);return bytes}
-const plist=(version='0.5.2',id='com.frowang.frowd.tauri.v1',minimum='11.0')=>`<?xml version="1.0"?><plist><dict><key>CFBundleShortVersionString</key><string>${version}</string><key>CFBundleIdentifier</key><string>${id}</string><key>LSMinimumSystemVersion</key><string>${minimum}</string></dict></plist>`
+function macho(arch){const bytes=Buffer.alloc(32);bytes.writeUInt32LE(0xfeedfacf,0);bytes.writeUInt32LE(arch==='aarch64'?0x0100000c:0x01000007,4);bytes.writeUInt32LE(arch==='aarch64'?0:3,8);bytes.writeUInt32LE(2,12);return bytes}
+function universal(little=false){
+ const bytes=Buffer.alloc(128),write=(value,offset)=>little?bytes.writeUInt32LE(value,offset):bytes.writeUInt32BE(value,offset)
+ write(0xcafebabe,0);write(2,4)
+ for(const [index,arch]of ['aarch64','x86_64'].entries()){
+  const header=macho(arch),at=8+index*20,offset=64+index*32
+  write(header.readUInt32LE(4),at);write(header.readUInt32LE(8),at+4);write(offset,at+8);write(header.length,at+12);write(5,at+16)
+  header.copy(bytes,offset)
+ }
+ return bytes
+}
+test('Mach-O validates thin and both-endian FAT slices including architecture metadata and bounds',()=>{
+ for(const arch of ['aarch64','x86_64'])assert.equal(machoArchitecture(macho(arch)),arch)
+ for(const little of [false,true])assert.equal(machoArchitecture(universal(little)),'universal')
+ const corrupt=(offset,value)=>{const bytes=universal();bytes.writeUInt32BE(value,offset);return bytes}
+ for(const [bytes,reason]of [
+  [corrupt(4,100),'table'],[corrupt(16,4096),'bounds'],[corrupt(16,8),'bounds'],
+  [corrupt(20,4096),'bounds'],[corrupt(20,64),'overlap'],[corrupt(12,2),'subtype'],
+  [corrupt(8,0x01000007),'architecture'],[corrupt(24,33),'alignment'],
+ ])assert.throws(()=>machoArchitecture(bytes),new RegExp(reason,'i'))
+ const library=universal();library.writeUInt32LE(6,64+12);assert.throws(()=>machoArchitecture(library),/non-executable/)
+ const unsupported=macho('aarch64');unsupported.writeUInt32LE(99,8);assert.throws(()=>machoArchitecture(unsupported),/subtype/)
+})
+const plist=(version='0.5.2',id='com.frowang.frowd.tauri.v1',minimum='11.0')=>`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>${version}</string><key>CFBundleIdentifier</key><string>${id}</string><key>LSMinimumSystemVersion</key><string>${minimum}</string></dict></plist>`
 test('macOS artifact validator accepts both architectures and rejects malformed delivery',async()=>{
  const tempRoot=join(root,'output/native-temp');await mkdir(tempRoot,{recursive:true})
  const temp=await mkdtemp(join(tempRoot,'mac-artifact-'))
@@ -44,6 +66,16 @@ test('macOS artifact validator accepts both architectures and rejects malformed 
   for(const file of licenseFiles)await writeFile(join(contents,'Resources/licenses',file),'synthetic license')
   for(const arch of ['aarch64','x86_64']){await writeFile(exe,macho(arch));assert.equal((await checkMacosArtifact({app,dmg,arch})).arch,arch)}
   await assert.rejects(checkMacosArtifact({app,dmg,arch:'aarch64'}),/architecture/)
+  await writeFile(exe,macho('aarch64'))
+  assert.equal((await checkMacosArtifact({app,dmg,arch:'arm64'})).arch,'aarch64')
+  await assert.rejects(checkMacosArtifact({app,dmg,arch:'universal'}),/architecture/)
+  await writeFile(exe,universal())
+  for(const arch of ['universal','aarch64','arm64','x86_64'])assert.equal((await checkMacosArtifact({app,dmg,arch})).arch,'universal')
+  // CI on macOS exercises the real system parser, not a regex approximation.
+  if(process.platform==='darwin'){
+   await writeFile(info,plist().replace('</plist>',''))
+   await assert.rejects(checkMacosArtifact({app,dmg,arch:'universal'}),/plutil|plist|XML/i)
+  }
   await writeFile(exe,macho('aarch64'))
   for(const xml of [plist('0.5.1'),plist('0.5.2','wrong.id'),plist('0.5.2','com.frowang.frowd.tauri.v1','10.15')]){await writeFile(info,xml);await assert.rejects(checkMacosArtifact({app,dmg,arch:'aarch64'}),/expected/)}
   await writeFile(info,plist());await writeFile(dmg,'');await assert.rejects(checkMacosArtifact({app,dmg,arch:'aarch64'}),/empty/)
