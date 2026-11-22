@@ -24,6 +24,8 @@ function thinSlice(bytes){
 export function machoArchitectures(bytes){
  if(bytes.length<8)fail('Mach-O header is truncated')
  const magic=bytes.subarray(0,4).toString('hex')
+ // Only the standard FAT header with 32-bit offsets is parsed (not FAT64).
+ if(['cafebabf','bfbafeca'].includes(magic))fail('FAT64 is unsupported; expected standard 32-bit-offset FAT')
  if(!['cafebabe','bebafeca'].includes(magic))return [thinSlice(bytes).arch]
  const uint=offset=>magic==='cafebabe'?bytes.readUInt32BE(offset):bytes.readUInt32LE(offset)
  const count=uint(4),tableEnd=8+count*20
@@ -41,7 +43,8 @@ export function machoArchitectures(bytes){
  }
  slices.sort((a,b)=>a.offset-b.offset)
  for(let i=1;i<slices.length;i++)if(slices[i].offset<slices[i-1].end)fail('FAT Mach-O slices overlap')
- return [...new Set(slices.map(slice=>slice.arch))].sort()
+ // Preserve slice count even when distinct CPU subtypes share one architecture.
+ return slices.map(slice=>slice.arch).sort()
 }
 export function machoArchitecture(bytes){
  const architectures=machoArchitectures(bytes)
@@ -66,7 +69,7 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.2',identifie
  const architectures=machoArchitectures(await readFile(executable))
  const actualArch=architectures.length===1?architectures[0]:'universal'
  const expected=arch==='universal'?['aarch64','x86_64']:[arch]
- if(!expected.every(value=>architectures.includes(value)))fail(`Mach-O architecture: expected ${arch}, got ${architectures.join(', ')}`)
+ if(architectures.length!==expected.length||!expected.every((value,index)=>architectures[index]===value))fail(`Mach-O architecture: expected exactly ${expected.join(', ')}, got ${architectures.join(', ')}`)
  for(const file of licenseFiles)await nonempty(join(contents,'Resources','licenses',file))
  const dmgBytes=await nonempty(resolve(dmg))
  return {app:resolve(app),dmg:resolve(dmg),version,identifier,minimumSystemVersion,arch:actualArch,architectures,licenses:licenseFiles.length,dmgBytes}

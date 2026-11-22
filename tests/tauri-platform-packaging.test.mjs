@@ -70,7 +70,14 @@ test('macOS artifact validator accepts both architectures and rejects malformed 
   assert.equal((await checkMacosArtifact({app,dmg,arch:'arm64'})).arch,'aarch64')
   await assert.rejects(checkMacosArtifact({app,dmg,arch:'universal'}),/architecture/)
   await writeFile(exe,universal())
-  for(const arch of ['universal','aarch64','arm64','x86_64'])assert.equal((await checkMacosArtifact({app,dmg,arch})).arch,'universal')
+  assert.equal((await checkMacosArtifact({app,dmg,arch:'universal'})).arch,'universal')
+  for(const arch of ['aarch64','arm64','x86_64'])await assert.rejects(checkMacosArtifact({app,dmg,arch}),/architecture/)
+  const sameArch=universal();sameArch.writeUInt32BE(0x0100000c,28);sameArch.writeUInt32BE(1,32);macho('aarch64').copy(sameArch,96);sameArch.writeUInt32LE(1,104)
+  await writeFile(exe,sameArch)
+  for(const arch of ['aarch64','arm64','universal'])await assert.rejects(checkMacosArtifact({app,dmg,arch}),/architecture/)
+  await writeFile(exe,universal())
+  // Standard FAT stores 32-bit offsets; FAT64 is intentionally unsupported.
+  for(const magic of [0xcafebabf,0xbfbafeca]){const bytes=Buffer.alloc(32);bytes.writeUInt32BE(magic,0);assert.throws(()=>machoArchitecture(bytes),/FAT64|Mach-O/)}
   // CI on macOS exercises the real system parser, not a regex approximation.
   if(process.platform==='darwin'){
    await writeFile(info,plist().replace('</plist>',''))
