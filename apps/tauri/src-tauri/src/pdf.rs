@@ -1,4 +1,4 @@
-//! Windows PDF export. Only a main-window command can start a job. Its hidden
+//! Cross-platform PDF export. Only a main-window command can start a job. Its hidden
 //! webview receives one immutable HTML document, no filesystem/network authority.
 use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -85,7 +85,7 @@ pub(super) async fn pdf_images(id: String, revision: i64, references: Vec<String
 pub(super) fn document_response(ctx: UriSchemeContext<'_, tauri::Wry>, request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
     let state = ctx.app_handle().state::<PdfState>();
     let document = state.document.lock().unwrap();
-    let html = document.as_ref().filter(|doc| ctx.webview_label() == doc.label && request.uri().path() == format!("/{}", doc.token));
+    let html = document.as_ref().filter(|doc| ctx.webview_label() == doc.label && request.method() == tauri::http::Method::GET && protocol_urls::pdf_route(&request.uri().to_string(), &doc.token));
     match html {
         Some(doc) => tauri::http::Response::builder().header("Content-Type", "text/html; charset=utf-8")
             .header("Content-Security-Policy", CSP).header("Cache-Control", "no-store")
@@ -153,10 +153,10 @@ pub(super) async fn export_pdf(id: String, revision: i64, html: String, window: 
 async fn export_to_path(app: &tauri::AppHandle, token: &str, label: &str, html: String, target: &Path) -> Result<(), String> {
     let parent = target.parent().filter(|p| p.is_absolute()).ok_or("PDF 保存位置无效。")?;
     // A directory on the same volume lets persist perform an atomic replacement.
-    let temporary = tempfile::Builder::new().prefix(".frowd-pdf-").tempdir_in(parent).map_err(|e| e.to_string())?;
+    let temporary = Arc::new(tempfile::Builder::new().prefix(".frowd-pdf-").tempdir_in(parent).map_err(|e| e.to_string())?);
     let printed = temporary.path().join("document.pdf");
     app.state::<PdfState>().document.lock().unwrap().replace(PrintDocument { token: token.into(), label: label.into(), html });
-    let result = windows_print(app, label, token, &printed).await;
+    let result = native_print(app, label, token, &printed, temporary.clone()).await;
     // Revoke content before destroying the window; never leave a reusable URL.
     app.state::<PdfState>().document.lock().unwrap().take();
     let cleanup = destroy_worker(app, label).await;
@@ -196,14 +196,29 @@ fn atomic_replace_pdf(source: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(windows))]
-async fn windows_print(_: &tauri::AppHandle, _: &str, _: &str, _: &Path) -> Result<(), String> { Err("当前平台暂不支持 PDF 导出。".into()) }
+#[cfg(not(any(windows, target_os = "macos")))]
+async fn native_print(_: &tauri::AppHandle, _: &str, _: &str, _: &Path, _: Arc<tempfile::TempDir>) -> Result<(), String> { Err("当前平台暂不支持 PDF 导出。".into()) }
 
 #[cfg(windows)]
 #[path = "pdf_windows.rs"]
 mod native;
 #[cfg(windows)]
-use native::windows_print;
+use native::windows_print as native_print;
+#[cfg(target_os = "macos")]
+#[path = "pdf_macos.rs"]
+mod native;
+#[cfg(target_os = "macos")]
+use native::macos_print as native_print;
+
+const READINESS: &str = r#"(() => {
+      if (document.readyState !== 'complete' || !document.querySelector('article.markdown-body')) return 'loading';
+      const images = [...document.images];
+      for (const image of images) image.loading = 'eager';
+      void document.body.offsetHeight;
+      if (document.fonts.status !== 'loaded' || images.some(image => !image.complete)) return 'loading';
+      if ([...document.fonts].some(font => font.status === 'error') || images.some(image => !image.naturalWidth)) return 'failed';
+      return 'ready';
+    })()"#;
 
 #[cfg(test)]
 mod tests {

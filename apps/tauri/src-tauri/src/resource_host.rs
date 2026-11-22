@@ -168,20 +168,18 @@ pub(super) async fn choose_resources(
 pub(super) fn image_response(
     app: &tauri::AppHandle,
     request: tauri::http::Request<Vec<u8>>,
+    webview_label: &str,
 ) -> tauri::http::Response<Vec<u8>> {
     let origin = request
         .headers()
         .get("origin")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let allowed = matches!(
-        origin,
-        "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
-    ) || cfg!(debug_assertions) && origin == "http://127.0.0.1:1420";
+    let allowed = protocol_urls::resource_source(webview_label, request.headers(), cfg!(debug_assertions));
     let response = tauri::http::Response::builder()
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff");
-    let response = if allowed {
+    let response = if allowed && !origin.is_empty() {
         response
             .header("Access-Control-Allow-Origin", origin)
             .header("Vary", "Origin")
@@ -198,16 +196,10 @@ pub(super) fn image_response(
         if request.uri().to_string().len() > 8192 {
             return Err("资源地址过长。".into());
         }
-        let url = tauri::Url::parse(&request.uri().to_string()).map_err(|_| "资源地址无效。")?;
-        if url.path() != "/image" {
-            return Err("未知资源入口。".into());
-        }
-        let params: std::collections::HashMap<_, _> = url.query_pairs().collect();
-        let id = params.get("id").ok_or("缺少页面归属。")?;
-        let reference = params.get("ref").ok_or("缺少资源引用。")?;
+        let (id, reference) = protocol_urls::image_route(&request.uri().to_string())?;
         let state = app.state::<AppState>();
         let result = lock(&state)?
-            .resource_image(id, reference)
+            .resource_image(&id, &reference)
             .map_err(|e| e.to_string());
         result
     })();

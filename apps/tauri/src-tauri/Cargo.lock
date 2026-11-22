@@ -1151,10 +1151,16 @@ dependencies = [
 
 [[package]]
 name = "frowd-tauri"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "base64 0.22.1",
+ "block2",
  "frowd-documents",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-web-kit",
  "percent-encoding",
  "serde",
  "serde_json",

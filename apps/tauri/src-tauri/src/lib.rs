@@ -1,8 +1,11 @@
 use frowd_documents::filename::suggested_name;
 mod document_links;
+mod protocol_urls;
 mod file_import_host;
 mod resource_host;
 mod pdf;
+#[cfg(target_os = "macos")]
+mod menu_macos;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
 use serde_json::Value;
@@ -21,6 +24,7 @@ struct AppState {
     file_import: Mutex<Option<frowd_documents::file_import::FileImport>>,
     closing: AtomicBool,
     close_confirmed: AtomicBool,
+    exit_requested: AtomicBool,
 }
 fn lock<'a>(state: &'a State<'_, AppState>) -> Result<MutexGuard<'a, Store>, String> {
     state
@@ -239,6 +243,10 @@ fn close_ready(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), 
     // A renderer confirmation is necessary; it is never replaced by a fixed timeout.
     lock(&state)?.checkpoint().map_err(|e| e.to_string())?;
     state.close_confirmed.store(true, Ordering::SeqCst);
+    if state.exit_requested.load(Ordering::SeqCst) {
+        app.exit(0);
+        return Ok(());
+    }
     let result = app
         .get_webview_window("main")
         .ok_or_else(|| "应用窗口已关闭。".to_owned())?
@@ -253,6 +261,7 @@ fn close_ready(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), 
 #[tauri::command]
 fn cancel_close(state: State<'_, AppState>) {
     state.closing.store(false, Ordering::SeqCst);
+    state.exit_requested.store(false, Ordering::SeqCst);
 }
 fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if cfg!(debug_assertions) {
@@ -272,8 +281,9 @@ pub fn run() {
         .register_uri_scheme_protocol("frowd-pdf", pdf::document_response)
         .register_asynchronous_uri_scheme_protocol("frowd-resource", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
+            let label = ctx.webview_label().to_owned();
             tauri::async_runtime::spawn_blocking(move || {
-                responder.respond(resource_host::image_response(&app, request))
+                responder.respond(resource_host::image_response(&app, request, &label))
             });
         })
         .plugin(tauri_plugin_dialog::init())
@@ -290,7 +300,10 @@ pub fn run() {
                 file_import: Mutex::new(None),
                 closing: AtomicBool::new(false),
                 close_confirmed: AtomicBool::new(false),
+                exit_requested: AtomicBool::new(false),
             });
+            #[cfg(target_os = "macos")]
+            menu_macos::install(app)?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -336,6 +349,36 @@ pub fn run() {
             cancel_close,
             open_document_link
         ])
-        .run(tauri::generate_context!())
-        .expect("frowd startup failed; original profile preserved");
+        .build(tauri::generate_context!())
+        .expect("frowd startup failed; original profile preserved")
+        .run(|app, event| {
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    let state = app.state::<AppState>();
+                    if state.close_confirmed.load(Ordering::SeqCst) { return; }
+                    if let Some(window) = app.get_webview_window("main") {
+                        api.prevent_exit();
+                        state.exit_requested.store(true, Ordering::SeqCst);
+                        if !state.closing.swap(true, Ordering::SeqCst) {
+                            if window.emit("frowd:close-requested", ()).is_err() {
+                                state.closing.store(false, Ordering::SeqCst);
+                                state.exit_requested.store(false, Ordering::SeqCst);
+                            }
+                        }
+                    } else if let Err(error) = lock(&state).and_then(|store| store.checkpoint().map_err(|e| e.to_string())) {
+                        eprintln!("Exit checkpoint failed: {error}");
+                        api.prevent_exit();
+                    }
+                }
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
+                _ => {}
+            }
+        });
 }

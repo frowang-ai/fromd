@@ -28,8 +28,8 @@ async fn script(worker: &WebviewWindow, javascript: String) -> Result<String, St
         .map_err(|_| "PDF 渲染响应超时。")?.map_err(|_| "PDF 渲染窗口已关闭。")?
 }
 
-pub(super) async fn windows_print(app: &tauri::AppHandle, label: &str, token: &str, destination: &Path) -> Result<(), String> {
-    let url = format!("http://frowd-pdf.localhost/{token}");
+pub(super) async fn windows_print(app: &tauri::AppHandle, label: &str, token: &str, destination: &Path, _temporary: Arc<tempfile::TempDir>) -> Result<(), String> {
+    let url = protocol_urls::pdf_worker_url(token);
     let navigation_url = url.clone();
     let worker = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External("about:blank".parse().unwrap()))
         .title("frowd PDF").visible(false).focused(false).skip_taskbar(true)
@@ -82,19 +82,10 @@ pub(super) async fn windows_print(app: &tauri::AppHandle, label: &str, token: &s
     // With page scripts disabled, an injected script executes but page timers /
     // promise continuations need not advance. Poll synchronously from the host;
     // forcing layout starts the fonts actually used by this complete document.
-    let readiness = r#"(() => {
-      if (document.readyState !== 'complete' || !document.querySelector('article.markdown-body')) return 'loading';
-      const images = [...document.images];
-      for (const image of images) image.loading = 'eager';
-      void document.body.offsetHeight;
-      if (document.fonts.status !== 'loaded' || images.some(image => !image.complete)) return 'loading';
-      if ([...document.fonts].some(font => font.status === 'error') || images.some(image => !image.naturalWidth)) return 'failed';
-      return 'ready';
-    })()"#;
     tokio::time::timeout(Duration::from_secs(30), async {
         let mut ready = false;
         loop {
-            match script(&worker, readiness.into()).await?.as_str() {
+            match script(&worker, READINESS.into()).await?.as_str() {
                 "\"ready\"" if ready => return Ok::<_, String>(()),
                 "\"ready\"" => ready = true,
                 "\"failed\"" => return Err("PDF 图片或字体加载失败，未保存。".into()),
