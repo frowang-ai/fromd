@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, writeFile, readFile, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -8,7 +8,8 @@ import { createHash } from 'node:crypto'
 import { DocumentStore } from '../apps/desktop/src/main/documentStore.js'
 
 async function fixture(t) {
-  const directory = await mkdtemp(join(tmpdir(), 'frowang-shelf-')), stores = []
+  // Canonicalize macOS /var aliases and Windows runner 8.3 temp paths, as the store does.
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'frowang-shelf-'))), stores = []
   t.after(async () => { for (const store of stores) await store.dispose(); await rm(directory, { recursive: true, force: true }) })
   const make = () => { const store = new DocumentStore(join(directory, 'profile')); stores.push(store); return store }
   const store = make(); await store.restore()
