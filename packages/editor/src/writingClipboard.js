@@ -119,6 +119,11 @@ export function snapshotPasteEvent(event){
   clipboardData:{types:Array.from(event.clipboardData?.types||[]),items:[],files:[],getData:type=>values.get(type)||''}}
 }
 
+function isVscodeLatex(data) {
+  try { return JSON.parse(data.getData('vscode-editor-data') || 'null')?.mode === 'latex' }
+  catch { return false }
+}
+
 // HTML is ordinarily authoritative. Only use explicit Markdown math from the
 // same clipboard when HTML lost formulas and doing so preserves rich features.
 export function installWritingClipboard(view, { parse, normalize, editorId, deferPaste, parsePlain = false }) {
@@ -143,7 +148,22 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
         if (!editorView.isDestroyed) logWritingEvent('paste-result', { editorId, pasteId, route, reason, convertedDisplay, convertedInline, ...describeWritingDocument(editorView.state.doc) })
       })
       try {
-        if ((!editorView.editable&&!authorized) || literal || data.getData('vscode-editor-data')) {
+        if ((!editorView.editable&&!authorized) || literal) {
+          route = 'native'; reason = 'literal-or-special-context'
+        } else if (text && isVscodeLatex(data)) {
+          // VS Code's language describes the source file, not an equation.
+          // Use its source text, not syntax-highlighting HTML or the upstream
+          // automatic latex code block (which our schema renders as math).
+          const fixed = normalize(text), doc = parse(fixed)
+          if (doc) {
+            const fragment = DOMSerializer.fromSchema(editorView.state.schema).serializeFragment(doc.content)
+            let candidate = DOMParser.fromSchema(editorView.state.schema).parseSlice(fragment)
+            editorView.someProp('transformPasted', transform => { candidate = transform(candidate, editorView, false) })
+            route = 'vscode-latex-source'; reason = 'source-language-is-not-math'; normalized = fixed !== text
+            logWritingEvent('paste-route', { ...metadata, route, reason, normalized })
+            return {slice:candidate,inputSlice,event,recovered:true,literal,result}
+          }
+        } else if (data.getData('vscode-editor-data')) {
           route = 'native'; reason = 'literal-or-special-context'
         } else if (text) {
           const fixed = normalize(text)
@@ -187,7 +207,8 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
   function prepare(editorView,event,slice,options){
     const plan=prepareRaw(editorView,event,slice,options)
     if(!plan.literal)plan.slice=compatibleTableSlice(editorView,plan.slice,plan.event)
-    plan.table=plan.literal||event.clipboardData?.getData('vscode-editor-data')?null:prepareTablePaste(editorView,event,plan.slice)
+    // A parsed LaTeX source selection uses the normal table paste path too.
+    plan.table=plan.literal||(!plan.recovered&&event.clipboardData?.getData('vscode-editor-data'))?null:prepareTablePaste(editorView,event,plan.slice)
     plan.resourceSlice=plan.table?.resourceSlice??plan.slice
     return plan
   }

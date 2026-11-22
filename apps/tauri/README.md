@@ -97,6 +97,16 @@ its net edit as one group. An authoritative external refresh invalidates old
 history. CRLF offsets are mapped to textarea LF coordinates without rewriting the
 stored Markdown merely for navigation.
 
+VS Code's `latex` clipboard language identifies a source file, not a formula.
+Selections from `.tex` files therefore use their plain source through the existing
+Markdown/math parser: prose and citation commands remain text, while explicit
+math delimiters are recognized. This does not resolve LaTeX citations or compile
+TeX documents. Other VS Code languages retain code-block paste, and pasting into
+an existing code block remains literal. Focused regression:
+`npm run test:tauri:browser -- vscode-latex-paste.browser.spec.mjs`
+(synthetic clipboard events and mock IPC; no system clipboard access or physical
+VS Code/WebView2 acceptance).
+
 Full-text search uses the existing SQLite drafts and overlays live unsaved editor
 text. It is literal, Unicode exact and ASCII case-insensitive, capped at 256 query
 characters and 100 matching pages. Each page returns its first body hit or a title
