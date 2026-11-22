@@ -4,7 +4,7 @@ version = "0.5.0"
 edition = "2021"
 license = "MIT"
 [lib]
-path = "../../src-tauri/src/documents.rs"
+path = "src/lib.rs"
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
