@@ -46,7 +46,7 @@ import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -76,15 +76,18 @@ async function settleComposition() {
 async function whenReady() { if (!await initialized) throw new Error(error.value || '编辑器已关闭。') }
 function rememberView() { if (created && activeSession) rememberedViews = captureEmbeddedViews(view()) }
 function captureSession() {
-  if (!created || !activeSession) return null
+  if (!created || disposed || !activeSession) return null
   const v = view(), embedded = rememberedViews ?? captureEmbeddedViews(v)
   return { original, initialDoc, initialSerialized, state: v.state.reconfigure({ plugins: allPlugins.filter(plugin => plugin.key === 'history$') }), embedded }
 }
-function selection() { const s = view()?.state.selection; return s ? { anchor: s.anchor, head: s.head } : undefined }
+function selection() { if (!created || disposed || !activeSession) return undefined; const s = view().state.selection; return { anchor: s.anchor, head: s.head } }
 function setState(state) { editor.editor.ctx.set(core.editorStateCtx, state); view().updateState(state) }
 function activateSession({ id, generation, snapshot, markdown = '', viewState, resolveImage }) {
   if (!created || disposed) throw new Error('编辑器尚未就绪。')
   if (view().composing) throw new Error('请先完成输入法组合输入。')
+  // A schema's node/mark specs close over this editor's live Milkdown context.
+  // Never reuse states from another instance (including an HMR-destroyed one).
+  snapshot = snapshot?.state?.schema === view().state.schema ? snapshot : null
   switching = true; clearTimeout(updateTimer); activeSession = null; rememberedViews = null
   try {
     sessionResolver = resolveImage
@@ -379,7 +382,16 @@ onMounted(async () => {
   }
   finally { loading.value = false }
 })
-onBeforeUnmount(() => { disposed = true; disposeLinks?.(); clearTimeout(updateTimer); resolveReady(false); if (created) editor?.destroy().catch(() => {}) })
+onBeforeUnmount(() => {
+  // Flush the final body/selection before destroying ctx. The normal change
+  // notification is debounced and may not have reached the host before HMR.
+  if (created && activeSession && !switching) {
+    try { emit('session-release', { ...activeSession, markdown: getMarkdown(), selection: selection() }) }
+    catch (cause) { logWritingEvent('editor-release-error', { editorId, errorType: cause instanceof TypeError ? 'TypeError' : 'Error' }) }
+  }
+  disposed = true; disposeLinks?.(); clearTimeout(updateTimer); resolveReady(false)
+  if (created) editor?.destroy().catch(() => {})
+})
 </script>
 <style>
 .writing-editor .milkdown {

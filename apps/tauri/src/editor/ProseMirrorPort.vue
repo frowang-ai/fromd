@@ -1,7 +1,7 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
-   <MarkdownEditor ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
+   <MarkdownEditor ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
@@ -17,6 +17,7 @@ import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
 const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
+let lastActivation=null,engineDetached=false,engineRecovery=Promise.resolve()
 let endClick=null
 function cancelEndClick(){endClick=null}
 function primaryEndClick(event){return event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey}
@@ -39,7 +40,30 @@ function endBlankClick(event){
  if(engine.value.placeEndBlank(intent.plan))event.preventDefault()
 }
 const resolveImage=src=>/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)?src:resourceImageUrl(renderDocId,src)
-async function ready(){await nextTick();await engine.value.whenReady();if(disposed)throw Error('编辑器已关闭。')}
+async function ready(){await nextTick();await engine.value.whenReady();await engineRecovery;if(disposed)throw Error('编辑器已关闭。')}
+function owns(event){return !disposed&&owner&&event?.id===owner.id&&event.generation===owner.generation}
+function onEngineRelease(event){
+ if(!owns(event))return
+ cancelEndClick()
+ if(mode.value==='rendered')changed(event)
+ if(lastActivation)lastActivation.viewState={selection:event.selection,scrollTop:scroller.value?.scrollTop??0}
+ engineDetached=true
+}
+function onEngineReady(){
+ if(!owner||!lastActivation||disposed){editable();return}
+ const current=owner,child=engine.value,document=lastActivation
+ engineRecovery=(async()=>{
+  await nextTick()
+  if(disposed||owner!==current||engine.value!==child||lastActivation!==document)return
+  child.activateSession({...current,markdown:sourceText.value,snapshot:null,viewState:document.viewState,resolveImage})
+  child.restoreSessionView();engineDetached=false;editable()
+  await nextTick()
+  if(disposed||owner!==current||engine.value!==child)return
+  scroller.value.scrollTop=document.viewState?.scrollTop??0
+ })()
+ // Keep recovery failure visible; ready()/freeze must also see the rejection.
+ engineRecovery.catch(error=>{if(owns(current)&&engine.value===child)emit('navigation-hint',String(error?.message??error))})
+}
 function editable(){engine.value?.setEditable(Boolean(owner)&&!frozen.value&&mode.value==='rendered');if(root.value)root.value.inert=frozen.value;if(source.value)source.value.readOnly=frozen.value||!owner}
 async function waitComposition(){
  await ready()
@@ -50,14 +74,24 @@ async function waitComposition(){
  await nextTick()
 }
 function sourceSelection(){return source.value?{start:source.value.selectionStart,end:source.value.selectionEnd}:sourceRange}
-function markdown(){return mode.value==='source'?(source.value?.value??sourceText.value):engine.value.getMarkdown()}
+function markdown(){
+ if(mode.value==='source')return source.value?.value??sourceText.value
+ if(engineDetached||!engine.value?.captureSession())throw Error('编辑器正在恢复，请稍后重试。')
+ return engine.value.getMarkdown()
+}
 function capture(){
- if(!owner)return null
- const text=markdown();if(mode.value==='source'){sourceRange=sourceSelection();sourceScroll=source.value?.scrollTop??sourceScroll}
- return {...owner,markdown:text,pm:engine.value.captureSession(),sourceHistory:history,viewState:{
-  mode:mode.value,scrollTop:scroller.value?.scrollTop??0,selection:engine.value.selection(),
-  sourceSelection:sourceRange,sourceScrollTop:sourceScroll
- }}
+ if(!owner||disposed)return null
+ const pm=engine.value?.captureSession()
+ // An unready/remounted child is not an empty document. Never read its Markdown
+ // into the coordinator's buffer until it owns an active rendered session.
+ if(mode.value==='rendered'&&(engineDetached||!pm))return null
+ const text=mode.value==='source'?(source.value?.value??sourceText.value):engine.value.getMarkdown()
+ sourceText.value=text
+ if(mode.value==='source'){sourceRange=sourceSelection();sourceScroll=source.value?.scrollTop??sourceScroll}
+ const viewState={mode:mode.value,scrollTop:scroller.value?.scrollTop??0,selection:engine.value?.selection(),
+  sourceSelection:sourceRange,sourceScrollTop:sourceScroll}
+ if(lastActivation&&!engineDetached&&pm)lastActivation.viewState=viewState
+ return {...owner,markdown:text,pm,sourceHistory:history,viewState}
 }
 async function activate(doc){
  await ready();cancelEndClick();owner=null;renderDocId=doc.id;editable()
@@ -67,6 +101,7 @@ async function activate(doc){
  sourceRange=saved?.sourceSelection||{start:0,end:0};sourceScroll=saved?.sourceScrollTop||0
  engine.value.activateSession({id:doc.id,generation:doc.generation,snapshot:cached?.pm,markdown:doc.markdown,viewState:saved,resolveImage})
  owner={id:doc.id,generation:doc.generation};const current=owner
+ lastActivation={...owner,viewState:saved};engineDetached=false
  await nextTick();engine.value.restoreSessionView();editable()
  await new Promise(r=>requestAnimationFrame(r))
  if(owner!==current||disposed)return
@@ -75,7 +110,8 @@ async function activate(doc){
 }
 function setFrozen(value){if(value)cancelEndClick();frozen.value=value;editable()}
 function changed(event){
- if(!owner||mode.value!=='rendered'||event.id!==owner.id||event.generation!==owner.generation)return
+ if(!owns(event)||mode.value!=='rendered'||engineDetached)return
+ sourceText.value=event.markdown
  emit('change',event)
 }
 function beforeInput(event){
@@ -85,7 +121,7 @@ function beforeInput(event){
  beforeRange=sourceSelection()
 }
 function sourceChanged(event){
- if(!owner||mode.value!=='source'||frozen.value)return
+ if(disposed||!owner||mode.value!=='source'||frozen.value||event.target!==source.value)return
  sourceText.value=event.target.value
  if(event.isComposing||composing)return
  history=recordSource(history,sourceText.value,beforeRange);sourceRange=sourceSelection()
@@ -253,7 +289,7 @@ function utf8Bytes(text){return new TextEncoder().encode(text).byteLength}
 function replaceFind(query,replacement,index=0,all=false,matchCase=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=markdown(),found=literalMatches(text,query,matchCase),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query,matchCase);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}if(utf8Bytes(next)>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query,matchCase).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all,matchCase);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
 function prepareFileImport(source){return engine.value.prepareFileImport(source)}
 function currentOwner(){return owner?{...owner,viewState:{mode:mode.value}}:null}
-function clear(){cancelEndClick();owner=null;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
+function clear(){cancelEndClick();owner=null;lastActivation=null;engineDetached=false;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
 function focus(){if(mode.value==='source')source.value?.focus();else engine.value?.focus()}
 function start(){composing=true}
 function end(event){
