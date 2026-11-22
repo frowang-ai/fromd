@@ -1,0 +1,177 @@
+/* Markdown presentation adapted from SoloMD v5.0.21 (MIT),
+ * zhitongblog/solomd @ 0b30523c70387b046018f857c7bf90bcdc40f54c:
+ * app/src/styles/{main,tokens,writing}.css, components/Preview.vue,
+ * components/Editor.vue and stores/settings.ts. See ../../LICENSE.SOLOMD.
+ * Scoped to the Tauri writing surface. PM node views keep their own behavior;
+ * application chrome, user font/width preferences and PDF layout stay separate.
+ */
+@media screen {
+  .app-shell[data-theme] .editor-panel {
+    --md-bg: #ffffff;
+    --md-elev: #f7f6f3;
+    --md-border: #e9e8e4;
+    --md-text: #1f1e1c;
+    --md-muted: #5e5b55;
+    --md-faint: #78756e;
+    --md-accent: #e07b39;
+    --md-link: #b4561b;
+    --md-fill: rgba(31, 30, 28, .05);
+    --md-selection: rgba(224, 123, 57, .13);
+    --md-hairline: rgba(31, 30, 28, .08);
+    --md-active-line: #ecebe8;
+    --md-h1: #1f1e1c; --md-h2: #1f1e1c; --md-h3: #1f1e1c;
+    --md-h4: #2f2e2b; --md-h5: #3f3d39; --md-h6: #5e5b55;
+    --md-mark: rgba(255, 212, 0, .52);
+    --md-font: -apple-system, "Segoe UI", system-ui, sans-serif, "PingFang SC", "PingFang TC", "Hiragino Sans GB", "Microsoft YaHei", "Heiti SC", "Noto Sans CJK SC";
+    --md-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Fira Code", "Source Code Pro", "DejaVu Sans Mono", "Liberation Mono", "Ubuntu Mono", "Noto Sans Mono", "PingFang SC", "Hiragino Sans GB", monospace, "Apple Color Emoji", "Segoe UI Emoji";
+    --writing-code-keyword: #a626a4;
+    --writing-code-string: #50a14f;
+    --writing-code-number: #986801;
+    --writing-code-operator: #0184bc;
+    /* SoloMD's muted text keeps comments readable at small code sizes. */
+    --writing-code-comment: var(--md-muted);
+    --writing-code-error: #d64545;
+    --reading-background: var(--md-bg);
+    --reading-surface: var(--md-elev);
+    --reading-text: var(--md-text);
+    --reading-muted: var(--md-muted);
+    --reading-border: var(--md-border);
+    --reading-selected: var(--md-selection);
+    --reading-accent: var(--md-link);
+    color: var(--md-text);
+    background: var(--md-bg);
+  }
+  .app-shell[data-theme=dark] .editor-panel {
+    --md-bg: #1c1c1e;
+    --md-elev: #262628;
+    --md-border: #333336;
+    --md-text: #eceae6;
+    --md-muted: #a9a6a0;
+    --md-faint: #8c8984;
+    --md-accent: #f0965a;
+    --md-link: #f4a26b;
+    --md-fill: rgba(255, 255, 255, .07);
+    --md-selection: rgba(240, 150, 90, .18);
+    --md-hairline: rgba(255, 255, 255, .08);
+    /* An opaque, quieter active line retains contrast for the syntax palette. */
+    --md-active-line: #2e2e30;
+    --md-h1: #f2f0ec; --md-h2: #f2f0ec; --md-h3: #eceae6;
+    --md-h4: #d8d6d1; --md-h5: #c2bfba; --md-h6: #a9a6a0;
+    --md-mark: rgba(255, 212, 59, .42);
+    --writing-code-keyword: #c678dd;
+    --writing-code-string: #98c379;
+    --writing-code-number: #d19a66;
+    --writing-code-operator: #56b6c2;
+    --writing-code-error: #f0b4aa;
+  }
+  .app-shell[data-theme] .writing-editor .milkdown {
+    --crepe-font-default: var(--md-font);
+    --crepe-font-title: var(--md-font);
+    --crepe-font-code: var(--md-mono);
+    --crepe-base-font-size: var(--reading-font-size, 16px);
+    --crepe-color-background: var(--md-bg);
+    --crepe-color-on-background: var(--md-text);
+    --crepe-color-surface: var(--md-elev);
+    --crepe-color-surface-low: var(--md-bg);
+    --crepe-color-on-surface: var(--md-text);
+    --crepe-color-on-surface-variant: var(--md-muted);
+    --crepe-color-outline: var(--md-faint);
+    --crepe-color-primary: var(--md-link);
+    --crepe-color-secondary: var(--md-fill);
+    --crepe-color-on-secondary: var(--md-text);
+    --crepe-color-inverse: var(--md-text);
+    --crepe-color-on-inverse: var(--md-bg);
+    --crepe-color-inline-code: var(--md-text);
+    --crepe-color-inline-area: var(--md-fill);
+    --crepe-color-error: var(--writing-code-error);
+    --crepe-color-hover: var(--md-fill);
+    --crepe-color-selected: var(--md-selection);
+    font-family: var(--md-font);
+    color: var(--md-text);
+    background: var(--md-bg);
+  }
+  .app-shell[data-theme] .writing-editor .milkdown > .ProseMirror {
+    font-family: var(--md-font);
+    font-size: var(--reading-font-size, 16px);
+    line-height: 1.8;
+    color: var(--md-text);
+    overflow-wrap: break-word;
+  }
+  .app-shell[data-theme] .writing-editor .ProseMirror ::selection { background: var(--md-selection); }
+  .app-shell[data-theme] .writing-editor .ProseMirror :is(h1,h2,h3,h4,h5,h6) {
+    font-family: var(--md-font); font-weight: 600; line-height: 1.3;
+    letter-spacing: normal; padding: 0; margin: 1.6em 0 .5em;
+  }
+  .app-shell[data-theme] .writing-editor .ProseMirror h1 { font-size: 1.875em; font-weight: 650; line-height: 1.25; letter-spacing: -.015em; margin: 1.2em 0 .6em; color: var(--md-h1); }
+  .app-shell[data-theme] .writing-editor .ProseMirror h2 { font-size: 1.25em; font-weight: 620; color: var(--md-h2); }
+  .app-shell[data-theme] .writing-editor .ProseMirror h3 { font-size: 1.125em; color: var(--md-h3); }
+  .app-shell[data-theme] .writing-editor .ProseMirror h4 { font-size: 1.0625em; color: var(--md-h4); }
+  .app-shell[data-theme] .writing-editor .ProseMirror h5 { font-size: 1em; color: var(--md-h5); }
+  .app-shell[data-theme] .writing-editor .ProseMirror h6 { font-size: 1em; color: var(--md-h6); }
+  .app-shell[data-theme] .writing-editor .ProseMirror p { margin: .9em 0; padding: 0; line-height: 1.8; }
+  /* PM inserts decorations before the first real block, including on focus. */
+  .app-shell[data-theme] .writing-editor .ProseMirror > :nth-child(1 of :not(.ProseMirror-widget,.prosemirror-virtual-cursor)) { margin-top: 0; }
+  .app-shell[data-theme] .writing-editor .ProseMirror :is(strong,em) { color: inherit; }
+  .app-shell[data-theme] .writing-editor .ProseMirror a {
+    color: var(--md-link); text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--md-link) 35%, transparent); text-underline-offset: 3px;
+  }
+  .app-shell[data-theme] .writing-editor .ProseMirror a:hover { text-decoration-color: currentColor; }
+  .app-shell[data-theme] .writing-editor .ProseMirror code {
+    font-family: var(--md-mono); font-size: .875em; color: var(--md-text);
+    background: var(--md-fill); padding: .12em .35em; border-radius: 4px;
+  }
+  .app-shell[data-theme] .writing-editor .ProseMirror blockquote:not(.writing-alert) {
+    margin: 1em 0; padding: 12px 16px; border: 0; border-radius: 10px;
+    background: var(--md-elev); color: var(--md-muted);
+  }
+  .app-shell[data-theme] .writing-editor .ProseMirror blockquote::before { display: none; }
+  .app-shell[data-theme] .writing-editor .ProseMirror blockquote > :first-child { margin-top: 0; }
+  .app-shell[data-theme] .writing-editor .ProseMirror blockquote > :last-child { margin-bottom: 0; }
+  /* PM has explicit label/content node views; their two columns replace the
+     upstream native list marker + 1.8em indent without altering list DOM. */
+  .app-shell[data-theme] .writing-editor .ProseMirror :is(ul,ol) { margin: .9em 0; padding: 0; }
+  .app-shell[data-theme] .writing-editor .milkdown-list-item-block { margin: .25em 0; }
+  .app-shell[data-theme] .writing-editor .list-item { gap: .55em; }
+  .app-shell[data-theme] .writing-editor .list-item > .label-wrapper { height: 1.8em; color: var(--md-faint); font-variant-numeric: tabular-nums; }
+  .app-shell[data-theme] .writing-editor .list-item > .label-wrapper > .label { height: 1.8em; line-height: 1.8; }
+  .app-shell[data-theme] .writing-editor .list-item > .children > .content-dom > p { margin: 0; padding: 0; line-height: 1.8; }
+  .app-shell[data-theme] .writing-editor .list-item > .children > .content-dom > p + p { margin-top: .4em; }
+  .app-shell[data-theme] .writing-editor .list-item > .children > .content-dom > :is(ul,ol) { margin: .15em 0 0; }
+  .app-shell[data-theme] .writing-editor .label:is(.checked,.unchecked)::before { border-color: var(--md-faint); border-radius: 4px; }
+  .app-shell[data-theme] .writing-editor .label.checked::before { background: var(--md-accent); border-color: var(--md-accent); color: #fff; }
+  .app-shell[data-theme] .writing-editor .milkdown-table-block { margin: 1em 0; }
+  .app-shell[data-theme] .writing-editor table.children { border-collapse: collapse; width: 100%; max-width: 100%; line-height: 1.6; }
+  .app-shell[data-theme] .writing-editor table.children :is(th,td) { border: 1px solid var(--md-border); padding: 6px 12px; min-width: 48px; }
+  .app-shell[data-theme] .writing-editor table.children th { background: var(--md-elev); font-weight: 600; }
+  .app-shell[data-theme] .writing-editor table.children tr:nth-child(even) { background: color-mix(in srgb, var(--md-elev) 55%, transparent); }
+  .app-shell[data-theme] .writing-editor table.children :is(th,td) p { margin: 0; padding: 0; line-height: 1.6; }
+  .app-shell[data-theme] .writing-editor .ProseMirror hr { border: 0; border-top: 1px solid var(--md-hairline); margin: 2em 0; }
+  .app-shell[data-theme] .writing-editor .ProseMirror img { border-radius: 4px; }
+  .app-shell[data-theme] .writing-editor .ProseMirror mark { background: var(--md-mark); }
+  .app-shell[data-theme] .writing-editor .ProseMirror kbd { color: var(--md-text); background: var(--md-elev); border-color: var(--md-border); }
+  .app-shell[data-theme] .writing-editor .milkdown-code-block { padding: 8px 16px 14px; margin: 1em 0; border-radius: 10px; background: var(--md-elev); }
+  .app-shell[data-theme] .writing-editor .milkdown-code-block .cm-editor { font-size: .8125em; color: var(--md-text); background: var(--md-elev); }
+  .app-shell[data-theme] .writing-editor .milkdown-code-block .cm-scroller { font-family: var(--md-mono); line-height: 1.6; }
+  .app-shell[data-theme] .writing-editor .cm-gutters { color: var(--md-faint); background: var(--md-elev); }
+  .app-shell[data-theme] .writing-editor .cm-content { caret-color: var(--md-link); }
+  .app-shell[data-theme] .writing-editor :is(.cm-cursor,.cm-dropCursor) { border-left-color: var(--md-link); }
+  .app-shell[data-theme] .writing-editor :is(.cm-activeLine,.cm-activeLineGutter) { background: var(--md-active-line); }
+  .app-shell[data-theme] .writing-editor .cm-selectionBackground { background: var(--md-selection); }
+  .app-shell[data-theme] .pm-port .markdown-source { font-size: var(--reading-font-size,16px); font-family: var(--md-mono); line-height: 1.8; color: var(--md-text); caret-color: var(--md-link); }
+  .app-shell[data-theme] .writing-editor .writing-link-open { color: var(--md-link); border-color: var(--md-border); }
+  .app-shell[data-theme] .writing-editor .writing-link-open:hover { background: var(--md-fill); }
+  .app-shell[data-theme] .writing-editor :is(.writing-footnote-reference,.writing-footnote-definition dt) { color: var(--md-link); }
+  .app-shell[data-theme] .writing-editor .writing-footnote-definition { border-color: var(--md-border); }
+  .app-shell[data-theme] .writing-editor .writing-footnote-definition dd > p:first-child { margin-top: 0; }
+  .app-shell[data-theme] .writing-editor .writing-mermaid-toggle { color: var(--md-muted); border-color: var(--md-border); }
+  /* Keep the separately chosen Typora-style math interaction and layout. */
+  /* Keep KaTeX's hidden MathML inside one stable clickable inline box. */
+  .app-shell[data-theme] .writing-editor .writing-math-inline > .writing-math-preview:not([hidden]) { display: inline-block; vertical-align: baseline; }
+  .app-shell[data-theme] .writing-editor .writing-math-preview:hover { background: var(--md-fill); }
+  .app-shell[data-theme] .writing-editor .writing-math-block > .writing-math-preview:hover { background: transparent; }
+  .app-shell[data-theme] .writing-editor .writing-block-source { background: var(--md-elev); border-color: var(--md-border); }
+  .app-shell[data-theme] .writing-editor :is(.writing-block-fence,.writing-block-done) { color: var(--md-muted); }
+  .app-shell[data-theme] .writing-editor .writing-block-code .cm-editor { color: var(--md-text); background: var(--md-elev); }
+  .app-shell[data-theme] .writing-editor .writing-math-inline .writing-math-source { color: var(--writing-code-keyword); caret-color: var(--md-link); background: transparent; }
+}

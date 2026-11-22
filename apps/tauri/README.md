@@ -137,6 +137,20 @@ behavior and failures are in [FIND_REPLACE_V1.md](FIND_REPLACE_V1.md).
 
 The original outline now includes ATX, Setext and quoted headings while excluding
 fenced code and leading YAML metadata. Duplicate headings have separate positions.
+Rendered Markdown uses an adapted SoloMD v5.0.21 writing theme in
+`src/reading/markdown-theme.css`: the system sans/CJK font stack, proportional
+H1–H6 sizes, 1.8 prose line-height, light/dark palettes, lists, quotes, links,
+tables and code styling. PM-specific labels, table controls and CodeMirror
+surfaces are mapped to that theme without replacing the editor. The name dock,
+14px document top inset and user font-size/column-width settings remain. Formula
+presentation keeps the separately chosen Typora-style editing behavior above.
+No fonts or CSS are loaded from the network. Code comments use the palette's
+muted text color and active code lines use an opaque quiet fill to retain the
+existing dark-code readability requirement.
+Source and license references are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Focused checks: `npm run test:tauri:browser -- heading-hierarchy.browser.spec.mjs markdown-theme.browser.spec.mjs`.
+This is the on-screen Tauri writing theme; print/PDF and retained Electron styles
+keep their existing contracts.
 Word/non-whitespace-character counts sit beside the floating name/save state;
 code and formula source count toward the totals. Header 阅读, View > 阅读设置… or
 Ctrl+, opens font size, width and light/dark/system settings. Defaults retain

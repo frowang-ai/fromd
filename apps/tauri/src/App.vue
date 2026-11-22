@@ -148,6 +148,7 @@ import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
 import './reading/reading.css'
+import './reading/markdown-theme.css'
 import {nativeWindow,previewWindow,minimizeWindow,toggleMaximizeWindow,closeWindow,dragWindow,observeMaximized,setPageZoom} from './window.mjs'
 
 const state=reactive({})

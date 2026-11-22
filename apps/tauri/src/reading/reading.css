@@ -12,12 +12,8 @@
     background: var(--reading-background);
     color: var(--reading-text);
   }
-  .app-shell[data-theme] .editor-panel { background: var(--reading-background); }
   .app-shell[data-theme] .pm-scroller > .writing-editor { max-width: var(--reading-column-width, 860px); }
-  .app-shell[data-theme] .milkdown { --crepe-base-font-size: var(--reading-font-size, 16px); }
-  .app-shell[data-theme] .writing-editor .milkdown > .ProseMirror { font-size: var(--reading-font-size, 16px); }
   .app-shell[data-theme] .pm-port .markdown-source {
-    font-size: var(--reading-font-size, 16px);
     padding-inline: max(36px, calc((100% - var(--reading-column-width, 860px)) / 2));
   }
   .reading-button { font-size: 11px; padding: 5px 8px; flex-shrink: 0; border-radius: 4px; }
@@ -43,12 +39,6 @@
     --reading-selected: #384d40;
     --reading-accent: #a0cfb5;
     --reading-warning: #ebd5a0;
-    --writing-code-keyword: #a6d8b0;
-    --writing-code-string: #e2b8eb;
-    --writing-code-number: #edc299;
-    --writing-code-operator: #a7c8f1;
-    --writing-code-comment: #a9b6b0;
-    --writing-code-error: #f0b4aa;
     color-scheme: dark;
   }
   .app-shell[data-theme=dark] .app-header,
@@ -109,49 +99,6 @@
   .app-shell[data-theme=dark] .error-notice { background: #473f2b; border-color: #77663f; color: var(--reading-warning); }
   .app-shell[data-theme=dark] :focus-visible { outline-color: var(--reading-accent); }
   .app-shell[data-theme=dark] input::placeholder { color: var(--reading-muted); }
-  .app-shell[data-theme=dark] .markdown-source { color: var(--reading-text); caret-color: var(--reading-accent); }
-
-  .app-shell[data-theme=dark] .writing-editor .milkdown {
-    --crepe-color-background: var(--reading-background);
-    --crepe-color-on-background: var(--reading-text);
-    --crepe-color-surface: var(--reading-surface);
-    --crepe-color-surface-low: #25312a;
-    --crepe-color-on-surface: var(--reading-text);
-    --crepe-color-on-surface-variant: #bed0c2;
-    --crepe-color-outline: #97b09e;
-    --crepe-color-primary: var(--reading-accent);
-    --crepe-color-secondary: var(--reading-selected);
-    --crepe-color-on-secondary: #d9eadc;
-    --crepe-color-inverse: #dce5dc;
-    --crepe-color-on-inverse: #202723;
-    --crepe-color-inline-code: #e4c6b4;
-    --crepe-color-error: #f0b4aa;
-    --crepe-color-hover: #303e34;
-    --crepe-color-selected: var(--reading-selected);
-    --crepe-color-inline-area: #39473c;
-    --crepe-shadow-1: 0 2px 8px #0005;
-    --crepe-shadow-2: 0 3px 12px #0006;
-  }
-  .app-shell[data-theme=dark] .writing-editor .writing-math-preview:hover { background: #303e34; }
-  .app-shell[data-theme=dark] .writing-editor .writing-link-open { color: var(--reading-accent); border-color: var(--reading-border); }
-  .app-shell[data-theme=dark] .writing-editor .writing-link-open:hover { background: #303e34; }
-  .app-shell[data-theme=dark] .writing-editor .writing-math-block > .writing-math-preview:hover { background: transparent; }
-  .app-shell[data-theme=dark] .writing-editor .writing-math-block.is-editing,
-  .app-shell[data-theme=dark] .writing-editor .writing-block-source { border-color: var(--reading-border); }
-  .app-shell[data-theme=dark] .writing-editor .writing-block-source,
-  .app-shell[data-theme=dark] .writing-editor .writing-math-source { background: var(--reading-surface); color: #c9dbce; }
-  .app-shell[data-theme=dark] .writing-editor .writing-block-fence,
-  .app-shell[data-theme=dark] .writing-editor .writing-block-done { color: var(--reading-muted); }
-  .app-shell[data-theme=dark] .writing-editor .writing-math-inline .writing-math-source { background: transparent; color: #e5b5ed; caret-color: #e5b5ed; }
-  .app-shell[data-theme=dark] .writing-editor .writing-block-code .cm-editor { color: var(--reading-text); background: var(--reading-surface); }
-  .app-shell[data-theme=dark] .writing-editor .cm-content { caret-color: var(--reading-accent); }
-  .app-shell[data-theme=dark] .writing-editor .cm-cursor,
-  .app-shell[data-theme=dark] .writing-editor .cm-dropCursor { border-left-color: var(--reading-accent); }
-  .app-shell[data-theme=dark] .writing-editor .cm-activeLine,
-  .app-shell[data-theme=dark] .writing-editor .cm-activeLineGutter { background: #35473b; }
-  .app-shell[data-theme=dark] .writing-editor .cm-selectionBackground { background: #506c58; }
-  .app-shell[data-theme=dark] .writing-editor .milkdown > .ProseMirror mark { background: #685b2d; }
-  .app-shell[data-theme=dark] .writing-editor .milkdown > .ProseMirror kbd { color: var(--reading-text); background: var(--reading-surface); border-color: var(--reading-border); }
 
   @media (max-width: 760px) {
     .app-shell[data-theme] .app-header { gap: 12px; }
