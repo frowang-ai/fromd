@@ -1,5 +1,12 @@
 # frowd — Tauri / ProseMirror client
 
+0.5.2 separates the cross-platform editor/document store/coordinator from the
+Windows and macOS shells. See [macOS packaging, architecture and native acceptance](MACOS_PACKAGING.md)
+and [Windows installer](WINDOWS_INSTALLER.md). macOS uses a decorated system
+window, native menus, Cmd-based commands and AppKit A4 paginated PDF export.
+The historical validation counts below describe earlier Windows releases, not
+macOS acceptance; current native macOS checks run in the Tauri build workflow.
+
 The current round starts from `feat/tauri-blackboard-v1` at `f648c93` and compares
 Electron 0.5 capabilities with the existing Tauri application. It retains the
 Rust host, Windows WebView2, SQLite document service and shared
@@ -35,7 +42,8 @@ The Tauri app's own Vite commands are invoked through these scripts:
 | `npm run tauri:dev` | Start the native Tauri/Rust + WebView2 development client |
 | `npm run tauri:check` | Check the Rust host |
 | `npm run tauri:build` | Build a release executable with `--no-bundle` |
-| `npm run tauri:installer` | Build an unsigned Windows x64 NSIS Setup.exe; no install or publication |
+| `npm run tauri:installer` / `tauri:installer:win` | Build an unsigned Windows x64 NSIS Setup.exe; no install or publication |
+| `npm run tauri:installer:mac` | Build unsigned macOS APP/DMG using the platform configuration |
 | `npm run test:tauri` | Tauri Node tests |
 | `npm run test:tauri:browser` | Browser tests with mock native IPC |
 | `npm run test:tauri:native` | Real debug executable / WebView2 / SQLite tests |
@@ -79,8 +87,10 @@ identity and layout.
 - `src/documents/coordinator.mjs` and `host.mjs`: serial ownership, IME-safe
   readonly/inert freeze, final-input flush, stale acknowledgements, search,
   versioned ordering and normal-close handshake.
-- `crates/document-store` and `src-tauri`: SQLite/schema3 authority, file rules,
-  resource ownership, rollback/capacity/undo and fixed host APIs.
+- `crates/document-store/src`: independent Rust SQLite/schema3 authority, file rules,
+  resource ownership, rollback/capacity/undo; no reverse host-source imports.
+- `src-tauri`: fixed IPC, scoped protocols, native menus, dialogs, quit handshake
+  and platform PDF adapters. `src/platform.mjs` and `WindowChrome.vue` own UI shell policy.
 - `src/reading`: counts, outline adaptation and validated local preferences.
 
 SoloMD localStorage drafts, AI/sync/recipes/telemetry, MCP sidecar and updater do
