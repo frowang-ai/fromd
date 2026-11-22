@@ -58,7 +58,10 @@ impl FileImport {
         })
     }
     pub fn verify(&self, token: &str) -> Result<()> {
-        if token != self.source.token || self.created.elapsed().as_secs() > 300 {
+        self.verify_at(token, Instant::now())
+    }
+    fn verify_at(&self, token: &str, now: Instant) -> Result<()> {
+        if token != self.source.token || now.saturating_duration_since(self.created).as_secs() > 300 {
             return Err(invalid("导入来源已过期，请重新选择文件。"));
         }
         Ok(())

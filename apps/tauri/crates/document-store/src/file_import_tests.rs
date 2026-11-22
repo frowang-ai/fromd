@@ -46,10 +46,12 @@ fn import_invalid_utf8_size_kind_and_tokens_preserve_store() {
     fs::write(&wrong, b"ok").unwrap();
     assert!(FileImport::read(&wrong).is_err());
     fs::write(&path, b"ok").unwrap();
-    let mut pending = FileImport::read(&path).unwrap();
+    let pending = FileImport::read(&path).unwrap();
     assert!(pending.verify("foreign").is_err());
-    pending.created = Instant::now() - std::time::Duration::from_secs(301);
-    assert!(pending.verify(&pending.source.token).is_err());
+    assert!(pending.verify(&pending.source.token).is_ok());
+    // Forward time works even on a Windows runner with less than 301s uptime.
+    assert!(pending.verify_at(&pending.source.token, pending.created + std::time::Duration::from_secs(300)).is_ok());
+    assert!(pending.verify_at(&pending.source.token, pending.created + std::time::Duration::from_secs(301)).is_err());
     assert_eq!(store.snapshot().unwrap().active_id, Some(id));
     assert_eq!(store.snapshot().unwrap().documents.len(), 1);
 }
