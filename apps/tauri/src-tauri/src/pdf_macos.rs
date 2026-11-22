@@ -72,7 +72,7 @@ pub(super) async fn macos_print(app: &tauri::AppHandle, label: &str, token: &str
     let navigation_url = url.clone();
     let worker = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::External("about:blank".parse().unwrap()))
         .title("frowd PDF").visible(false).focused(false).skip_taskbar(true)
-        .inner_size(794.0, 1123.0).drag_and_drop(false)
+        .inner_size(794.0, 1123.0).disable_drag_drop_handler()
         .on_navigation(move |target| target.as_str() == "about:blank" || target.as_str() == navigation_url)
         .build().map_err(|e| e.to_string())?;
     // The CSP disables document scripts, external images/fonts, frames and fetch.
