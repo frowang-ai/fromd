@@ -1,0 +1,103 @@
+import {test,expect} from '@playwright/test'
+import {installMockHost} from './mock-host.mjs'
+
+const body=page=>page.locator('.ProseMirror:visible')
+async function boot(page,markdown){
+ await page.addInitScript(installMockHost,{markdown})
+ await page.goto('/?testHost=1')
+ await expect(page.locator('.loading-state')).toHaveCount(0)
+ await expect(body(page)).toHaveAttribute('contenteditable','true')
+ await page.evaluate(()=>document.fonts.ready)
+}
+async function capture(page){return page.locator('.pm-port').evaluate(el=>el.__vueParentComponent.exposed.capture().markdown)}
+
+test('empty block has a compact centered placeholder, opens source and closes back without rewriting text',async({page},testInfo)=>{
+ const markdown='$$\n\n$$\n\n后文。'
+ await boot(page,markdown)
+ const block=body(page).locator('.writing-math-block'),preview=block.locator('.writing-math-preview'),placeholder=preview.locator('.writing-math-placeholder')
+ await expect(placeholder).toHaveText('〈空公式块〉')
+ await expect(block.locator('.writing-block-source')).toBeHidden()
+ const centered=await placeholder.evaluate(el=>{const p=el.parentElement.getBoundingClientRect(),r=el.getBoundingClientRect();return{delta:Math.abs((r.left+r.right-p.left-p.right)/2),height:p.height}})
+ expect(centered.delta).toBeLessThan(2);expect(centered.height).toBeLessThan(64)
+ await expect(block).toHaveCSS('border-top-width','0px')
+ await page.screenshot({path:testInfo.outputPath('empty-block.png')})
+ await preview.click()
+ await expect(page.getByRole('textbox',{name:'行间公式 LaTeX',exact:true})).toBeFocused()
+ await body(page).locator(':scope > p').last().click()
+ await expect(block.locator('.writing-block-source')).toBeHidden()
+ await expect(placeholder).toBeVisible()
+ expect(await capture(page)).toBe(markdown)
+})
+
+test('display and inline formulas render as part of the document and retain explicit tags',async({page},testInfo)=>{
+ const markdown='正文中的 $x^2+y^2$ 随文字排列。\n\n$$\nE=mc^2 \\tag{1}\n$$\n\n后一段正文。'
+ await boot(page,markdown)
+ const block=body(page).locator('.writing-math-block')
+ await expect(body(page).locator('.writing-math-inline .katex')).toHaveCount(1)
+ await expect(block.locator('.katex-display')).toHaveCount(1)
+ await expect(block.locator('.tag')).toHaveText('(1)')
+ await expect(block.locator('.writing-block-source')).toBeHidden()
+ await expect(block).toHaveCSS('border-top-width','0px')
+ expect(await capture(page)).toBe(markdown)
+ await page.screenshot({path:testInfo.outputPath('rendered-math.png')})
+ await block.locator('.writing-math-preview').click()
+ const input=page.getByRole('textbox',{name:'行间公式 LaTeX',exact:true})
+ await expect(input).toBeFocused();await input.fill('E=mc^2+1 \\tag{1}')
+ await page.screenshot({path:testInfo.outputPath('editing-block.png')})
+ await input.press('Control+Enter');await expect(input).toBeHidden()
+ await expect(block.locator('annotation')).toHaveText('E=mc^2+1 \\tag{1}')
+ await body(page).press('Control+z');expect(await capture(page)).toBe(markdown)
+})
+
+test('empty inline math stays within its paragraph with a small preview and remains editable',async({page})=>{
+ await boot(page,'前文 $x^2$ 后文。')
+ const formula=body(page).getByRole('button',{name:'编辑行内公式',exact:true})
+ await formula.click()
+ const source=page.getByRole('textbox',{name:'行内公式 LaTeX',exact:true}),tooltip=page.getByRole('tooltip',{name:'公式预览',exact:true})
+ await source.fill('');await expect(tooltip).toHaveText('〈空公式〉')
+ expect((await tooltip.boundingBox()).height).toBeLessThan(64)
+ await source.press('Enter');await expect(tooltip).toHaveCount(0)
+ await expect(formula).toHaveText('〈空公式〉')
+ await expect(body(page).locator(':scope > p')).toHaveText('前文 〈空公式〉 后文。',{useInnerText:true})
+ await formula.click();await source.fill('y^2');await source.press('Enter')
+ await expect(formula.locator('annotation')).toHaveText('y^2')
+ await expect(formula).not.toHaveClass(/is-empty|is-incomplete/)
+})
+
+test('incomplete block and inline previews use quiet placeholders while keeping editable source',async({page})=>{
+ const markdown='未完的 $\\frac{$ 保留。\n\n$$\n\\frac{\n$$\n\n后文。'
+ await boot(page,markdown)
+ await expect(body(page).locator('.writing-math-preview.is-incomplete')).toHaveCount(2)
+ await expect(body(page).locator('.katex-error')).toHaveCount(0)
+ expect(await capture(page)).toBe(markdown)
+ await body(page).getByRole('button',{name:'编辑行内公式',exact:true}).click()
+ const inline=page.getByRole('textbox',{name:'行内公式 LaTeX',exact:true})
+ await expect(inline).toHaveValue('\\frac{');await inline.fill('\\frac{1}{2}');await inline.press('Enter')
+ await expect(body(page).locator('.writing-math-inline annotation')).toHaveText('\\frac{1}{2}')
+ await body(page).getByRole('button',{name:'编辑行间公式',exact:true}).click()
+ const block=page.getByRole('textbox',{name:'行间公式 LaTeX',exact:true})
+ await expect(block).toHaveText('\\frac{');await block.fill('\\frac{2}{3}');await block.press('Control+Enter')
+ await expect(body(page).locator('.writing-math-preview.is-incomplete')).toHaveCount(0)
+ await expect(body(page).locator('.writing-math-block annotation')).toHaveText('\\frac{2}{3}')
+})
+
+test('dark narrow presentation keeps placeholders and editing within the document width',async({page},testInfo)=>{
+ await page.setViewportSize({width:560,height:760})
+ await boot(page,'$$\n\n$$\n\n正文 $x^2$。')
+ await page.getByRole('button',{name:'阅读设置',exact:true}).click()
+ await page.getByRole('combobox',{name:'主题',exact:true}).selectOption('dark')
+ await page.getByRole('button',{name:'关闭阅读设置',exact:true}).click()
+ const preview=body(page).getByRole('button',{name:'编辑行间公式',exact:true})
+ await expect(preview).toHaveText('〈空公式块〉')
+ const placeholder=preview.locator('.writing-math-placeholder')
+ const style=await placeholder.evaluate(el=>({text:getComputedStyle(el).color,muted:getComputedStyle(el).getPropertyValue('--reading-muted')}))
+ expect(style.text).not.toBe('rgb(0, 0, 0)');expect(style.muted.trim()).not.toBe('')
+ await page.screenshot({path:testInfo.outputPath('dark-empty.png')})
+ await preview.click()
+ const input=page.getByRole('textbox',{name:'行间公式 LaTeX',exact:true})
+ await input.fill('x_1 + x_2 + x_3 + x_4 + x_5 + x_6 = 21')
+ const rect=await body(page).locator('.writing-block-source').boundingBox()
+ expect(rect.x).toBeGreaterThanOrEqual(0);expect(rect.x+rect.width).toBeLessThanOrEqual(560)
+ await input.press('Control+Enter')
+ await expect(body(page).locator('.writing-block-source')).toBeHidden()
+})

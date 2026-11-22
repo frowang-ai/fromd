@@ -1,5 +1,5 @@
 import { registerEmbeddedView, trackCodeBlockView } from './writingViewState.js'
-import katex from 'katex'
+import { renderMathPreview } from './writingMathPreview.js'
 import remarkMath from 'remark-math'
 import { $nodeSchema, $remark } from '@milkdown/kit/utils'
 import { codeBlockSchema } from '@milkdown/kit/preset/commonmark'
@@ -59,10 +59,7 @@ function inlineFormulaView(initial, view, getPos) {
   const inlineUi = createInlineMathPresentation(dom, source)
   const value = () => node.attrs.value
   function render() {
-    if (!opened) {
-      if (!value()) preview.textContent = '空公式 · 点击编辑'
-      else katex.render(value(), preview, { displayMode: false, throwOnError: false, trust: false })
-    }
+    if (!opened) renderMathPreview(preview, value())
     if (source.value !== value()) {
       const start = source.selectionStart, end = source.selectionEnd
       source.value = value()

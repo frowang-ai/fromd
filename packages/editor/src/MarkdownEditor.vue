@@ -401,18 +401,20 @@ onBeforeUnmount(() => { disposed = true; disposeLinks?.(); clearTimeout(updateTi
 .writing-editor .writing-math { cursor: text; }
 .writing-editor .writing-math-preview { border-radius: 3px; }
 .writing-editor .writing-math-preview:hover { background: #edf3ed; }
-.writing-editor .writing-math-preview:focus-visible { outline: 2px solid #59927e; }
+.writing-editor .writing-math-preview:focus-visible { outline: 2px solid #59927e; outline-offset: 3px; }
 .writing-editor .writing-math-inline { display: inline; }
-.writing-editor .writing-math-block { margin: 1.3em 0; padding: 0; border: 1px solid transparent; border-radius: 6px; }
-.writing-editor .writing-math-block.is-editing { border-color: #d8e0e6; }
-.writing-editor .writing-math-block > .writing-math-preview { padding: 12px; overflow-x: auto; }
+.writing-editor .writing-math-placeholder { color: var(--reading-muted, #7d837c); font-style: italic; }
+.writing-editor .writing-math-preview.is-incomplete .writing-math-placeholder { font-size: .85em; font-style: normal; }
+.writing-editor .writing-math-block { margin: 1em 0; padding: 0; border: 0; }
+.writing-editor .writing-math-block > .writing-math-preview { min-height: 2.5em; padding: .4em 0; overflow-x: auto; text-align: center; }
+.writing-editor .writing-math-block > .writing-math-preview .katex-display { margin: 0; }
 .writing-editor .writing-math-block > .writing-math-preview:hover { background: transparent; }
-.writing-editor .writing-block-source { background: #f4f6f8; border-bottom: 1px solid #d8e0e6; }
+.writing-editor .writing-block-source { background: #f4f6f8; border: 1px solid #e2e5e9; border-radius: 3px; }
 .writing-editor .writing-block-source[hidden] { display: none; }
 .writing-editor .writing-block-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 0; }
 .writing-editor .writing-block-fence { color: #8b94a2; font: 14px/1.6 Consolas, monospace; }
 .writing-editor .writing-block-fence.is-ending { display: block; padding: 0 12px 6px; }
-.writing-editor .writing-block-done { padding: 2px 6px; font-size: 12px; color: #64717d; }
+.writing-editor .writing-block-done { padding: 2px 6px; font-size: 14px; line-height: 1; color: #64717d; }
 .writing-editor .writing-block-done:focus-visible { outline: 2px solid #376ba8; }
 .writing-editor .writing-math-source { font: 14px/1.65 Consolas, monospace; color: #275b4a; border: 1px solid #aac3b5; border-radius: 4px; background: #f3f8f0; padding: 3px 6px; max-width: 100%; outline-color: #59927e; box-sizing: border-box; }
 .writing-editor .writing-math .writing-math-source[hidden], .writing-editor .writing-math-preview[hidden], .writing-editor .writing-math-source-wrap[hidden] { display: none; }
@@ -429,6 +431,7 @@ onBeforeUnmount(() => { disposed = true; disposeLinks?.(); clearTimeout(updateTi
   background: #252724; color: #fffef8; box-shadow: 0 3px 10px #0002;
   font-size: 18px; line-height: 1.5; overflow: auto; overscroll-behavior: contain;
 }
-.writing-math-live-preview.is-incomplete { font: 12px/1.5 'Microsoft YaHei', sans-serif; color: #e2e1d8; }
+.writing-math-live-preview.is-incomplete, .writing-math-live-preview.is-empty { font: 13px/1.5 'Microsoft YaHei', sans-serif; color: #e2e1d8; }
+.writing-math-live-preview.is-empty .writing-math-placeholder { font-style: italic; }
 .writing-editor .katex-display { margin: .5em 0; }
 </style>

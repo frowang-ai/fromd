@@ -1,5 +1,5 @@
 import { registerEmbeddedView } from './writingViewState.js'
-import katex from 'katex'
+import { renderMathPreview } from './writingMathPreview.js'
 import { EditorState as CodeState } from '@codemirror/state'
 import { EditorView as CodeView, keymap, drawSelection, highlightActiveLine } from '@codemirror/view'
 import { defaultKeymap, indentWithTab } from '@codemirror/commands'
@@ -33,7 +33,7 @@ export function blockFormulaView(initial, view, getPos) {
   const panel = document.createElement('div'); panel.className = 'writing-block-source'; panel.hidden = true
   const header = document.createElement('div'); header.className = 'writing-block-header'
   const start = document.createElement('span'); start.className = 'writing-block-fence'; start.textContent = '$$'; start.setAttribute('aria-hidden', 'true')
-  const done = document.createElement('button'); done.type = 'button'; done.className = 'writing-block-done'; done.textContent = '完成 ✓'; done.setAttribute('aria-label', '完成公式编辑')
+  const done = document.createElement('button'); done.type = 'button'; done.className = 'writing-block-done'; done.textContent = '✓'; done.title = '完成编辑（Ctrl+Enter）'; done.setAttribute('aria-label', '完成公式编辑')
   header.append(start, done)
   const host = document.createElement('div'); host.className = 'writing-block-code'
   const end = start.cloneNode(true); end.classList.add('is-ending')
@@ -45,9 +45,7 @@ export function blockFormulaView(initial, view, getPos) {
   function renderPreview() {
     cancelAnimationFrame(frame); frame = 0
     if (destroyed) return
-    if (!node.textContent.trim()) { preview.textContent = '输入公式'; return }
-    try { katex.render(node.textContent, preview, { displayMode: true, throwOnError: true, trust: false }) }
-    catch { preview.textContent = '公式尚未完整'; }
+    renderMathPreview(preview, node.textContent, { displayMode: true })
   }
   function updateValue(text) {
     if (destroyed || text === node.textContent) return

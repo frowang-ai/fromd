@@ -97,6 +97,16 @@ its net edit as one group. An authoritative external refresh invalidates old
 history. CRLF offsets are mapped to textarea LF coordinates without rewriting the
 stored Markdown merely for navigation.
 
+Math presentation follows a reading-first layout: display formulas and empty
+block placeholders are centered without a surrounding card. Clicking a block
+opens its source above the preview; leaving it or using Ctrl+Enter collapses the
+source. Inline formulas remain within the paragraph and show a small live preview
+while editing. Empty/incomplete states use quiet placeholders without changing
+the formula source. Explicit `\tag{...}` numbering remains supported; this does
+not enable automatic numbering or change the KaTeX renderer. Presentation checks:
+`npm run test:tauri:browser -- math-presentation.browser.spec.mjs`; existing formula
+editing/navigation checks remain in `npm run test:editor`.
+
 VS Code's `latex` clipboard language identifies a source file, not a formula.
 Selections from `.tex` files therefore use their plain source through the existing
 Markdown/math parser: prose and citation commands remain text, while explicit
