@@ -23,6 +23,28 @@ html2canvas 包与许可本轮暂留，未将删除依赖扩成安装或升级�
 随后直接键入或粘贴。本次补段可一次撤销/重做，留白沿用连续回车已有的格式。
 只处理文末下方；正文、表格、列表、代码等块内部和源码模式保留原点击语义。
 
+选中非空正文后输入 `$` 可将同一段内的纯文本变成行内公式，首尾空白保留在
+公式外，光标停在公式后方并立即显示渲染结果。转换范围内必须具有完全一致
+的标记；支持保留链接（含 URL）、斜体、加粗、删除线、上下标、下划线与高亮。
+混合标记、行内代码、键帽、含 `$` 或换行的文本，以及转换后会紧贴已有公式
+的选区均受保护拒绝，避免丢失样式或在重开时合并公式；有空白分隔的公式可转换。
+
+输入 `*` 或 `_` 依次变为斜体、加粗、加粗斜体；反引号变为行内代码，`~`
+添加删除线，连续两次 `~` 保持删除线。这些样式仅作用于去掉首尾空白后的
+文字，外围空白及其原样式保持不变，完整原选区（包括空白）继续选中。
+因此导出、重新解析后，`*` / `_` 仍可继续升级样式。反引号沿用行内代码命令
+语义，清除目标文字的富文本标记；部分已有代码的纯文本选区可整体转为代码。
+输入左括号 `(`、`[`、`{` 或英文直引号会包住同段选区，保留内部样式与
+图片、公式节点，并继续选中中间内容。
+
+正文非空文字或行内节点选区若不能安全包裹（如跨段、格式转换包含图片/公式、
+不兼容标记或完整行内代码），会消费按键并保持文档、选区和撤销/重做历史不变，
+不会把选区覆盖成单个符号。空选区、只含空白的选区、节点/表格多格选区、
+代码块内输入保留默认行为。输入法组合态、只读或带 Ctrl/Meta/Alt 的输入
+不由包裹逻辑处理。每次有效变换可单步撤销并恢复原选区。
+源码模式使用同一组符号直接在选区两端插入字符，保持中间选中，连按两次 `*`
+或 `~` 自然得到双符号；撤销和重做同时恢复源码与选区。
+
 大纲点击直接滚到对应标题，正文和源码各自定位，同名标题按实例区分。
 标题结构变化让旧项无法确定时会刷新大纲并请重新选择，不会误报“已定位”。
 
@@ -60,14 +82,19 @@ powershell.exe -NoProfile -File output/interactive-preview/stop.ps1
 ## 相关验证入口
 
 ```powershell
-$env:FROWD_BROWSER_PORT='1451'
-npm --prefix apps/tauri run test:browser -- desktop-feedback.browser.spec.mjs workspace.browser.spec.mjs reading.browser.spec.mjs pm-source-history.browser.spec.mjs pm-editor.browser.spec.mjs
+# 本机 Windows 保留了 1421–1520（含 1452）；使用独立的 14520。
+$env:FROWD_BROWSER_PORT='14520'
+npm --prefix apps/tauri run test:browser -- selection-wrap.browser.spec.mjs desktop-feedback.browser.spec.mjs workspace.browser.spec.mjs reading.browser.spec.mjs pm-source-history.browser.spec.mjs pm-editor.browser.spec.mjs
 
 # 需要本机 debug exe 和可用的开发 Vite；只创建独立合成 profile。
 $env:FROWD_NATIVE_EXE=Join-Path $PWD 'output/cargo-target/debug/frowd-tauri.exe'
 $env:FROWD_NATIVE_HMR='1'
 npm --prefix apps/tauri run test:native -- --grep 'native titlebar|native WebView2 authoring'
 ```
+
+选区包裹的模型与历史回归位于 `tests/selection-wrap.test.mjs`，纳入 `npm test`。
+`selection-wrap.browser.spec.mjs` 的往返检查将导出的 Markdown 加载到新页面的
+新编辑会话，实际重新运行 Milkdown parser；不以源码未改时的模式切换代替重解析。
 
 浏览器用例使用模拟 IPC，不能证明原生窗口按钮或 WebView 缩放生效。原生
 用例单独检查窗口最大化/还原、最小化、实际视口缩放、关闭后文稿恢复；

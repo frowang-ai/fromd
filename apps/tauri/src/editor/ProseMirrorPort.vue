@@ -1,7 +1,7 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
-   <MarkdownEditor ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
+   <MarkdownEditor ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
@@ -95,13 +95,24 @@ function undoSource(redo){
  if(frozen.value||!owner||composing)return
  const result=travelSource(history,redo,sourceSelection());history=result.history;sourceText.value=history.text
  source.value.value=history.text;const s=result.selection||{start:history.text.length,end:history.text.length}
- source.value.setSelectionRange(s.start,s.end);emit('change',{...owner,markdown:history.text})
+ sourceRange=s;source.value.setSelectionRange(s.start,s.end);emit('change',{...owner,markdown:history.text})
 }
+const sourcePairs={'$':'$','*':'*','_':'_','`':'`','~':'~','(':')','[':']','{':'}','"':'"',"'":"'"}
 function sourceKey(event){
  if(event.isComposing||composing)return
  if((event.ctrlKey||event.metaKey)&&!event.altKey&&['z','y'].includes(event.key.toLowerCase())){
-  event.preventDefault();undoSource(event.key.toLowerCase()==='y'||event.shiftKey)
+  event.preventDefault();undoSource(event.key.toLowerCase()==='y'||event.shiftKey);return
  }
+ const input=source.value,closing=sourcePairs[event.key]
+ if(mode.value!=='source'||frozen.value||!owner||input?.readOnly||event.ctrlKey||event.metaKey||event.altKey||!closing)return
+ const range=sourceSelection()
+ if(range.start>=range.end)return
+ event.preventDefault()
+ const text=input.value,next=text.slice(0,range.start)+event.key+text.slice(range.start,range.end)+closing+text.slice(range.end)
+ history=recordSource(history,next,range);sourceText.value=next;input.value=next
+ sourceRange={start:range.start+1,end:range.end+1}
+ input.setSelectionRange(sourceRange.start,sourceRange.end)
+ emit('change',{...owner,markdown:next})
 }
 async function setMode(value){
  await waitComposition()

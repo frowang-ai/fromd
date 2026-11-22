@@ -25,6 +25,7 @@ import { normalizeWritingMarkdown } from './writingMarkdownCompatibility.js'
 import { isAllowedResourceUrl } from './markdown/sanitize.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
 import { installWritingMarkdownViews, writingMarkdownExtensions, mermaidCodeLanguage } from './writingMarkdownExtensions.js'
+import { installWritingSelectionWrap } from './writingSelectionWrap.js'
 import { installWritingListKeys, writingListLabels } from './writingListKeys.js'
 import { installWritingListViews } from './writingListView.js'
 import { describeWritingDocument, installWritingClipboard, snapshotPasteEvent } from './writingClipboard.js'
@@ -44,7 +45,7 @@ import './writingLists.css'
 import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean })
+const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean })
 const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
@@ -341,6 +342,7 @@ onMounted(async () => {
     installWritingMarkdownViews(view())
     installWritingListViews(view())
     installWritingListKeys(view())
+    installWritingSelectionWrap(view(), () => props.isComposing?.() || false)
     clipboard=installWritingClipboard(view(), {
       deferPaste:props.resourceImport?(editorView,event,plan)=>{
         if(!activeSession||!editorView.editable||switching||plan.literal)return false
