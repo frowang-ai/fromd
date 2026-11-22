@@ -1,5 +1,7 @@
 use frowd_documents::filename::suggested_name;
 mod document_links;
+mod close_lifecycle;
+use close_lifecycle::{CloseState, CloseEvent, CloseAction};
 mod protocol_urls;
 mod file_import_host;
 mod resource_host;
@@ -22,9 +24,7 @@ use tauri_plugin_dialog::DialogExt;
 struct AppState {
     store: Mutex<Store>,
     file_import: Mutex<Option<frowd_documents::file_import::FileImport>>,
-    closing: AtomicBool,
-    close_confirmed: AtomicBool,
-    exit_requested: AtomicBool,
+    close: Mutex<CloseState>,
 }
 fn lock<'a>(state: &'a State<'_, AppState>) -> Result<MutexGuard<'a, Store>, String> {
     state
@@ -238,30 +238,45 @@ fn open_document_link(
         .ok_or_else(|| "页面已经移除。".to_owned())?;
     document_links::open(&app, &href, doc.path.as_deref())
 }
+fn transition_close(state: &AppState, event: CloseEvent) -> Result<CloseAction, String> {
+    state.close.lock().map(|mut state| state.apply(event))
+        .map_err(|_| "窗口关闭状态不可用，请保留当前内容。".into())
+}
 #[tauri::command]
 fn close_ready(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    // A renderer confirmation is necessary; it is never replaced by a fixed timeout.
+    // The native action is chosen only after the renderer and store saved successfully.
     lock(&state)?.checkpoint().map_err(|e| e.to_string())?;
-    state.close_confirmed.store(true, Ordering::SeqCst);
-    if state.exit_requested.load(Ordering::SeqCst) {
-        app.exit(0);
-        return Ok(());
-    }
-    let result = app
-        .get_webview_window("main")
-        .ok_or_else(|| "应用窗口已关闭。".to_owned())?
-        .close()
-        .map_err(|e| e.to_string());
-    if result.is_err() {
-        state.close_confirmed.store(false, Ordering::SeqCst);
-        state.closing.store(false, Ordering::SeqCst);
-    }
+    let action = transition_close(&state, CloseEvent::Saved { macos: cfg!(target_os = "macos") })?;
+    if action == CloseAction::Exit { app.exit(0); return Ok(()); }
+    if !matches!(action, CloseAction::Hide | CloseAction::Close) { return Ok(()); }
+    let result = app.get_webview_window("main").ok_or_else(|| "应用窗口已关闭。".to_owned())
+        .and_then(|window| {
+            if action == CloseAction::Hide { window.hide() } else { window.close() }
+                .map_err(|e| e.to_string())
+        });
+    if result.is_err() { let _ = transition_close(&state, CloseEvent::Cancel); }
     result
 }
 #[tauri::command]
-fn cancel_close(state: State<'_, AppState>) {
-    state.closing.store(false, Ordering::SeqCst);
-    state.exit_requested.store(false, Ordering::SeqCst);
+fn cancel_close(state: State<'_, AppState>) -> Result<(), String> {
+    transition_close(&state, CloseEvent::Cancel).map(|_| ())
+}
+#[cfg(target_os = "macos")]
+fn reopen_main(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let window = match app.get_webview_window("main") {
+        Some(window) => window,
+        None => {
+            // Recover an unexpectedly destroyed window from the same platform config.
+            let state = app.state::<AppState>();
+            let _ = transition_close(&state, CloseEvent::Cancel);
+            let config = app.config().app.windows.iter().find(|config| config.label == "main")
+                .expect("main window configuration is required");
+            tauri::WebviewWindowBuilder::from_config(app, config)?.build()?
+        }
+    };
+    window.unminimize()?;
+    window.show()?;
+    window.set_focus()
 }
 fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
     if cfg!(debug_assertions) {
@@ -298,9 +313,7 @@ pub fn run() {
             app.manage(AppState {
                 store: Mutex::new(store),
                 file_import: Mutex::new(None),
-                closing: AtomicBool::new(false),
-                close_confirmed: AtomicBool::new(false),
-                exit_requested: AtomicBool::new(false),
+                close: Mutex::new(CloseState::default()),
             });
             #[cfg(target_os = "macos")]
             menu_macos::install(app)?;
@@ -310,10 +323,11 @@ pub fn run() {
             if window.label() != "main" { return; }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
-                if !state.close_confirmed.load(Ordering::SeqCst) {
+                let action = transition_close(&state, CloseEvent::Requested { exit: false });
+                if !matches!(action, Ok(CloseAction::Allow)) {
                     api.prevent_close();
-                    if !state.closing.swap(true, Ordering::SeqCst) {
-                        let _ = window.emit("frowd:close-requested", ());
+                    if matches!(action, Ok(CloseAction::RequestSave)) && window.emit("frowd:close-requested", ()).is_err() {
+                        let _ = transition_close(&state, CloseEvent::Cancel);
                     }
                 }
             }
@@ -355,15 +369,12 @@ pub fn run() {
             match event {
                 tauri::RunEvent::ExitRequested { api, .. } => {
                     let state = app.state::<AppState>();
-                    if state.close_confirmed.load(Ordering::SeqCst) { return; }
                     if let Some(window) = app.get_webview_window("main") {
+                        let action = transition_close(&state, CloseEvent::Requested { exit: true });
+                        if matches!(action, Ok(CloseAction::Allow)) { return; }
                         api.prevent_exit();
-                        state.exit_requested.store(true, Ordering::SeqCst);
-                        if !state.closing.swap(true, Ordering::SeqCst) {
-                            if window.emit("frowd:close-requested", ()).is_err() {
-                                state.closing.store(false, Ordering::SeqCst);
-                                state.exit_requested.store(false, Ordering::SeqCst);
-                            }
+                        if matches!(action, Ok(CloseAction::RequestSave)) && window.emit("frowd:close-requested", ()).is_err() {
+                            let _ = transition_close(&state, CloseEvent::Cancel);
                         }
                     } else if let Err(error) = lock(&state).and_then(|store| store.checkpoint().map_err(|e| e.to_string())) {
                         eprintln!("Exit checkpoint failed: {error}");
@@ -372,11 +383,7 @@ pub fn run() {
                 }
                 #[cfg(target_os = "macos")]
                 tauri::RunEvent::Reopen { .. } => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    if let Err(error) = reopen_main(app) { eprintln!("Cannot reopen main window: {error}"); }
                 }
                 _ => {}
             }
