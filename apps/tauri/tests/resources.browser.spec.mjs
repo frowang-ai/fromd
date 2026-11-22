@@ -13,7 +13,8 @@ test.beforeEach(async({page})=>{
 test.afterEach(async({page})=>expect(page.__errors).toEqual([]))
 async function paste(page,{name='合成图.png',text=null}={}){
  const target=await source(page).isVisible()?source(page):body(page)
- await target.click();await target.press('Control+End')
+ // Focus the current text without activating the trailing blank-canvas insertion gesture.
+ await target.focus();await target.press('Control+End')
  return target.evaluate((el,{name,text})=>{
   const canvas=document.createElement('canvas');canvas.width=240;canvas.height=80
   const ctx=canvas.getContext('2d');ctx.fillStyle='#d5ece2';ctx.fillRect(0,0,240,80);ctx.fillStyle='#245743';ctx.font='16px sans-serif';ctx.fillText('frowd synthetic PNG',20,45)

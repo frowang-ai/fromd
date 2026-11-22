@@ -11,7 +11,8 @@ async function boot(page,options={}){
 }
 async function append(page,text){
  const body=page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible');
- await body.click();await page.keyboard.press('Control+End');await page.keyboard.insertText(text);
+ // Focus without clicking the editor's trailing blank canvas (which inserts paragraphs).
+ await body.focus();await page.keyboard.press('Control+End');await page.keyboard.insertText(text);
  if(await body.evaluate(el=>el.tagName==='TEXTAREA'))await expect(body).toHaveValue(new RegExp(text.trim()));
  else await expect(body).toContainText(text.trim());
 }
@@ -189,7 +190,7 @@ test('close backup failure keeps the window open and successful retry commits th
 
 test('candidate formatting shortcut writes through the same document-owned history',async({page})=>{
  await boot(page,{markdown:'中文段落'});
- await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').click();await page.keyboard.press('Control+a');await page.keyboard.press('Control+b');
+ await page.locator('.ProseMirror:visible, .pm-port>.markdown-source:visible').focus();await page.keyboard.press('Control+a');await page.keyboard.press('Control+b');
  await expect(page.locator('.ProseMirror strong')).toHaveText('中文段落');
  await page.locator('.tab-title').filter({hasText:'公式推导'}).click();await expect(page.locator('.tab.selected')).toContainText('公式推导');
  expect((await stored(page)).markdown.trim()).toBe('**中文段落**');

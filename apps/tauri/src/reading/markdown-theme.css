@@ -22,8 +22,8 @@
     --md-h1: #1f1e1c; --md-h2: #1f1e1c; --md-h3: #1f1e1c;
     --md-h4: #2f2e2b; --md-h5: #3f3d39; --md-h6: #5e5b55;
     --md-mark: rgba(255, 212, 0, .52);
-    --md-font: -apple-system, "Segoe UI", system-ui, sans-serif, "PingFang SC", "PingFang TC", "Hiragino Sans GB", "Microsoft YaHei", "Heiti SC", "Noto Sans CJK SC";
-    --md-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Fira Code", "Source Code Pro", "DejaVu Sans Mono", "Liberation Mono", "Ubuntu Mono", "Noto Sans Mono", "PingFang SC", "Hiragino Sans GB", monospace, "Apple Color Emoji", "Segoe UI Emoji";
+    --md-font: var(--editor-font-text);
+    --md-mono: var(--editor-font-mono);
     --writing-code-keyword: #a626a4;
     --writing-code-string: #50a14f;
     --writing-code-number: #986801;

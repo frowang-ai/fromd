@@ -30,6 +30,7 @@ import { installWritingListKeys, writingListLabels } from './writingListKeys.js'
 import { installWritingListViews } from './writingListView.js'
 import { describeWritingDocument, installWritingClipboard, snapshotPasteEvent } from './writingClipboard.js'
 import { logWritingEvent } from './writingDiagnostics.js'
+import './editorFonts.css'
 import { installWritingLinks } from './writingLinks.js'
 import { configureWritingTables } from './writingTableSelection.js'
 import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
@@ -45,7 +46,7 @@ import './writingLists.css'
 import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean })
+const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
 const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
@@ -339,9 +340,9 @@ onMounted(async () => {
         emit('session-change', { ...owner, markdown: serializePreservingOriginal(doc, baseline, normalized, raw) })
       }, 150)
     } })
-    if (props.linkNavigation) disposeLinks = installWritingLinks(v, { root: root.value, ctx: editor.editor.ctx, getOwner: () => activeSession, onOpen: value => emit('open-link', value) })
+    if (props.linkNavigation) disposeLinks = installWritingLinks(v, { modifier: props.linkModifier, root: root.value, ctx: editor.editor.ctx, getOwner: () => activeSession, onOpen: value => emit('open-link', value) })
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
-    installWritingMathViews(view())
+    installWritingMathViews(view(), { doneShortcut: props.mathDoneShortcut })
     installWritingMarkdownViews(view())
     installWritingListViews(view())
     installWritingListKeys(view())
@@ -399,8 +400,9 @@ onBeforeUnmount(() => {
   --crepe-color-on-background: #333b38; --crepe-color-on-surface: #333b38;
   --crepe-color-primary: #3c7161; --crepe-color-secondary: #e4eee8;
   --crepe-color-hover: #eef2ed; --crepe-color-selected: #dceae1;
-  --crepe-font-default: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  --crepe-font-title: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --crepe-font-default: var(--editor-font-text);
+  --crepe-font-title: var(--editor-font-text);
+  --crepe-font-code: var(--editor-font-mono);
 }
 .writing-editor .milkdown > .ProseMirror { padding: 0; min-height: 65vh; font-size: 16px; line-height: 1.9; outline: none; overflow-wrap: anywhere; }
 .writing-editor .milkdown > .ProseMirror h1 { font-size: 2em; font-weight: 650; letter-spacing: -.03em; line-height: 1.4; margin: 0 0 1em; }
@@ -426,11 +428,11 @@ onBeforeUnmount(() => {
 .writing-editor .writing-block-source { background: #f4f6f8; border: 1px solid #e2e5e9; border-radius: 3px; }
 .writing-editor .writing-block-source[hidden] { display: none; }
 .writing-editor .writing-block-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 0; }
-.writing-editor .writing-block-fence { color: #8b94a2; font: 14px/1.6 Consolas, monospace; }
+.writing-editor .writing-block-fence { color: #8b94a2; font: 14px/1.6 var(--editor-font-mono); }
 .writing-editor .writing-block-fence.is-ending { display: block; padding: 0 12px 6px; }
 .writing-editor .writing-block-done { padding: 2px 6px; font-size: 14px; line-height: 1; color: #64717d; }
 .writing-editor .writing-block-done:focus-visible { outline: 2px solid #376ba8; }
-.writing-editor .writing-math-source { font: 14px/1.65 Consolas, monospace; color: #275b4a; border: 1px solid #aac3b5; border-radius: 4px; background: #f3f8f0; padding: 3px 6px; max-width: 100%; outline-color: #59927e; box-sizing: border-box; }
+.writing-editor .writing-math-source { font: 14px/1.65 var(--editor-font-mono); color: #275b4a; border: 1px solid #aac3b5; border-radius: 4px; background: #f3f8f0; padding: 3px 6px; max-width: 100%; outline-color: #59927e; box-sizing: border-box; }
 .writing-editor .writing-math .writing-math-source[hidden], .writing-editor .writing-math-preview[hidden], .writing-editor .writing-math-source-wrap[hidden] { display: none; }
 .writing-editor .writing-math-source-wrap { display: inline-flex; align-items: baseline; vertical-align: baseline; max-width: 100%; line-height: inherit; }
 .writing-editor .writing-math-delimiter { color: #b3b3b0; user-select: none; font: inherit; }
@@ -445,7 +447,7 @@ onBeforeUnmount(() => {
   background: #252724; color: #fffef8; box-shadow: 0 3px 10px #0002;
   font-size: 18px; line-height: 1.5; overflow: auto; overscroll-behavior: contain;
 }
-.writing-math-live-preview.is-incomplete, .writing-math-live-preview.is-empty { font: 13px/1.5 'Microsoft YaHei', sans-serif; color: #e2e1d8; }
+.writing-math-live-preview.is-incomplete, .writing-math-live-preview.is-empty { font: 13px/1.5 var(--editor-font-text); color: #e2e1d8; }
 .writing-math-live-preview.is-empty .writing-math-placeholder { font-style: italic; }
 .writing-editor .katex-display { margin: .5em 0; }
 </style>

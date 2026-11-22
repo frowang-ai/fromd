@@ -1,40 +1,33 @@
 <template>
   <div class="app-shell" :data-theme="readingTheme" :data-zoom="zoom" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
-    <header class="app-header" @mousedown="titlebarDrag">
-      <div class="brand"><img src="./assets/icon.png" alt="" /><span>frowd</span><small v-if="previewWindow">开发预览</small></div>
-      <nav class="app-menu" aria-label="应用菜单">
+    <WindowChrome :platform="platform" :title="current?.title" @error="coordinator.report($event)">
+      <template #menu><nav class="app-menu" aria-label="应用菜单">
         <details ref="fileMenu"><summary>文件</summary><div class="menu-popup">
-          <button @click="action(() => coordinator.create())">新建页面 <kbd>Ctrl+N</kbd></button>
-          <button @click="action(() => coordinator.open())">打开… <kbd>Ctrl+O</kbd></button>
-          <button :disabled="state.busy || !state.loaded" @click="action(() => coordinator.importFile())">导入 TXT / HTML…</button>
-          <button :disabled="!current" @click="action(() => coordinator.save())">保存 <kbd>Ctrl+S</kbd></button>
-          <button :disabled="!current" @click="action(() => coordinator.save(state.activeId, true))">另存为… <kbd>Ctrl+Shift+S</kbd></button>
-          <button :disabled="!current || state.busy || !state.loaded" @click="action(() => coordinator.exportPdf())">导出 PDF…</button>
-          <button :disabled="!current || state.busy" @click="insertResource(null, 'image')">插入图片…</button>
-          <button :disabled="!current || state.busy" @click="insertResource(null, 'attachment')">插入附件…</button>
-          <button :disabled="!current" @click="removePage(state.activeId)">移除当前页面</button>
+          <button @click="executeCommand('new')">新建页面 <kbd>{{ shortcutLabel('new') }}</kbd></button>
+          <button @click="executeCommand('open')">打开… <kbd>{{ shortcutLabel('open') }}</kbd></button>
+          <button :disabled="state.busy || !state.loaded" @click="executeCommand('import')">导入 TXT / HTML…</button>
+          <button :disabled="!current" @click="executeCommand('save')">保存 <kbd>{{ shortcutLabel('save') }}</kbd></button>
+          <button :disabled="!current" @click="executeCommand('saveAs')">另存为… <kbd>{{ shortcutLabel('saveAs') }}</kbd></button>
+          <button :disabled="!current || state.busy || !state.loaded" @click="executeCommand('exportPdf')">导出 PDF…</button>
+          <button :disabled="!current || state.busy" @click="executeCommand('insertImage')">插入图片…</button>
+          <button :disabled="!current || state.busy" @click="executeCommand('insertAttachment')">插入附件…</button>
+          <button :disabled="!current" @click="executeCommand('remove')">移除当前页面</button>
         </div></details>
         <details><summary>编辑</summary><div class="menu-popup">
-          <button @click="openFind">查找 / 替换… <kbd>Ctrl+F / Ctrl+H</kbd></button>
+          <button @click="executeCommand('find')">查找 / 替换… <kbd>{{ shortcutLabel('find') }} / {{ shortcutLabel('replace') }}</kbd></button>
         </div></details>
         <details><summary>视图</summary><div class="menu-popup">
-          <button :disabled="!current" @click="setMode('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
-          <button :disabled="!current" @click="setMode('source')">源码 <kbd>Ctrl+/</kbd><span v-if="mode === 'source'">✓</span></button>
-          <button :disabled="zoom >= 200" @click="changeZoom(10)">放大 <kbd>Ctrl++</kbd></button>
-          <button :disabled="zoom <= 50" @click="changeZoom(-10)">缩小 <kbd>Ctrl+-</kbd></button>
-          <button @click="changeZoom(0, true)">实际大小（{{ zoom }}%） <kbd>Ctrl+0</kbd></button>
-          <button @click="sidebarOpen = !sidebarOpen; closeMenus()">{{ sidebarOpen ? '隐藏' : '显示' }}工作栏</button>
-          <button :disabled="state.busy || !state.loaded" @click="openReading">阅读设置… <kbd>Ctrl+,</kbd></button>
+          <button :disabled="!current" @click="executeCommand('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
+          <button :disabled="!current" @click="executeCommand('sourceMode')">源码 <kbd>{{ shortcutLabel('source') }}</kbd><span v-if="mode === 'source'">✓</span></button>
+          <button :disabled="zoom >= 200" @click="executeCommand('zoomIn')">放大 <kbd>{{ shortcutLabel('zoomIn') }}</kbd></button>
+          <button :disabled="zoom <= 50" @click="executeCommand('zoomOut')">缩小 <kbd>{{ shortcutLabel('zoomOut') }}</kbd></button>
+          <button @click="executeCommand('zoomReset')">实际大小（{{ zoom }}%） <kbd>{{ shortcutLabel('zoomReset') }}</kbd></button>
+          <button @click="executeCommand('sidebar')">{{ sidebarOpen ? '隐藏' : '显示' }}工作栏</button>
+          <button :disabled="state.busy || !state.loaded" @click="executeCommand('reading')">阅读设置… <kbd>{{ shortcutLabel('reading') }}</kbd></button>
         </div></details>
-      </nav>
-      <span class="window-document">{{ current?.title || 'frowd' }}</span>
+      </nav></template>
       <button ref="readingButton" class="reading-button" :disabled="state.busy || !state.loaded" :aria-expanded="readingOpen" aria-label="阅读设置" @click="openReading">阅读</button>
-      <div v-if="nativeWindow" class="window-controls">
-        <button aria-label="最小化窗口" title="最小化" @click="windowAction(minimizeWindow)">−</button>
-        <button :aria-label="maximized ? '还原窗口' : '最大化窗口'" :title="maximized ? '还原' : '最大化'" @click="windowAction(toggleMaximizeWindow)">{{ maximized ? '❐' : '□' }}</button>
-        <button class="window-close" aria-label="关闭窗口" title="关闭" @click="windowAction(closeWindow)">×</button>
-      </div>
-    </header>
+    </WindowChrome>
 
     <div class="workspace">
       <button v-if="sidebarOpen && narrow" class="drawer-dismiss" aria-label="关闭工作栏遮罩" @click="sidebarOpen = false"></button>
@@ -110,7 +103,7 @@
           <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
         <div class="editor-panel" :class="{ empty: !current }">
-          <ProseMirrorPort ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
         </div>
@@ -149,14 +142,20 @@ import {analyzeReading} from './reading/analysis.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
 import './reading/reading.css'
 import './reading/markdown-theme.css'
-import {nativeWindow,previewWindow,minimizeWindow,toggleMaximizeWindow,closeWindow,dragWindow,observeMaximized,setPageZoom} from './window.mjs'
+import {nativeWindow,setPageZoom} from './window.mjs'
+import WindowChrome from './WindowChrome.vue'
+import {describePlatform,formatShortcut,matchCommand,usesNativeAccelerator} from './platform.mjs'
+import {listen} from '@tauri-apps/api/event'
+const platform=describePlatform({browserTestHost,nativeWindow})
+const shortcutLabel=id=>formatShortcut(id,platform)
+let menuDispose
 
 const state=reactive({})
 const editor=ref(null),findInput=ref(null)
 const sidebarOpen=ref(true),sidebarMode=ref('pages'),query=ref(''),mode=ref('rendered')
 const contextPage=ref(null),removalDialog=ref(null),undoDismissed=ref(false),editingLocked=ref(false)
-const contextMenu=ref(null),contextPosition=reactive({x:0,y:0}),zoom=ref(100),maximized=ref(false)
-let contextOrigin=null,contextRequest=0,zoomTimer,zoomFlight=false,zoomApplied=100,windowDispose
+const contextMenu=ref(null),contextPosition=reactive({x:0,y:0}),zoom=ref(100)
+let contextOrigin=null,contextRequest=0,zoomTimer,zoomFlight=false,zoomApplied=100
 const nameDraft=ref(''),nameComposing=ref(false),nameEditingId=ref(null),narrow=ref(false)
 const initialReading=loadReadingPreferences()
 const readingPreferences=ref(initialReading.preferences),readingError=ref(initialReading.error),readingOpen=ref(false),readingPanel=ref(null),readingButton=ref(null)
@@ -366,12 +365,6 @@ function outsideMenus(event){
  if(contextPage.value&&!event.target.closest('.page-context,.row-more'))closeContext()
  if(!event.target.closest('.app-menu'))closeMenus()
 }
-async function windowAction(work){try{await work()}catch(error){coordinator.report(error)}}
-function titlebarDrag(event){
- if(!nativeWindow||event.button!==0||event.target.closest('button,input,summary,details,nav'))return
- event.preventDefault()
- windowAction(event.detail===2?toggleMaximizeWindow:dragWindow)
-}
 function changeZoom(delta,reset=false){
  closeMenus();closeContext()
  zoom.value=reset?100:Math.max(50,Math.min(200,zoom.value+delta))
@@ -472,24 +465,41 @@ function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=f
 function shortcut(event){
  if(event.isComposing||event.keyCode===229||globalComposing||removalDialog.value)return
  if(event.key==='Escape'){if(contextPage.value){event.preventDefault();event.stopPropagation();closeContext(true);return}if(readingOpen.value){event.preventDefault();closeReading();return}if(findState.open){event.preventDefault();closeFind();return}closeMenus();if(narrow.value)sidebarOpen.value=false}
- if(!(event.ctrlKey||event.metaKey)||event.altKey)return
- const key=event.key.toLowerCase()
- if(key==='/'||event.code==='Slash'){
-  event.preventDefault();event.stopImmediatePropagation()
-  if(current.value&&!state.busy)setMode(mode.value==='source'?'rendered':'source')
-  return
+ const command=matchCommand(event,platform)
+ if(!command)return
+ // AppKit owns registered accelerators; Ctrl+Tab is DOM-only on both platforms.
+ if(nativeWindow&&usesNativeAccelerator(command,event,platform))return
+ event.preventDefault();event.stopImmediatePropagation();executeCommand(command)
+}
+function executeCommand(command){
+ if(removalDialog.value||!state.loaded)return
+ // Save/open/new and tab navigation retain the coordinator's serial queue,
+ // including a page switch requested while resource registration is in flight.
+ if(state.busy&&['import','exportPdf','insertImage','insertAttachment','remove','source','sourceMode','rendered','reading'].includes(command))return
+ const active=Boolean(current.value)
+ switch(command){
+  case 'new': return action(()=>coordinator.create())
+  case 'open': return action(()=>coordinator.open())
+  case 'import': return action(()=>coordinator.importFile())
+  case 'save': case 'saveAs': return active&&action(()=>coordinator.save(state.activeId,command==='saveAs'))
+  case 'exportPdf': return active&&action(()=>coordinator.exportPdf())
+  case 'insertImage': case 'insertAttachment': return active&&insertResource(null,command==='insertImage'?'image':'attachment')
+  case 'remove': return active&&removePage(state.activeId)
+  case 'source': return active&&setMode(mode.value==='source'?'rendered':'source')
+  case 'sourceMode': return active&&setMode('source')
+  case 'rendered': return active&&setMode('rendered')
+  case 'find': case 'replace': return active&&openFind()
+  case 'reading': return openReading()
+  case 'zoomIn': return changeZoom(10)
+  case 'zoomOut': return changeZoom(-10)
+  case 'zoomReset': return changeZoom(0,true)
+  case 'sidebar': sidebarOpen.value=!sidebarOpen.value;closeMenus();return
+  case 'nextTab': case 'previousTab': {
+   if(!opened.value.length)return
+   const index=opened.value.findIndex(d=>d.id===state.activeId)
+   return selectPage(opened.value[(index+(command==='previousTab'?-1:1)+opened.value.length)%opened.value.length].id)
+  }
  }
- if(['+','=','-','0'].includes(key)||['NumpadAdd','NumpadSubtract','Numpad0'].includes(event.code)){
-  event.preventDefault();event.stopImmediatePropagation()
-  changeZoom(key==='-'||event.code==='NumpadSubtract'?-10:10,key==='0'||event.code==='Numpad0');return
- }
- if(key===','){event.preventDefault();openReading();return}
- if(key==='n'){event.preventDefault();action(()=>coordinator.create())}
- if(key==='o'){event.preventDefault();action(()=>coordinator.open())}
- if(key==='s'){event.preventDefault();action(()=>coordinator.save(state.activeId,event.shiftKey))}
- if(key==='f'){event.preventDefault();openFind()}
- if(key==='h'){event.preventDefault();openFind()}
- if(key==='tab'&&opened.value.length){event.preventDefault();const index=opened.value.findIndex(d=>d.id===state.activeId);selectPage(opened.value[(index+(event.shiftKey?-1:1)+opened.value.length)%opened.value.length].id)}
 }
 async function openLink(event){const detail=event.detail;if(!current.value||detail.id&&detail.id!==current.value.id)return;try{await openDocumentLink(current.value.id,detail.href)}catch(e){coordinator.report(e)}}
 onMounted(async()=>{
@@ -497,9 +507,9 @@ onMounted(async()=>{
  themeMedia.addEventListener('change',themeChanged)
  window.addEventListener('pointerdown',outsideMenus,true);window.addEventListener('wheel',zoomWheel,{capture:true,passive:false});window.addEventListener('resize',contextResize)
  if(nativeWindow)setPageZoom(100).catch(error=>coordinator.report(error))
- if(nativeWindow)observeMaximized(value=>maximized.value=value).then(dispose=>{if(disposed)dispose();else windowDispose=dispose}).catch(error=>coordinator.report(error))
+ if(nativeWindow)menuDispose=await listen('frowd:menu-command',event=>executeCommand(event.payload))
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
 })
-onBeforeUnmount(()=>{disposed=true;windowDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;menuDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

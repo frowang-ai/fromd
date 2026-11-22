@@ -2,7 +2,10 @@ import { linkTooltipAPI } from '@milkdown/kit/component/link-tooltip'
 
 // Desktop-neutral link gestures. Keep Milkdown's sanitized href in the DOM;
 // retrieve the original destination from the document model only on interaction.
-export function installWritingLinks(view, { root, ctx, getOwner, onOpen }) {
+export function linkGesture(event, modifier = 'ctrl') {
+  return modifier === 'meta' ? Boolean(event.metaKey && !event.ctrlKey) : Boolean(event.ctrlKey && !event.metaKey)
+}
+export function installWritingLinks(view, { root, ctx, getOwner, onOpen, modifier = 'ctrl' }) {
   // Crepe replaces its .milkdown wrapper when sessions reset plugin state.
   // Listen on the stable host supplied by the owning editor component.
   let hovered = null, pointer = null, editing = null
@@ -74,7 +77,7 @@ export function installWritingLinks(view, { root, ctx, getOwner, onOpen }) {
     pointer = { x: event.clientX, y: event.clientY }
     // Ctrl-click is navigation, not a caret/table-selection gesture. Suppress
     // the editor's compatibility mousedown so it cannot swallow the later click.
-    if (event.ctrlKey && event.button === 0 && !event.shiftKey && !event.altKey && !view.composing && bodyLink(event)) event.preventDefault()
+    if (linkGesture(event, modifier) && event.button === 0 && !event.shiftKey && !event.altKey && !view.composing && bodyLink(event)) event.preventDefault()
   }
   function click(event) {
     const owner = getOwner(), anchor = bodyLink(event)
@@ -86,14 +89,14 @@ export function installWritingLinks(view, { root, ctx, getOwner, onOpen }) {
     if (!anchor && !preview) return
     // Body links remain editable on an ordinary click, including normal caret
     // placement and selection handling by ProseMirror.
-    if (anchor && !event.ctrlKey) { event.preventDefault(); return }
+    if (anchor && !linkGesture(event, modifier)) { event.preventDefault(); return }
     const info = anchor ? linkAt(anchor) : hovered?.owner === owner && hovered?.doc === view.state.doc && hovered?.href === preview.textContent ? hovered : null
     if (!owner || !info || event.button !== 0 || event.shiftKey || event.altKey || view.composing ||
       (anchor && event.detail > 0 && pointer && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 5)) {
       event.preventDefault(); return
     }
     // An address click edits; the explicit button or Ctrl-click opens.
-    if (preview && !openButton && !event.ctrlKey) {
+    if (preview && !openButton && !linkGesture(event, modifier)) {
       event.preventDefault(); event.stopPropagation()
       ctx.get(linkTooltipAPI.key).editLink(info.mark, info.from, info.to)
       return

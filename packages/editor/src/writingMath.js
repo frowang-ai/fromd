@@ -114,7 +114,7 @@ function inlineFormulaView(initial, view, getPos) {
   source.addEventListener('keydown', event => {
     if (event.isComposing || composing) return
     const mod = event.ctrlKey || event.metaKey
-    if (mod && ['z', 'y'].includes(event.key.toLowerCase())) {
+    if (mod && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
       event.preventDefault()
       const action = event.key.toLowerCase() === 'y' || event.shiftKey ? redo : undo
       action(view.state, view.dispatch.bind(view)); return
@@ -166,7 +166,7 @@ function inlineFormulaView(initial, view, getPos) {
     destroy() { destroyed = true; unregister(); inlineUi?.destroy() },
   }
 }
-export function installWritingMathViews(view) {
+export function installWritingMathViews(view, options = {}) {
   const previous = view.props.nodeViews || {}, previousKeydown = view.props.handleKeyDown
   view.setProps({
     handleKeyDown(editor, event) {
@@ -199,7 +199,7 @@ export function installWritingMathViews(view) {
     ...previous,
     math_inline: (node, editor, getPos) => inlineFormulaView(node, editor, getPos),
     code_block: (node, editor, getPos, decorations, innerDecorations) => {
-      if (String(node.attrs.language).toLowerCase() === 'latex') return blockFormulaView(node, editor, getPos)
+      if (String(node.attrs.language).toLowerCase() === 'latex') return blockFormulaView(node, editor, getPos, options)
       return trackCodeBlockView(previous.code_block?.(node, editor, getPos, decorations, innerDecorations), editor, getPos) || null
     },
   } })

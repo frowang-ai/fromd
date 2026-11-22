@@ -12,7 +12,7 @@ import { closeHistory, undo, redo } from '@milkdown/kit/prose/history'
 const sourceTheme = CodeView.theme({
   '&': { backgroundColor: '#f4f6f8', fontSize: '14px', color: '#253246' },
   '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { overflow: 'visible', fontFamily: 'Consolas, monospace', lineHeight: '1.7' },
+  '.cm-scroller': { overflow: 'visible', fontFamily: 'var(--editor-font-mono)', lineHeight: '1.7' },
   '.cm-content': { padding: '8px 12px', caretColor: '#184c91' },
   '.cm-line': { padding: '0' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#184c91', borderLeftWidth: '2px' },
@@ -27,13 +27,13 @@ const sourceHighlight = HighlightStyle.define([
   { tag: tags.comment, color: 'var(--writing-code-comment, #7a8490)', fontStyle: 'italic' },
 ])
 
-export function blockFormulaView(initial, view, getPos) {
+export function blockFormulaView(initial, view, getPos, { doneShortcut = 'Ctrl+Enter' } = {}) {
   let node = initial, code, opened = false, original = '', syncing = false, destroyed = false, frame = 0
   const dom = document.createElement('div'); dom.className = 'writing-math writing-math-block'; dom.contentEditable = 'false'
   const panel = document.createElement('div'); panel.className = 'writing-block-source'; panel.hidden = true
   const header = document.createElement('div'); header.className = 'writing-block-header'
   const start = document.createElement('span'); start.className = 'writing-block-fence'; start.textContent = '$$'; start.setAttribute('aria-hidden', 'true')
-  const done = document.createElement('button'); done.type = 'button'; done.className = 'writing-block-done'; done.textContent = '✓'; done.title = '完成编辑（Ctrl+Enter）'; done.setAttribute('aria-label', '完成公式编辑')
+  const done = document.createElement('button'); done.type = 'button'; done.className = 'writing-block-done'; done.textContent = '✓'; done.title = `完成编辑（${doneShortcut}）`; done.setAttribute('aria-label', '完成公式编辑')
   header.append(start, done)
   const host = document.createElement('div'); host.className = 'writing-block-code'
   const end = start.cloneNode(true); end.classList.add('is-ending')
