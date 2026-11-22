@@ -42,6 +42,7 @@ export const documentsApi = {
   remove: (id, decision) => call('remove_document', { id, decision }),
   undo: () => call('undo_remove'),
   checkpoint: () => call('checkpoint'),
+  ackCloseListener: () => call('ack_close_listener'),
   closeReady: () => call('close_ready'),
   cancelClose: () => call('cancel_close'),
 };

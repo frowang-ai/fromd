@@ -243,6 +243,12 @@ fn transition_close(state: &AppState, event: CloseEvent) -> Result<CloseAction, 
         .map_err(|_| "窗口关闭状态不可用，请保留当前内容。".into())
 }
 #[tauri::command]
+fn ack_close_listener(window: tauri::WebviewWindow, state: State<'_, AppState>) -> Result<bool, String> {
+    if window.label() != "main" { return Err("只能由主窗口确认关闭监听。".into()); }
+    // Atomically claim a pending request through the IPC reply, not a second event.
+    transition_close(&state, CloseEvent::ListenerReady).map(|action| action == CloseAction::RequestSave)
+}
+#[tauri::command]
 fn close_ready(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // The native action is chosen only after the renderer and store saved successfully.
     lock(&state)?.checkpoint().map_err(|e| e.to_string())?;
@@ -268,7 +274,7 @@ fn reopen_main(app: &tauri::AppHandle) -> tauri::Result<()> {
         None => {
             // Recover an unexpectedly destroyed window from the same platform config.
             let state = app.state::<AppState>();
-            let _ = transition_close(&state, CloseEvent::Cancel);
+            let _ = transition_close(&state, CloseEvent::ListenerDetached);
             let config = app.config().app.windows.iter().find(|config| config.label == "main")
                 .expect("main window configuration is required");
             tauri::WebviewWindowBuilder::from_config(app, config)?.build()?
@@ -321,6 +327,10 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if window.label() != "main" { return; }
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = transition_close(&window.state::<AppState>(), CloseEvent::ListenerDetached);
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
                 let action = transition_close(&state, CloseEvent::Requested { exit: false });
@@ -359,6 +369,7 @@ pub fn run() {
             open_document,
             save_document,
             checkpoint,
+            ack_close_listener,
             close_ready,
             cancel_close,
             open_document_link

@@ -30,7 +30,7 @@ node apps/tauri/scripts/check-macos-artifact.mjs --app path/to/frowd.app --dmg p
 ditto -c -k --keepParent path/to/frowd.app frowd-0.5.2-aarch64.app.zip
 ```
 
-脚本检查 Info.plist 版本/身份/最低 macOS 11.0、64 位 Mach-O 架构、7 份非空许可证及非空 DMG。支持 thin ARM64/x86_64 及大小端 FAT/Universal，逐 slice 校验 CPU/subtype、可执行头、偏移、长度、对齐和重叠；`--arch universal` 要求同时包含 ARM64 和 x86_64，指定单一架构时允许包含该架构的 Universal，`arm64` 是 `aarch64` 的别名。macOS 上首先执行系统 `plutil -lint`，二进制 plist 再转换为 XML 读取；其他平台可校验 XML plist 中的指定字段。现有 CI 的 Node 测试覆盖合成 Universal 与损坏样本，macOS 任务同时执行真实 plist lint。该检查不运行应用、不挂载或安装 DMG，也不替代签名和实际启动验收。
+脚本检查 Info.plist 版本/身份/最低 macOS 11.0、64 位 Mach-O 架构、7 份非空许可证及非空 DMG。支持 thin ARM64/x86_64 及大小端标准 FAT/Universal（FAT 头使用 32 位偏移，不含 FAT64；内部 slice 是 64 位 Mach-O），逐 slice 校验 CPU/subtype、可执行头、偏移、长度、对齐和重叠。架构参数严格匹配 slice 集合：`--arch universal` 要求恰好两个 slice，分别为 ARM64 和 x86_64；单一架构参数要求恰好一个匹配 slice，拒绝 Universal；`arm64` 是 `aarch64` 的别名。macOS 上首先执行系统 `plutil -lint`，二进制 plist 再转换为 XML 读取；其他平台可校验 XML plist 中的指定字段。现有 CI 的 Node 测试覆盖合成 Universal 与损坏样本，macOS 任务同时执行真实 plist lint。该检查不运行应用、不挂载或安装 DMG，也不替代签名和实际启动验收。
 
 ## CI 产物
 
@@ -54,14 +54,14 @@ Tauri 两端均由原生打印设置独占 A4/18mm 页边距，传给打印 work
 
 AppKit 的异步 delegate 在主线程运行，Tokio 等待结果；启动 modal 操作前开启 `setCanSpawnSeparateThread(true)`，与锁定 Wry 的实现一致。保存目的地使用 `NSURL::from_file_path` 和 `NSPrintJobSavingURL`，不再使用已弃用的 `NSPrintSavePath`。打印超时或调用方取消后，只允许迟到操作写本任务唯一临时 PDF，并保留其 delegate、view/window、operation 与临时目录直到回调结束。若系统永不回调，该会话保持原生打印占用并在进程退出时回收，不冒险释放回调指针或启动相互覆盖的任务。旧目标只在公共层校验 `%PDF-` 后原子替换。
 
-Cmd+Q、菜单退出和 Dock Quit 都先经过 `ExitRequested` → `frowd:close-requested` → 前端 flush/checkpoint → `close_ready` 握手；保存失败/取消会重置退出意图。普通红叉关闭保存后仅隐藏主窗口，并清除关闭/退出确认；再次红叉或 Cmd+Q 都重新握手。点击 Dock 图标会恢复并聚焦窗口；若窗口意外销毁，则从相同平台配置重建，并从持久化存储恢复。Windows 继续使用原来的保存后关闭窗口行为。
+Cmd+Q、菜单退出和 Dock Quit 都先经过 `ExitRequested` → `frowd:close-requested` → 前端 flush/checkpoint → `close_ready` 握手。监听尚未注册时的请求由 Rust 挂起；前端注册后立即调用 `ack_close_listener` 原子领取，并等 `coordinator.boot()` 完成再执行保存。事件与 IPC 补领共用一次派发状态，重复关闭不会重复保存；窗口销毁/重建会清除监听就绪状态并保留尚未处理的关闭/退出意图。保存失败/取消会重置退出意图。普通红叉关闭保存后仅隐藏主窗口，并清除关闭/退出确认；再次红叉或 Cmd+Q 都重新握手。点击 Dock 图标会恢复并聚焦窗口；若窗口意外销毁，则从相同平台配置重建，并从持久化存储恢复。Windows 继续使用原来的保存后关闭窗口行为。
 
 ## Mac 真机验收清单
 
 本地 Windows 单测、模拟平台浏览器回归不代表 macOS 原生验收通过。CI 编译、实际打开和以下检查分别记录：
 
 1. 两架构 CI 编译、Rust 测试、APP/DMG 产物校验；在对应机器打开，确认图标、版本、标题栏与菜单。
-2. 中文输入法最后一段组合输入，立即 Cmd+Q / 菜单退出 / Dock Quit；重开核对正文与名称。模拟写入失败后取消退出，确保窗口保留；恢复写入后再退出。红叉保存隐藏后点击 Dock 恢复，继续编辑再红叉、再恢复后 Cmd+Q；还要覆盖最小化和异常销毁后的 Dock 重建。
+2. 中文输入法最后一段组合输入，立即 Cmd+Q / 菜单退出 / Dock Quit；重开核对正文与名称。模拟写入失败后取消退出，确保窗口保留；恢复写入后再退出。初创或 Dock 重建后立即红叉/Cmd+Q，确认恢复完成后仍能保存并关闭/退出；红叉保存隐藏后点击 Dock 恢复，继续编辑再红叉、再恢复后 Cmd+Q；还要覆盖最小化和异常销毁后的 Dock 重建。
 3. 确认 Cmd+N/O/S、Shift+Cmd+S、Cmd+/、Cmd+F、Option+Cmd+F、Cmd+,、缩放各只触发一次；Cmd+H 隐藏、Cmd+Tab 切换应用、Ctrl+Tab 切换页面。50%–200% 缩放下交通灯稳定。
 4. 正文/表格链接普通点击编辑，Cmd+Click 打开网页或定位文件；POSIX 绝对路径含冒号、相对路径、受管附件均正常。正文图片在无 Origin 或仅有 Referer 的 WKWebView 请求下显示，其他来源仍拒绝。
 5. 用临时长文导出多页 A4 PDF，使用 `pdfinfo` 检查页数/纸张，`pdftotext` 检查中文和末段，检查 18mm 边距、表格跨页、代码换行、图片、KaTeX/图表。确认保存选择器取消、资源失败和打印失败保留旧目标，无隐藏 worker 残留。

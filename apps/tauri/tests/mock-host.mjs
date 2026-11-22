@@ -7,14 +7,23 @@ export function installMockHost(options = {}) {
  {id:'c',title:'阅读摘录',markdown:'收起页合成内容',shelved:true}
  ]).map((d,position)=>[d.id,{path:null,revision:0,position,dirty:false,conflict:false,viewState:null,...d,savedText:d.path?d.markdown:'',preview:d.markdown.slice(0,1200)}]));
  let activeId=options.activeId??'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
- const h={rows,externalTexts:new Map(),calls:[],holds:new Set(),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
+ const h={rows,externalTexts:new Map(),calls:[],holds:new Set(options.holds||[]),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
  h.importChoice=null;h.importSources=new Map();h.pendingImport=null;
  h.objects=new Map(options.objects||[]);h.bindings=new Map((options.bindings||[]).map(([id,refs])=>[id,new Set(refs)]));h.resourceChoice=null;
  h.resourceUrl=(id,reference)=>{const object=h.objects.get(reference);return h.bindings.get(id)?.has(reference)&&object?'data:'+object.mime+';base64,'+object.base64:null};
  const snapshot=()=>({documents:[...rows.values()].sort((a,b)=>a.position-b.position).map(({markdown,savedText,...d})=>({...d,dirty:markdown!==savedText})),activeId,layoutRevision,undoRemoval:removed?.doc.title??null});
  h.release=command=>{h.holds.delete(command);h.gates.get(command)?.();h.gates.delete(command)};
- h.onClose=fn=>{callbacks.push(fn);return()=>callbacks=callbacks.filter(c=>c!==fn)};
- h.requestClose=async()=>{for(const fn of callbacks)await fn()};
+ h.closeListenerReady=false;h.closePending=false;h.closeDispatched=false;
+ h.onClose=async fn=>{
+  h.entered.close_listener=(h.entered.close_listener||0)+1;
+  if(h.holds.has('close_listener'))await new Promise(resolve=>h.gates.set('close_listener',resolve));
+  callbacks.push(fn);return()=>callbacks=callbacks.filter(c=>c!==fn);
+ };
+ h.requestClose=async()=>{
+  h.closePending=true;
+  if(!h.closeListenerReady||h.closeDispatched)return;
+  h.closeDispatched=true;for(const fn of callbacks)await fn();
+ };
  h.snapshot=snapshot;
  h.invoke=async(command,args={})=>{
   h.calls.push({command,args:structuredClone(args)});h.entered[command]=(h.entered[command]??0)+1;
@@ -144,8 +153,12 @@ export function installMockHost(options = {}) {
    case 'save_document':if(h.saveChoice==='cancel')return{cancelled:true};if(h.saveChoice==='fail')throw Error('合成文件保存失败');doc.path??='/synthetic/'+doc.title+'.md';doc.savedText=doc.markdown;return{cancelled:false,snapshot:snapshot()};
    case 'open_document':return{cancelled:true};
    case 'checkpoint':return;
-   case 'close_ready':h.closed=true;h.frozenAtClose=document.querySelector('.ProseMirror')?.getAttribute('contenteditable')==='false';return;
-   case 'cancel_close':h.closed=false;return;
+   case 'ack_close_listener':{
+    h.closeListenerReady=true;const pending=h.closePending&&!h.closeDispatched;
+    if(pending)h.closeDispatched=true;return pending;
+   }
+   case 'close_ready':h.closed=true;h.closePending=false;h.closeDispatched=false;h.frozenAtClose=document.querySelector('.ProseMirror')?.getAttribute('contenteditable')==='false';return;
+   case 'cancel_close':h.closed=false;h.closePending=false;h.closeDispatched=false;return;
    case 'open_document_link':return;
    default:throw Error('Unexpected command '+command);
   }

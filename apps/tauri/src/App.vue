@@ -135,6 +135,7 @@
 import {computed,nextTick,onBeforeUnmount,onMounted,reactive,ref,watch} from 'vue'
 import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
+import {initializeCloseHandshake} from './documents/closeHandshake.mjs'
 import {DocumentSearch} from './documents/search.mjs'
 import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
@@ -509,7 +510,12 @@ onMounted(async()=>{
  if(nativeWindow)setPageZoom(100).catch(error=>coordinator.report(error))
  if(nativeWindow)menuDispose=await listen('frowd:menu-command',event=>executeCommand(event.payload))
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
- try{closeDispose=await onHostClose(async()=>{try{await coordinator.close()}catch(e){coordinator.report(e);await api.cancelClose()}});await coordinator.boot()}catch(e){coordinator.report(e)}
+ closeDispose=await initializeCloseHandshake({
+  listen:onHostClose,acknowledge:()=>api.ackCloseListener(),
+  boot:()=>coordinator.boot(),close:()=>coordinator.close(),
+  cancel:()=>api.cancelClose(),report:error=>coordinator.report(error)
+ })
+ if(disposed)closeDispose()
 })
 onBeforeUnmount(()=>{disposed=true;menuDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>
