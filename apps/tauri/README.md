@@ -1,4 +1,4 @@
-# frowd — Tauri / ProseMirror client
+# fromd — Tauri / ProseMirror client
 
 0.5.2 separates the cross-platform editor/document store/coordinator from the
 Windows and macOS shells. See [macOS packaging, architecture and native acceptance](MACOS_PACKAGING.md)
@@ -49,7 +49,7 @@ all refer to this client:
 | `npm run test:tauri:native` | Real debug executable / WebView2 / SQLite tests |
 
 The release command creates `apps/tauri/src-tauri/target/release/frowd-tauri.exe`;
-it does not install, publish, associate files or enable an updater. App identity
+it does not install, publish or associate files. The client supports explicit manual release checks (see below). App identity
 is `com.frowang.frowd.tauri.v1`. Existing Electron installations and real profiles
 are not migrated or replaced.
 
@@ -57,7 +57,7 @@ Windows packaging now has a separate [installer guide and manual checklist](WIND
 It uses the Tauri identity, a separate Start menu folder and an optional desktop
 shortcut that is unchecked by default. Missing WebView2 is handled through the
 official online bootstrapper. Installer execution and the final combined feature
-package remain separate acceptance steps; no signed release or updater is enabled.
+package remain separate acceptance steps; releases remain unsigned.
 
 ## Preserved workspace and module ownership
 
@@ -93,9 +93,46 @@ identity and layout.
   and platform PDF adapters. `src/platform.mjs` and `WindowChrome.vue` own UI shell policy.
 - `src/reading`: counts, outline adaptation and validated local preferences.
 
-SoloMD localStorage drafts, AI/sync/recipes/telemetry, MCP sidecar and updater do
+SoloMD localStorage drafts, AI/sync/recipes/telemetry, MCP sidecar and the SoloMD updater do
 not initialize. Editor diagnostics are bounded local metadata. Wildcard asset
 access remains disabled; images and links use document-scoped host operations.
+
+## Manual application updates
+
+Windows File → 检查更新… and macOS fromd → 检查更新… check the latest stable
+release in `frowang-ai/fromd`. A theme-aware bottom-left notice shows
+checking, latest/available version, download progress and retryable errors. There
+is no startup polling or unsolicited background download. Windows verifies the
+release asset name, bounded download, same-release SHA256SUMS.txt and MZ header.
+Every HTTPS redirect is restricted to GitHub and its official asset hosts.
+Windows prefers `fromd_<version>_x64-setup.exe`, falling back to the same release's
+`frowd_<version>_x64-setup.exe` only when the new filename is absent. The
+renderer cannot supply download URLs, executable paths or installation arguments.
+
+After download, the document coordinator waits for body/name IME, freezes edits
+and flushes body, title and reading position. Native SQLite checkpoint must
+complete before the installer is spawned directly with `/P`; only successful
+spawn authorizes process exit. Failure keeps the same window editable for retry.
+The existing profile, `drafts.sqlite` and `resources/objects` are retained; shelves,
+unnamed drafts and resource bindings need no migration. macOS opens the fixed
+Release download page and leaves the application running for manual replacement.
+
+Checks: `npm run test:tauri` (update controller and coordinator barriers), both
+Cargo suites (URL/version/download/checkpoint rules and persistence), and
+`FROWD_BROWSER_PORT=15635 npm run test:tauri:browser -- updates.browser.spec.mjs`.
+For native Windows coverage, compile `tests/fixtures/updates-installer.rs` with
+`rustc` to a task output `.exe`, build a debug client with `tauri build --debug
+--no-bundle`, then set `FROWD_NATIVE_EXE` and `FROWD_TEST_INSTALLER` and run
+`npm --prefix apps/tauri run test:native -- --grep "native update"`. Optionally set
+`FROWD_LEGACY_NATIVE_EXE` to a retained old-name debug executable: it creates the
+synthetic profile first, then the new fromd executable must preserve its drafts,
+images and reading preferences. This harmless installer fixture
+records `/P`; it does not replace binaries. Native tests create isolated profiles
+and WebView2 storage, verify corrupt hash/spawn failures, final IME input, shelved
+images and reopening. Actual NSIS replacement and macOS GUI remain manual acceptance.
+Debug loopback feeds require `FROWD_UPDATE_TEST_FEED=http://127.0.0.1:<port>/latest`,
+an existing absolute `FROWANG_USER_DATA` and its `.frowd-update-test` marker.
+Production builds ignore this override.
 
 ## Source, search and reading behavior
 

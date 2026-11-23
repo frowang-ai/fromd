@@ -1,64 +1,71 @@
-# frowd 0.5.2
+# fromd
 
-frowd 是本地 Markdown 写作与阅读客户端，唯一桌面宿主为 **Tauri**，支持 Windows 与 macOS。正文使用共享 Milkdown/ProseMirror 编辑器，文档、页面布局和资源归属由 Rust/SQLite 持久化。支持源码往返、公式、表格、Mermaid、脚注、GitHub Alerts、查找替换、阅读设置和原生 A4 PDF 导出。
+所见即所得的 Markdown 写作工具，适合带公式的中文写作。点 `+` 即开新页面，无需先存成文件就能直接重命名、实时自动保存，暂时不看的页面一键收起到后台。支持 Windows 和 macOS。
 
-旧 Electron 工程及其构建、更新链路已退役。历史实现、提交和验证证据仍可从 Git 历史及 [VALIDATION.md](VALIDATION.md) 追溯，不再提供旧宿主运行命令，也不自动迁移旧资料库。
+![fromd 0.5.2 编辑界面](assets/screenshot.png)
 
-## 架构与代码入口
+## 下载
 
-| 层 | 入口与职责 |
+到 [Releases](https://github.com/frowang-ai/fromd/releases/latest) 下载最新版（当前 0.5.2）。
+
+| 设备 | 下载 |
 | --- | --- |
-| 共享产品内核 | `packages/editor`：Markdown 解析、序列化、编辑及 PDF HTML；`apps/tauri/crates/document-store/src`：文档、SQLite、资源、导入、搜索；`apps/tauri/src/documents/coordinator.mjs`：串行操作与保存协调 |
-| 薄平台壳 | `platform.mjs`、`WindowChrome.vue`、Rust IPC/协议与 `menu_macos.rs`、`pdf_macos.rs` / `pdf_windows.rs`；平台参数单向传给编辑器，内核不反向依赖宿主 |
-| 打包层 | 共享 Tauri 配置 + Windows NSIS / macOS APP、DMG 覆盖配置；0.5.2 身份与许可资源统一，GitHub Actions 构建和上传私有产物 |
+| Windows x64 | `fromd_<版本>_x64-setup.exe` |
+| Apple Silicon Mac（M1–M4） | `fromd_<版本>_aarch64.dmg` |
+| Intel Mac | `fromd_<版本>_x64.dmg` |
 
-页面直接收起/恢复，不播放旧 Electron 的 450ms 收起动画。macOS 使用系统标题栏和原生菜单；Windows 使用自绘窗口栏。两端保存、恢复、资源权限和 PDF 公共层保持一致。
+macOS 另提供对应架构的 `.app.zip`。每个 release 都附带 `SHA256SUMS.txt`，校验方法见安装说明。
 
-## 安装依赖与运行
+## 更新
 
-需要 Node 22.19+、Rust 1.93.1；Windows 使用 MSVC Build Tools/Windows SDK，macOS 使用 Xcode Command Line Tools。
+Windows 在「文件 → 检查更新…」、macOS 在「fromd → 检查更新…」查看最新正式版。左下角会显示检查结果。
 
-```sh
-npm ci --ignore-scripts
-npx --yes pnpm@10.11.0 --dir apps/tauri install --frozen-lockfile
-npm run dev
-```
+- **Windows**：点击「立即更新」，应用下载并校验 SHA-256，等待输入法完成并保存正文、标题和阅读位置，然后启动覆盖安装。下载、保存或安装器启动失败时会保留当前窗口，可直接重试。
+- **macOS**：点击「前往下载更新」打开 Release 下载页，下载对应芯片的 DMG，正常退出应用后替换「应用程序」中的 `fromd.app`。
 
-| 根命令 | 用途 |
-| --- | --- |
-| `npm run dev` / `npm start` | Tauri 原生开发客户端 |
-| `npm run build` / `npm run tauri:web` | 前端类型检查与构建 |
-| `npm run tauri:check` | 锁定依赖检查 Rust 宿主 |
-| `npm run tauri:build` | 原生 release 可执行文件，no-bundle |
-| `npm run tauri:installer:win`（兼容 `tauri:installer`） | Windows x64 NSIS 安装包 |
-| `npm run tauri:installer:mac` | 当前 Mac 架构的 APP/DMG |
+从现有 frowd Tauri 0.5.2 升级为 fromd，继续使用同一份文稿数据库、图片附件和阅读设置，无需搬迁。更早的 Electron 和 lite 预览版请先看[升级说明](docs/faq.md#从旧版本升级草稿还在吗)。目前不会后台自动检查或静默安装。
 
-生产包未配置自动更新、不自动创建公开 Release。安装包与真机清单分别见 [Windows](apps/tauri/WINDOWS_INSTALLER.md) 和 [macOS](apps/tauri/MACOS_PACKAGING.md)。不要以 release 构建测试 `FROWANG_USER_DATA` 覆盖：它仅在 debug 生效。
+## 功能
 
-## 验证入口
+### 核心体验：所见即所得与无负担页面管理
+- **所见即所得写作**：正文直接呈现排版、表格、公式与图表效果，无需左右分栏；需要时可随时一键切换完整 Markdown 源码（`Ctrl+/` / `Cmd+/`）
+- **点击即开新页面**：点顶部 `+` 立即新建 Markdown 页面开始记录，不用在动笔前先弹窗选路径、建文件
+- **无需手动保存即可重命名**：未落盘的草稿可直接在正文左上方修改页面名称；正文与标题实时写入本地 SQLite 数据库，无需手动导出文件；正常退出会等待最后输入保存完成
+- **不想看时一键收起到后台**：点标签页上的 `−`（或右键选择收起 / 收起其他页面）即可将页面收进左侧「已收起」列表，清爽不占顶栏位置，需要时随时点击恢复
 
-```sh
-npm test
-npm run test:tauri
-cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
-cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
-npm run tauri:check
-npm run tauri:web
-npx playwright test -c playwright.pm-shared.config.mjs
-```
+### 公式与扩展语法
+- **公式原位编辑**：行内公式、居中行间公式即时预览（KaTeX），支持 `\tag{...}` 编号；空公式占位可再次点击编辑
+- **选区快捷包裹**：选中文字后输入 `$` 直接转为行内公式；输入 `*`、`_`、`~`、反引号或括号/引号自动包裹并保留样式；从 VS Code 粘贴 LaTeX 片段自动识别数学公式
+- **Mermaid 图表、脚注与提示块**：离线渲染流程图、时序图、甘特图、思维导图等，支持点击「编辑图表源码」修改；支持标准脚注及 `NOTE`、`TIP`、`IMPORTANT`、`WARNING`、`CAUTION` 五类 GitHub 提示块
+- **表格与图片附件**：支持表格、任务列表、代码块高亮；截图可直接粘贴，图片可拖入，本地图片与附件统一管理
 
-`npm run test:editor` 为共享编辑器完整浏览器入口；`npm run test:tauri:browser` 使用模拟 IPC，设置独立 `FROWD_BROWSER_PORT`，如 14522。`npm run test:tauri:native` 使用真实 debug 客户端，需要先构建原生可执行文件和隔离测试目录。不得使用真实笔记测试或复用其他会话的预览/profile。
+### 搜索、阅读与导入导出
+- **全文搜索与查找替换**：左侧栏一键搜索所有页面（包含已自动保存到本地数据库的草稿与已收起页面），支持当前文档查找替换与区分大小写（`Aa`）
+- **大纲与阅读设置**：侧栏「页面 / 大纲」切换，按标题快速跳转；实时显示字数与字符数；支持字号（14–20 px）、正文宽度（720–1080 px）、浅色 / 深色 / 跟随系统主题及页面缩放（50%–200%）
+- **原生 PDF 导出与文件导入**：导出 A4 多页 PDF（18 mm 页边距），完整保留中文、公式、Mermaid 矢量图、脚注、提示块、表格与图片；支持导入 TXT / HTML，另存为 Markdown 时自动复制关联本地图片
 
-## 当前说明与项目记忆
+## 系统要求
 
-- [Tauri 客户端入口](apps/tauri/README.md)
-- [桌面页面管理与预览](apps/tauri/DESKTOP_FEEDBACK.md)
-- [Markdown 扩展](apps/tauri/MARKDOWN_EXTENSIONS.md)、[公式与阅读](apps/tauri/READING_V1.md)、[PDF 导出](apps/tauri/PDF_EXPORT.md)
-- [Windows 打包](apps/tauri/WINDOWS_INSTALLER.md)、[macOS 架构/打包/验收](apps/tauri/MACOS_PACKAGING.md)
-- [历史验证归档](VALIDATION.md)：旧 Electron 及阶段记录，不是当前运行指引
+- Windows 10 / 11 x64，需要 WebView2 Runtime（Windows 11 自带；缺失时安装器会联网下载）
+- macOS 11.0 或更新，Apple Silicon 或 Intel
 
-原 `main` 的 PR #14 历史已通过普通 merge 纳入。其共享字数/大纲分析与代码主题已在 Tauri 使用；旧 Electron 搜索/图片/窗口接口由当前 Tauri 实现替代，不并存两套客户端或回退编辑器接口。
+## 文档
 
-## 来源与许可证
+- [Windows 安装说明](docs/install-windows.md)：校验、SmartScreen 提示、WebView2、数据位置、卸载
+- [macOS 安装说明](docs/install-macos.md)：校验、首次打开、数据位置
+- [常见问题](docs/faq.md)
+- [版本记录](CHANGELOG.md)
 
-自主实现采用 MIT；编辑器原始抽离来源为 `frowang-ai/web-lunwen` 的 `647efc6`，Tauri 平台基础来自 SoloMD v5.0.21。运行时依赖与原始许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[Tauri 许可说明](apps/tauri/THIRD_PARTY_NOTICES.md) 和 `apps/tauri/dependency-licenses.json`。没有包含 Typora 源码、资源或样式。
+## 反馈
+
+遇到问题或有建议，请[提交 Issue](https://github.com/frowang-ai/fromd/issues/new/choose)。和输入法有关的问题，请写明系统、输入法名称和版本。
+
+提交前请确认截图和附件里没有不想公开的笔记内容，Issue 所有人都能看到。
+
+## 开发与构建
+
+架构、依赖安装、本地运行与测试见 [开发与构建说明](docs/development.md)。
+
+## 许可
+
+[MIT License](LICENSE) · [第三方许可声明](THIRD_PARTY_NOTICES.md)

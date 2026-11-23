@@ -46,6 +46,14 @@ export const documentsApi = {
   closeReady: () => call('close_ready'),
   cancelClose: () => call('cancel_close'),
 };
+export const updatesApi = {
+  check: () => call('check_updates'),
+  download: () => call('download_update'),
+  install: () => call('install_update'),
+  openPage: () => call('open_update_page'),
+  onProgress: callback => testHost ? Promise.resolve(testHost.onUpdateProgress(callback)) :
+    listen('frowd:update-progress', event => callback(event.payload)),
+};
 export const onHostClose = callback => testHost ? Promise.resolve(testHost.onClose(callback)) :
   listen('frowd:close-requested', callback);
 export function openDocumentLink(id, href) { return call('open_document_link', { id, href }); }

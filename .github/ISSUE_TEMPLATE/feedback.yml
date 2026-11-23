@@ -1,0 +1,27 @@
+name: 建议与反馈
+description: 功能建议、使用体验、想法
+title: "[建议] "
+labels: ["feedback"]
+body:
+  - type: dropdown
+    id: product
+    attributes:
+      label: 系统
+      options:
+        - Windows
+        - macOS
+        - 都适用
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: 你希望怎样
+      description: 想要什么功能或改变，在什么场景下会用到
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: 现在的做法
+      description: 目前你是怎么绕过的，或者用别的工具怎么做

@@ -1,6 +1,7 @@
 use frowd_documents::filename::suggested_name;
 mod document_links;
 mod close_lifecycle;
+mod updates;
 use close_lifecycle::{CloseState, CloseEvent, CloseAction};
 mod protocol_urls;
 mod file_import_host;
@@ -299,6 +300,7 @@ fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
 pub fn run() {
     tauri::Builder::default()
         .manage(pdf::PdfState::default())
+        .manage(updates::UpdateState::default())
         .register_uri_scheme_protocol("frowd-pdf", pdf::document_response)
         .register_asynchronous_uri_scheme_protocol("frowd-resource", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
@@ -343,6 +345,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            updates::check_updates,
+            updates::download_update,
+            updates::install_update,
+            updates::open_update_page,
             pdf::pdf_images,
             pdf::export_pdf,
             file_import_host::choose_document_import,

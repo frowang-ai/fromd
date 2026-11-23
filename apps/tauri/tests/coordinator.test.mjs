@@ -21,6 +21,34 @@ function fixture() {
  const state={documents:[],activeId:null};const c=new DocumentCoordinator(api,port,state,{autosaveMs:60000});fixtures.push(c);
  return {c,api,port,state,rows,calls,setFail:value=>fail=value};
 }
+test('update handoff waits for IME and persists final body/name/view before installation, then remains frozen',async()=>{
+ const {c,port,api,state,rows}=fixture();await c.boot();const gate=deferred();let frozen=false;
+ port.freeze=async()=>{await gate.promise;frozen=true;return()=>frozen=false};
+ const calls=[];api.checkpoint=async()=>calls.push('checkpoint');
+ rows.get('b').shelved=true;
+ const update=c.handoffUpdate(async()=>{
+  calls.push('install');assert.equal(frozen,true);assert.equal(rows.get('a').markdown,'最后组合正文');
+  assert.equal(rows.get('a').title,'最后名称');assert.equal(rows.get('a').viewState.scrollTop,321);
+  assert.equal(rows.get('b').shelved,true);
+ });
+ await new Promise(r=>setImmediate(r));assert.deepEqual(calls,[]);
+ port.current.markdown='最后组合正文';port.current.viewState.scrollTop=321;c.nameChanged('a','最后名称');gate.resolve();await update;
+ assert.deepEqual(calls,['checkpoint','install']);assert.equal(frozen,true);assert.equal(state.busy,true);
+ await assert.rejects(c.activate('b'),/正在退出/);
+});
+for(const fail of ['composition','body','name','view','checkpoint','spawn'])test('failed update '+fail+' preserves content, unfreezes and can retry',async()=>{
+ const {c,port,api,state,rows}=fixture();await c.boot();let frozen=false,broken=true,installs=0;
+ port.freeze=async()=>{if(broken&&fail==='composition')throw Error('composition');frozen=true;return()=>frozen=false};
+ const original={...api};
+ for(const [step,method] of [['body','update'],['name','rename'],['view','view']])api[method]=async(...args)=>{if(broken&&step===fail)throw Error(step);return original[method](...args)};
+ api.checkpoint=async()=>{if(broken&&fail==='checkpoint')throw Error('checkpoint')};
+ const install=async()=>{installs++;if(broken&&fail==='spawn')throw Error('spawn')};
+ port.current.markdown='保留未保存正文';c.nameChanged('a','保留标题');
+ await assert.rejects(c.handoffUpdate(install));assert.equal(state.busy,false);assert.equal(frozen,false);
+ assert.equal(port.current.markdown,'保留未保存正文');assert.equal(installs,fail==='spawn'?1:0);
+ broken=false;await c.handoffUpdate(install);assert.equal(rows.get('a').markdown,'保留未保存正文');assert.equal(rows.get('a').title,'保留标题');
+});
+
 test('last input is persisted even when no delayed change notification fired',async()=>{
  const {c,port,rows}=fixture();await c.boot();
  port.current.markdown+=' last-keystroke';await c.activate('b');

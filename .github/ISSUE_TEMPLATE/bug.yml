@@ -1,0 +1,76 @@
+name: 问题报告
+description: 程序出错、行为不对、数据异常
+title: "[问题] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Issue 所有人都能看到。请不要贴不想公开的笔记内容，截图前先遮挡。
+  - type: dropdown
+    id: product
+    attributes:
+      label: 产品
+      options:
+        - fromd（当前版本）
+        - 改名前版本：frowd Tauri 0.5.2
+        - 旧版：frowd 0.5.0 及更早（Electron 标准版）
+        - 旧版：frowd lite 预览版
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本号
+      description: 安装包文件名里的版本，例如 0.5.2
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: 系统版本
+      description: 例如 Windows 11 24H2（Win+R 输入 winver 查看）或 macOS 15.1（苹果菜单 → 关于本机），Mac 请注明 Apple 芯片还是 Intel
+    validations:
+      required: true
+  - type: dropdown
+    id: ime
+    attributes:
+      label: 输入法
+      options:
+        - 不涉及输入法
+        - 微软拼音
+        - 搜狗输入法
+        - QQ 输入法
+        - 百度输入法
+        - 小狼毫 / 鼠须管 / RIME
+        - macOS 自带拼音
+        - 其他（在下面说明）
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 新建笔记
+        2. 输入……
+        3. 按……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果和实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图或补充信息
+      description: 可以直接拖入图片。能复现问题的最小 Markdown 片段很有帮助
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 确认
+      options:
+        - label: 我确认上面的内容和附件里没有不想公开的信息
+          required: true

@@ -2,17 +2,18 @@ use tauri::{menu::{Menu, MenuItem, PredefinedMenuItem, Submenu}, Emitter, Manage
 
 pub fn install(app: &tauri::App) -> tauri::Result<()> {
     let command = |id: &str, text: &str, accelerator: Option<&str>| MenuItem::with_id(app, id, text, true, accelerator);
-    let application = Submenu::with_items(app, "frowd", true, &[
-        &PredefinedMenuItem::about(app, Some("关于 frowd"), None)?,
+    let application = Submenu::with_items(app, "fromd", true, &[
+        &PredefinedMenuItem::about(app, Some("关于 fromd"), None)?,
+        &command("checkUpdates", "检查更新…", None)?,
         &PredefinedMenuItem::separator(app)?,
         &command("reading", "阅读设置…", Some("Cmd+,"))?,
         &PredefinedMenuItem::separator(app)?,
-        &PredefinedMenuItem::hide(app, Some("隐藏 frowd"))?,
+        &PredefinedMenuItem::hide(app, Some("隐藏 fromd"))?,
         &PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?,
         &PredefinedMenuItem::show_all(app, Some("显示全部"))?,
         &PredefinedMenuItem::separator(app)?,
         // Native Quit reaches RunEvent::ExitRequested, including Cmd+Q and Dock.
-        &PredefinedMenuItem::quit(app, Some("退出 frowd"))?,
+        &PredefinedMenuItem::quit(app, Some("退出 fromd"))?,
     ])?;
     let file = Submenu::with_items(app, "文件", true, &[
         &command("new", "新建页面", Some("Cmd+N"))?,
@@ -53,7 +54,7 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
     app.set_menu(Menu::with_items(app, &[&application, &file, &edit, &view, &windows])?)?;
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
-        if matches!(id, "new" | "open" | "import" | "save" | "saveAs" | "exportPdf" | "insertImage" | "insertAttachment" | "remove" | "find" | "replace" | "reading" | "source" | "rendered" | "zoomIn" | "zoomOut" | "zoomReset" | "sidebar") {
+        if matches!(id, "checkUpdates" | "new" | "open" | "import" | "save" | "saveAs" | "exportPdf" | "insertImage" | "insertAttachment" | "remove" | "find" | "replace" | "reading" | "source" | "rendered" | "zoomIn" | "zoomOut" | "zoomReset" | "sidebar") {
             if let Some(window) = app.get_webview_window("main") { let _ = window.emit("frowd:menu-command", id); }
         }
     });

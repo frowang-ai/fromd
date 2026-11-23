@@ -881,7 +881,12 @@ CREATE TRIGGER IF NOT EXISTS document_update_size AFTER UPDATE OF markdown,title
         Ok(results)
     }
     pub fn checkpoint(&self) -> Result<()> {
-        self.conn.execute_batch("PRAGMA wal_checkpoint(FULL);")?;
+        let (busy, logged, checkpointed): (i64, i64, i64) = self.conn.query_row(
+            "PRAGMA wal_checkpoint(FULL);", [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        if busy != 0 || logged != checkpointed {
+            return Err(invalid("文稿数据库仍被占用，尚未完成落盘，请稍后重试。"));
+        }
         Ok(())
     }
 }

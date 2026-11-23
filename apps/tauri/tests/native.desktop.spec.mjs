@@ -2,6 +2,7 @@ import { test, expect, chromium } from '@playwright/test'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { once } from 'node:events'
+import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { mkdtemp, readFile, writeFile, mkdir, stat, readdir } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
@@ -49,9 +50,9 @@ async function stopFailedChild(child) {
   await expect.poll(() => child.exitCode !== null || child.signalCode !== null, { timeout: 15000 }).toBe(true)
 }
 
-async function launch(profile, { pdfTarget } = {}) {
+async function launch(profile, { pdfTarget, updateFeed, executablePath=executable } = {}) {
   const port = await freePort()
-  const child = spawn(executable, [], {
+  const child = spawn(executablePath, [], {
     windowsHide: true,
     env: {
       ...process.env,
@@ -59,6 +60,7 @@ async function launch(profile, { pdfTarget } = {}) {
       WEBVIEW2_USER_DATA_FOLDER: join(profile, 'webview2'),
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`,
       ...(pdfTarget ? { FROWD_PDF_TEST_TARGET: pdfTarget } : {}),
+      ...(updateFeed ? { FROWD_UPDATE_TEST_FEED: updateFeed } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -149,6 +151,85 @@ function seedFile(profile, id, file, markdown) {
       .run('原生文件.md', file, markdown, hash, hash, hash, id)
   } finally { db.close() }
 }
+
+test('native update verifies download, refuses bad hash and spawn, preserves IME draft and resources on restart',async()=>{
+ const {profile,directory}=await fixture()
+ const installer=process.env.FROWD_TEST_INSTALLER
+ if(!installer)throw Error('Set FROWD_TEST_INSTALLER to the compiled harmless updates-installer fixture')
+ const bytes=await readFile(installer)
+ await mkdir(profile,{recursive:true});await writeFile(join(profile,'.frowd-update-test'),'synthetic update profile')
+ let badHash=true,badExe=false,app
+ const server=createHttpServer((req,res)=>{
+  const payload=badExe?Buffer.from('MZ-not-an-executable'):bytes
+  const hash=createHash('sha256').update(payload).digest('hex')
+  const name='fromd_99.0.0_x64-setup.exe'
+  const origin=`http://127.0.0.1:${server.address().port}`
+  if(req.url==='/latest')res.end(JSON.stringify({tag_name:'v99.0.0',draft:false,prerelease:false,assets:[{name,size:payload.length,browser_download_url:origin+'/'+name},{name:'SHA256SUMS.txt',size:100,browser_download_url:origin+'/SHA256SUMS.txt'}]}))
+  else if(req.url==='/SHA256SUMS.txt')res.end(`${badHash?'0'.repeat(64):hash}  ${name}\n`)
+  else if(req.url==='/'+name)res.end(payload)
+  else {res.statusCode=404;res.end()}
+ })
+ server.listen(0,'127.0.0.1');await once(server,'listening')
+ const feed=`http://127.0.0.1:${server.address().port}/latest`
+ try{
+  app=await launch(profile,{executablePath:process.env.FROWD_LEGACY_NATIVE_EXE||executable});let page=app.page
+  await nameInput(page).fill('原生更新草稿');await nameInput(page).press('Enter')
+  await pasteImage(page)
+  const original={id:await page.locator('.tab.selected').getAttribute('data-tab-id')}
+  await page.getByRole('button',{name:/^标签收起/}).click()
+  await page.getByRole('button',{name:'新建页面',exact:true}).first().click()
+  await expect(body(page)).toBeVisible()
+  await page.getByRole('button',{name:'阅读设置',exact:true}).click()
+  await page.getByRole('combobox',{name:'正文字号',exact:true}).selectOption('20')
+  await page.getByRole('combobox',{name:'主题',exact:true}).selectOption('dark')
+  await page.getByRole('button',{name:'关闭阅读设置',exact:true}).click()
+  await closeNormally(app);app=null
+  app=await launch(profile,{updateFeed:feed});page=app.page
+  await expect(page.locator('.brand span')).toHaveText('fromd')
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-theme','dark')
+  const notice=page.getByRole('status',{name:'应用更新',exact:true})
+  const check=async()=>{await page.locator('.app-menu summary').filter({hasText:'文件'}).click();await page.getByRole('button',{name:'检查更新…',exact:true}).click();await expect(notice).toContainText('发现新版本 v99.0.0')}
+  await check();await notice.getByRole('button',{name:'立即更新'}).click()
+  await expect(notice).toContainText('SHA-256 校验失败');expect(app.child.exitCode).toBeNull()
+  badHash=false;badExe=true
+  // Recheck updates to obtain the intentionally invalid executable's new size.
+  await check();await notice.getByRole('button',{name:'立即更新'}).click()
+  await expect(notice).toContainText('无法启动更新安装程序');expect(app.child.exitCode).toBeNull()
+  await expect(body(page)).toHaveAttribute('contenteditable','true')
+  badExe=false;await check()
+  await setMode(page,'source')
+  await source(page).evaluate(el=>{el.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));el.value='原生更新最后组合正文';el.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true,inputType:'insertCompositionText',data:el.value}))})
+  await notice.getByRole('button',{name:'立即更新'}).click()
+  await expect(notice).toContainText('正在保存文稿')
+  expect(app.child.exitCode).toBeNull()
+  await source(page).evaluate(el=>el.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:el.value})))
+  await expect.poll(()=>app.child.exitCode,{timeout:20000}).toBe(0)
+  const old=app;await old.browser.close().catch(()=>{});app=null
+  await expect.poll(()=>debugEndpoint(old.port),{timeout:15000}).toBe(false)
+  await expect.poll(()=>processAlive(old.browserPid),{timeout:15000}).toBe(false)
+  await expect.poll(()=>readFile(join(profile,'update-installer-started.txt'),'utf8').catch(()=>''),{timeout:10000}).toBe('/P')
+  const db=new DatabaseSync(join(profile,'drafts.sqlite'))
+  try{
+   const docs=db.prepare('SELECT id,markdown,title,shelved,viewState FROM documents').all()
+   expect(docs).toHaveLength(2)
+   expect(docs.find(d=>d.id===original.id).shelved).toBe(1)
+   expect(docs.find(d=>d.id!==original.id).markdown).toContain('原生更新最后组合正文')
+   expect(db.prepare('SELECT COUNT(*) AS n FROM resource_bindings WHERE docId=?').get(original.id).n).toBeGreaterThan(0)
+   await writeFile(join(directory,'update-native-evidence.json'),JSON.stringify({native:true,mock:false,legacySeed:Boolean(process.env.FROWD_LEGACY_NATIVE_EXE),installer:'harmless fixture; no binary replacement',docs},null,2))
+  }finally{db.close()}
+  app=await launch(profile)
+  page=app.page
+  await expect(page.locator('.brand span')).toHaveText('fromd')
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-theme','dark')
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('frowd.tauri.reading-preferences.v1')).fontSize)).toBe(20)
+  await expect(source(app.page)).toHaveValue('原生更新最后组合正文')
+  await app.page.locator(`.page-row[data-page-id="${original.id}"] .page-title`).click()
+  const restoredImage=body(app.page).locator('img[data-editor-image-src]')
+  await expect(restoredImage).toBeVisible()
+  await expect.poll(()=>restoredImage.evaluate(image=>image.complete&&image.naturalWidth>0)).toBe(true)
+  await closeNormally(app);app=null
+ }finally{await cleanup(app);await new Promise(resolve=>server.close(resolve))}
+})
 
 test('native titlebar controls, WebView zoom and final-input close preserve the isolated draft', async ({}, info) => {
   const {profile,directory}=await fixture()

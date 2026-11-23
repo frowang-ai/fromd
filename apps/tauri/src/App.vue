@@ -11,6 +11,7 @@
           <button :disabled="!current || state.busy || !state.loaded" @click="executeCommand('exportPdf')">导出 PDF…</button>
           <button :disabled="!current || state.busy" @click="executeCommand('insertImage')">插入图片…</button>
           <button :disabled="!current || state.busy" @click="executeCommand('insertAttachment')">插入附件…</button>
+          <button :disabled="!state.loaded" @click="executeCommand('checkUpdates')">检查更新…</button>
           <button :disabled="!current" @click="executeCommand('remove')">移除当前页面</button>
         </div></details>
         <details><summary>编辑</summary><div class="menu-popup">
@@ -110,6 +111,7 @@
       </main>
     </div>
 
+    <UpdateNotice :state="updateState" :raised="Boolean(state.undoRemoval && !undoDismissed)" :document-busy="state.busy" @update="updater.update()" @retry="updater.retry()" @close="updater.dismiss()" />
     <ReadingSettings v-if="readingOpen" ref="readingPanel" :preferences="readingPreferences" :error="readingError" @change="updateReading" @close="closeReading" />
       <div v-if="contextDocument" ref="contextMenu" class="page-context" role="menu" :style="{left:contextPosition.x+'px',top:contextPosition.y+'px'}" :aria-label="'页面操作 ' + contextDocument.title" @keydown="contextKey">
         <span class="context-title">{{ contextDocument.title }}</span>
@@ -137,7 +139,9 @@ import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {initializeCloseHandshake} from './documents/closeHandshake.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {documentsApi,updatesApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import UpdateNotice from './updates/UpdateNotice.vue'
+import {UpdateController} from './updates/controller.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
@@ -205,6 +209,8 @@ const port={
  freeze:async()=>{await waitAllComposition();editor.value.setFrozen(true);editingLocked.value=true;return()=>{editor.value?.setFrozen(false);editingLocked.value=false}}
 }
 const coordinator=new DocumentCoordinator(api,port,state)
+const updateState=reactive({})
+const updater=new UpdateController(updatesApi,coordinator,updateState)
 const search=new DocumentSearch(api,state,()=>coordinator.searchLive())
 watch(()=>[state.activeId,state.markdown],([id,markdown],previous)=>{
  clearTimeout(analysisTimer)
@@ -479,6 +485,7 @@ function executeCommand(command){
  if(state.busy&&['import','exportPdf','insertImage','insertAttachment','remove','source','sourceMode','rendered','reading'].includes(command))return
  const active=Boolean(current.value)
  switch(command){
+  case 'checkUpdates': closeMenus();return updater.check()
   case 'new': return action(()=>coordinator.create())
   case 'open': return action(()=>coordinator.open())
   case 'import': return action(()=>coordinator.importFile())
@@ -512,10 +519,10 @@ onMounted(async()=>{
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  closeDispose=await initializeCloseHandshake({
   listen:onHostClose,acknowledge:()=>api.ackCloseListener(),
-  boot:()=>coordinator.boot(),close:()=>coordinator.close(),
+  boot:()=>coordinator.boot(),close:()=>updater.blocksClose?api.cancelClose():coordinator.close(),
   cancel:()=>api.cancelClose(),report:error=>coordinator.report(error)
  })
  if(disposed)closeDispose()
 })
-onBeforeUnmount(()=>{disposed=true;menuDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;updater.dispose();menuDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>
