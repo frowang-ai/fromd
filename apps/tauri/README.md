@@ -44,7 +44,7 @@ all refer to this client:
 | `npm run tauri:check` | Check the Rust host |
 | `npm run tauri:build` | Build a release executable with `--no-bundle` |
 | `npm run tauri:installer` / `tauri:installer:win` | Build an unsigned Windows x64 NSIS Setup.exe; no install or publication |
-| `npm run tauri:installer:mac` | Build unsigned macOS APP/DMG using the platform configuration |
+| `npm run tauri:installer:mac` | Build ad-hoc signed macOS APP/DMG using the platform configuration (not notarized) |
 | `npm run test:tauri` | Tauri Node tests |
 | `npm run test:tauri:browser` | Browser tests with mock native IPC |
 | `npm run test:tauri:native` | Real debug executable / WebView2 / SQLite tests |
@@ -58,7 +58,9 @@ Windows packaging now has a separate [installer guide and manual checklist](WIND
 It uses the Tauri identity, a separate Start menu folder and an optional desktop
 shortcut that is unchecked by default. Missing WebView2 is handled through the
 official online bootstrapper. Installer execution and the final combined feature
-package remain separate acceptance steps; releases remain unsigned.
+package remain separate acceptance steps. Published 0.5.2 releases remain unsigned;
+macOS ad-hoc signing is configured for future builds and has not been released.
+It is not Developer ID signing or notarization; see [macOS packaging](MACOS_PACKAGING.md).
 
 ## Preserved workspace and module ownership
 

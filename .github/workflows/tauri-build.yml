@@ -45,9 +45,9 @@ jobs:
       - run: npm run test:tauri
       - run: cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
       - run: cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
-      - name: Build unsigned app and dmg
+      - name: Build ad-hoc signed app and dmg (no notarization)
         run: npm --prefix apps/tauri run tauri -- build --config src-tauri/tauri.macos.conf.json --bundles app,dmg --target ${{ matrix.target }} -- --locked
-      - name: Validate and archive
+      - name: Verify signatures, inspect dmg and archive
         shell: bash
         run: |
           bundle="$CARGO_TARGET_DIR/${{ matrix.target }}/release/bundle"
@@ -55,6 +55,18 @@ jobs:
           dmgs=("$bundle"/dmg/*.dmg)
           test "${#dmgs[@]}" -eq 1
           node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.2
+          # Validate the delivered copy too; never repair/re-sign artifacts here.
+          hdiutil verify "${dmgs[0]}"
+          mount=$(mktemp -d "$RUNNER_TEMP/fromd-dmg.XXXXXX")
+          hdiutil attach "${dmgs[0]}" -readonly -nobrowse -mountpoint "$mount"
+          trap 'hdiutil detach "$mount"; rmdir "$mount"' EXIT
+          test -L "$mount/Applications"
+          test "$(readlink "$mount/Applications")" = /Applications
+          node apps/tauri/scripts/check-macos-artifact.mjs --app "$mount/fromd.app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.2
+          hdiutil detach "$mount"
+          trap - EXIT
+          rmdir "$mount"
+          # Ad-hoc is not notarization: spctl rejection is not a build failure.
           mkdir -p output/artifacts
           ditto -c -k --keepParent "$app" 'output/artifacts/fromd-0.5.2-${{ matrix.arch }}.app.zip'
           cp "${dmgs[0]}" output/artifacts/

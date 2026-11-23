@@ -10,6 +10,10 @@ fromd 的正式产品代码分为三层：
 
 需要 macOS、Xcode Command Line Tools、Node 22.19+、Rust 1.93.1。依赖与两个 Cargo.lock 必须保留；不使用 `cargo update`。
 
+锁文件固定 `@tauri-apps/cli 2.12.1`；该版本随包的 `config.schema.json` 支持 `bundle.macOS.signingIdentity` 和 `bundle.macOS.dmg` 背景、窗口尺寸及图标位置。当前配置设置 `signingIdentity: "-"`，按 [Tauri 官方说明](https://v2.tauri.app/distribute/sign/macos/#ad-hoc-signing) 使用免费 ad-hoc 签名，不需要付费开发者会员或证书。不要设置 `APPLE_SIGNING_IDENTITY` 覆盖它，也不要注入 Apple 证书/公证凭据；保留默认 hardened runtime，不添加额外 entitlements。
+
+**发行状态：已发布的 v0.5.2 包按未签名、未公证分发；这次 ad-hoc 配置尚未发行，版本号未自增。** 新构建的 ad-hoc 签名不提供 Apple 认证的开发者身份，不是 Developer ID 或公证，不能保证 Gatekeeper 放行。
+
 ```sh
 npm ci --ignore-scripts
 npx --yes pnpm@10.11.0 --dir apps/tauri install --frozen-lockfile
@@ -30,17 +34,33 @@ node apps/tauri/scripts/check-macos-artifact.mjs --app path/to/fromd.app --dmg p
 ditto -c -k --keepParent path/to/fromd.app fromd-0.5.2-aarch64.app.zip
 ```
 
-脚本检查 Info.plist 版本/身份/最低 macOS 11.0、64 位 Mach-O 架构、7 份非空许可证及非空 DMG。支持 thin ARM64/x86_64 及大小端标准 FAT/Universal（FAT 头使用 32 位偏移，不含 FAT64；内部 slice 是 64 位 Mach-O），逐 slice 校验 CPU/subtype、可执行头、偏移、长度、对齐和重叠。架构参数严格匹配 slice 集合：`--arch universal` 要求恰好两个 slice，分别为 ARM64 和 x86_64；单一架构参数要求恰好一个匹配 slice，拒绝 Universal；`arm64` 是 `aarch64` 的别名。macOS 上首先执行系统 `plutil -lint`，二进制 plist 再转换为 XML 读取；其他平台可校验 XML plist 中的指定字段。现有 CI 的 Node 测试覆盖合成 Universal 与损坏样本，macOS 任务同时执行真实 plist lint。该检查不运行应用、不挂载或安装 DMG，也不替代签名和实际启动验收。
+脚本检查 Info.plist 版本/身份/最低 macOS 11.0、64 位 Mach-O 架构、7 份非空许可证及非空 DMG。支持 thin ARM64/x86_64 及大小端标准 FAT/Universal（FAT 头使用 32 位偏移，不含 FAT64；内部 slice 是 64 位 Mach-O），逐 slice 校验 CPU/subtype、可执行头、偏移、长度、对齐和重叠。架构参数严格匹配 slice 集合：`--arch universal` 要求恰好两个 slice，分别为 ARM64 和 x86_64；单一架构参数要求恰好一个匹配 slice，拒绝 Universal；`arm64` 是 `aarch64` 的别名。
+
+macOS 上执行系统 `plutil -lint`，二进制 plist 再转换为 XML 读取，并对 app 执行：
+
+```sh
+codesign --verify --deep --strict --all-architectures --verbose=2 path/to/fromd.app
+```
+
+签名缺失、内容篡改或工具失败都会使最终产物检查失败；脚本只验证，不重新签名。其他平台仅做可移植的结构检查，输出 `signature.status: "not-run"`，不能计为签名通过。Node 测试使用合成 Mach-O 与签名调用替身，不冒充真实签名验收。`spctl --assess --type execute --verbose=4 path/to/fromd.app` 可用于人工了解 Gatekeeper 判断，但 ad-hoc 未公证遭拒是可能结果，不作为此构建的失败条件；不要用 `codesign --deep --force` 修改最终产物掩盖验证失败。
+
+脚本本身不挂载 DMG；手动工作流另执行 `hdiutil verify`、只读挂载、确认 `Applications` 指向 `/Applications`，再检查 DMG 内的 app。它们均不启动应用，不替代实际安装/首次打开验收。
+
+### DMG 安装布局
+
+`src-tauri/dmg/background.png` 是随仓库保存的 660×420 本地背景，`background.svg` 保留可编辑源图。中英文说明配合箭头，引导用户先拖入 Applications，再从已安装位置打开。配置中的 app 与 Applications 图标中心分别为 `(180, 200)`、`(480, 200)`，不改应用窗口布局。背景无外部字体/网络依赖，不在 CI 调用生图服务。
+
+修改素材时，将 SVG 按 660×420、1× 像素比例渲染为 PNG（例如使用本机 Playwright 的 `page.setContent` 与 `page.screenshot`，等待 `document.fonts.ready`；无需添加渲染依赖到产品）。两张图应一起提交。静态预览只能核对文字与预留空间；Finder 中的图标、文字位置、拖入链接和小屏表现仍需真机检查。
 
 ## CI 产物
 
 `.github/workflows/tauri-build.yml` 仅在手动触发（`workflow_dispatch`，可选 `all` / `macos` / `windows`）时执行，不在 push 或 PR 时自动编译；日常编译与验收均在本地机器完成。手动运行时，macos-latest 分别构建 Apple Silicon 与 Intel 的 APP/DMG；windows-latest 构建 x64 NSIS。每项先运行 Node 和两套 Rust 测试，再用锁文件构建与检查实际产物。
 
-在公开仓库 `frowang-ai/fromd` 的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `fromd-macos-aarch64-0.5.2` 或 `fromd-macos-x86_64-0.5.2`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。各平台产物带有 SHA256SUMS.txt；最终 `fromd-release-assets-0.5.2` artifact 合并全平台资产并重新生成统一校验表。流水线仅上传 Actions Artifacts，不创建 GitHub Release；未配置签名、公证或静默自替换。客户端支持手动检查公开 Release。
+在公开仓库 `frowang-ai/fromd` 的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `fromd-macos-aarch64-0.5.2` 或 `fromd-macos-x86_64-0.5.2`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。各平台产物带有 SHA256SUMS.txt；最终 `fromd-release-assets-0.5.2` artifact 合并全平台资产并重新生成统一校验表。流水线仅上传 Actions Artifacts，不创建 GitHub Release；macOS 构建使用上述 ad-hoc 配置，不配置 Developer ID、公证或静默自替换，也不启用 Tauri updater。客户端已有的手动检查公开 Release 保持不变。真实 Mac 编译和手动运行 Actions 需按当前任务授权执行，不把 Windows 单测结果标成 Mac 验收。
 
 ## 首次打开与数据位置
 
-这是未签名的自用构建。将 DMG 中的 `fromd.app` 拖到 Applications，首次打开如被 Gatekeeper 阻止，核对来源后在系统设置 → 隐私与安全性中允许这一次打开，再按系统确认步骤操作。不需要全局关闭 Gatekeeper。系统可能仍要求签名/公证；实际结果记入验收。
+Apple 芯片（M 系列）选 `aarch64`，Intel 选 `x64`（Rust/APP.zip 架构名为 `x86_64`）。将 DMG 中的 `fromd.app` 拖到 `/Applications`，复制完成、推出 DMG 后从「应用程序」打开。首次打开如被 Gatekeeper 阻止，按 [安装说明](../../docs/install-macos.md#第一次打开) 区分「无法验证开发者」与「已损坏」：先核对官方来源/同版本哈希、重新下载，再按系统允许例外的流程操作。文档中的隔离标记命令仅由用户自行决定执行，不关闭全局 Gatekeeper，也不代表修复实际损坏或签名错误。实际结果记入验收。
 
 macOS 使用 Tauri 应用身份 `com.frowang.frowd.tauri.v1` 的应用数据目录，不迁移旧 Electron 数据。测试使用 debug 构建及本任务临时 `FROWANG_USER_DATA`，不以真实笔记作为首次验证样本。
 
@@ -50,8 +70,8 @@ macOS 使用 Tauri 应用身份 `com.frowang.frowd.tauri.v1` 的应用数据目�
 `https://api.github.com/repos/frowang-ai/fromd/releases/latest`；左下角轻量弹窗
 适配浅色/深色主题，显示检查中、最新版本、可用版本和错误重试。点击「前往下载更新」
 只通过受控 opener 打开固定的 `https://github.com/frowang-ai/fromd/releases/latest`。
-下载对应架构 DMG，正常退出应用后拖入 Applications 覆盖。当前未签名/公证，
-不进行应用内静默替换。资料仍使用 `~/Library/Application Support/com.frowang.frowd.tauri.v1`
+下载对应架构 DMG，正常退出应用后拖入 Applications 覆盖。已发布包未签名/公证；
+新构建使用 ad-hoc 但仍未公证，不进行应用内静默替换。资料仍使用 `~/Library/Application Support/com.frowang.frowd.tauri.v1`
 中的 `drafts.sqlite` 和 `resources/objects`，覆盖应用不搬动或重建文稿资料。
 
 ## 原生行为与 PDF
@@ -75,4 +95,4 @@ Cmd+Q、菜单退出和 Dock Quit 都先经过 `ExitRequested` → `frowd:close-
 3. 确认 Cmd+N/O/S、Shift+Cmd+S、Cmd+/、Cmd+F、Option+Cmd+F、Cmd+,、缩放各只触发一次；Cmd+H 隐藏、Cmd+Tab 切换应用、Ctrl+Tab 切换页面。50%–200% 缩放下交通灯稳定。
 4. 正文/表格链接普通点击编辑，Cmd+Click 打开网页或定位文件；POSIX 绝对路径含冒号、相对路径、受管附件均正常。正文图片在无 Origin 或仅有 Referer 的 WKWebView 请求下显示，其他来源仍拒绝。
 5. 用临时长文导出多页 A4 PDF，使用 `pdfinfo` 检查页数/纸张，`pdftotext` 检查中文和末段，检查 18mm 边距、表格跨页、代码换行、图片、KaTeX/图表。确认保存选择器取消、资源失败和打印失败保留旧目标，无隐藏 worker 残留。
-6. 验证原生剪贴板、文件选择器、重启恢复以及 DMG 中应用拖入 Applications 的首次运行。签名/公证不在当前交付范围。
+6. 验证原生剪贴板、文件选择器、重启恢复以及 DMG 中应用拖入 Applications 的首次运行。对新构建检查 `codesign` 真实结果、Finder 的中英文背景/箭头/图标与 Applications 链接，分别记录浏览器下载隔离下的 Gatekeeper 提示。Developer ID 与公证不在当前交付范围；Windows 单测不构成这些原生检查的证据。
