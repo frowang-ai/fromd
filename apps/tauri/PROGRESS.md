@@ -1,5 +1,6 @@
 # Current progress — 2026-11-16
 
+> 历史归档／宿主迁移说明：本文保留对应旧阶段的行为和验证记录，其中的 Electron 工程、构建命令和专属测试文件已在 0.5.2 随宿主退役移除。当前唯一客户端与测试以 `apps/tauri/` 为准，现行入口见 [README](README.md)、[桌面行为](DESKTOP_FEEDBACK.md)；原文旧动效、接口和测试计数不作为现行契约。
 The current integration starts from `feat/tauri-blackboard-v1` at `f648c93`.
 It compares Electron 0.5 capabilities against the existing Tauri application,
 preserving the Tauri/Rust host, WebView2, SQLite document authority, page workbar,

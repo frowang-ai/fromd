@@ -43,7 +43,8 @@ npm run tauri:installer
 失败时返回非零退出码；检查 debug 产物时可传 `-ExpectedSubsystem 3`（控制台）。它不启动被检查的 exe。
 
 `npm run tauri:build` 保留 `--no-bundle`，仍只生成 release 可执行文件。
-根目录 `npm run dist:installer` 属于旧 Electron 工程，不生成这里的 Tauri 安装包。
+旧 Electron 工程及 `dist:installer` 命令已退役；Windows 安装包统一使用
+`npm run tauri:installer:win` 或兼容别名 `npm run tauri:installer`。
 构建命令不运行安装器，也不启动 release 应用。不要用 release 应用验证
 `FROWANG_USER_DATA` 隔离：这个覆盖仅在 debug 构建中有效。
 

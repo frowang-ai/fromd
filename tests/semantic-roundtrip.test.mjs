@@ -31,7 +31,7 @@ test('Alert formatting, body literals, later quote paragraphs and code remain or
  }
 })
 test('locked remark accepts whitespace inline math and print ignores it without splitting paragraphs',()=>{
- for(const space of [' ','   ','\t']){
+ for(const space of [' ','   ','\t','\u00a0','\u3000','\u2003','\ufeff']){
   const source=`前文 $${space}$ 后文`
   const formula=remark.parse(source).children[0].children[1]
   assert.equal(formula.type,'inlineMath');assert.equal(formula.value.trim(),'')
@@ -39,9 +39,13 @@ test('locked remark accepts whitespace inline math and print ignores it without 
   assert.equal(normalized,source)
   assert.equal(md.render(normalized),'<p>前文  后文</p>\n')
  }
- for(const source of ['`$ $`','```text\n$ $\n```','\\$ \\$','[$ $](https://example.com/$%20$)']){
+ for(const source of ['`$ $`','`$\u3000$`','```text\n$ $\n```','\\$ \\$','\\$ $','\\$\u3000$','[x](http://example.com/$%20$)','[$ $](https://example.com/$%20$)']){
   const html=md.render(source)
   if(!source.startsWith('['))assert.ok(html.includes('$'))
-  else assert.ok(html.includes('https://example.com/$%20$'))
+  else assert.ok(html.includes('example.com/$%20$'))
+ }
+ for(const newline of ['\n','\r\n']){
+  const tokens=md.parse(`前文 $${newline}$ 后文`,{}).flatMap(token=>token.children||[])
+  assert.equal(tokens.filter(token=>token.type==='frowd_empty_math').length,0)
  }
 })
