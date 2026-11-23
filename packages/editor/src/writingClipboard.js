@@ -1,7 +1,7 @@
 import { DOMParser, DOMSerializer, Slice, Fragment } from '@milkdown/kit/prose/model'
 import {Transform} from '@milkdown/kit/prose/transform'
 import {tableEditingKey,TableMap} from '@milkdown/kit/prose/tables'
-import { isRenderedMarkdownClipboard, richContentPreserved, mathContent } from './writingClipboardRecovery.js'
+import { isRenderedMarkdownClipboard, preservedClipboardContent, mathContent } from './writingClipboardRecovery.js'
 import { logWritingEvent } from './writingDiagnostics.js'
 
 export function describeWritingDocument(doc) {
@@ -188,16 +188,19 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
           if (html) {
             const doc = parse(fixed)
             if (doc) {
-              const candidate = markdownSlice(editorView, doc)
+              let candidate = markdownSlice(editorView, doc)
               const counts = describeWritingDocument(candidate.content)
               const witnessed = isRenderedMarkdownClipboard(text, html, editorView.dom?.ownerDocument)
               const missingMath = counts.displayMath > htmlCounts.displayMath || counts.inlineMath > htmlCounts.inlineMath
                 || (witnessed && mathContent(candidate.content) !== mathContent(slice.content))
               const before = richFeatures(slice.content), after = richFeatures(candidate.content)
-              const preservesRichContent = witnessed || richContentPreserved(slice.content, candidate.content)
               const missingStrong = (after['mark:strong'] || 0) > (before['mark:strong'] || 0)
+              const preserved = witnessed ? candidate.content : (missingMath || missingStrong)
+                ? preservedClipboardContent(slice.content, candidate.content, { parse, normalize, toPaste: doc => markdownSlice(editorView, doc).content }) : null
+              const preservesRichContent = preserved !== null
               const preservesMath = witnessed || (counts.inlineMath >= htmlCounts.inlineMath && counts.displayMath >= htmlCounts.displayMath)
               if ((missingMath || missingStrong) && preservesRichContent && preservesMath) {
+                if (preserved !== candidate.content) candidate = Slice.maxOpen(preserved)
                 route = missingMath ? 'markdown-math-recovery' : 'markdown-format-recovery'
                 reason = missingMath ? 'html-lost-explicit-math' : 'html-lost-explicit-strong'
                 convertedDisplay = Math.max(0, counts.displayMath - htmlCounts.displayMath)

@@ -50,10 +50,17 @@ export function recoverRenderedMath(root, document) {
 
 // Promoting a paragraph to a math block cannot preserve inline rich marks or
 // non-text payloads. Such content stays inline instead of being flattened.
+// Class/line metadata on a span is a transport wrapper, not a PM mark. Keep
+// style, semantic/data attributes and known math/comment carriers out: promoting
+// those could flatten genuine bold/italic, links or hidden payloads.
+function neutralMathSpan(element) {
+  return element.tagName === 'SPAN' && !element.matches(`${literal},math,.writing-html-comment,.katex,.katex-display`)
+    && [...element.attributes].every(attribute => ['class', 'data-line', 'data-line-number'].includes(attribute.name))
+}
+
 export function isPlainMathContainer(element) {
-  return ['P', 'DIV'].includes(element.nodeName) && !element.closest('td,th,a')
-    && [...element.querySelectorAll('*')].every(child => child.tagName === 'BR'
-      || (child.tagName === 'SPAN' && !child.attributes.length))
+  return ['P', 'DIV'].includes(element.nodeName) && !element.closest('td,th,a,strong,b,em,i,u,mark,s,del,sub,sup,[style]')
+    && [...element.querySelectorAll('*')].every(child => child.tagName === 'BR' || neutralMathSpan(child))
 }
 
 // A formula can span several styling spans. Build offsets within one logical

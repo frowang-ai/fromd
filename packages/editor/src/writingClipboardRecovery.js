@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it'
+import { Fragment, Mark } from '@milkdown/kit/prose/model'
 
 // A non-math Markdown renderer can consume TeX underscores/backslashes as
 // emphasis/escapes before our HTML parser sees them. Only discard those marks
@@ -28,6 +29,11 @@ export function isRenderedMarkdownClipboard(text, html, document) {
           // formatting, links, images, comments and metadata remain exact.
           if (node.tagName === 'SPAN' && !node.attributes.length) content.forEach(append)
           else append([node.tagName, [...node.attributes].map(attr => [attr.name, attr.value]).sort(), content])
+        } else if (node.nodeType === 8 && /^(StartFragment|EndFragment)$/.test(node.nodeValue.trim())
+          && !parent.closest?.('pre,code,kbd,samp,script,style,math')) {
+          // Same transport sentinels excluded by preservePastedComments. No
+          // other comment, wrapper or attribute is ignored by this witness.
+          continue
         } else append([node.nodeType, node.nodeValue])
       }
       return result
@@ -37,33 +43,100 @@ export function isRenderedMarkdownClipboard(text, html, document) {
   return shape(html) === shape(plainRenderer.render(text))
 }
 
-// Counts cannot establish fidelity: two links can have different URLs, two
-// comments different text, and an underscore misparsed as <em> is not evidence
-// that the Markdown source is less faithful. Preserve actual rich values and
-// marked runs when there is no exact rendering witness above.
-export function richContentPreserved(before, after) {
-  function features(fragment) {
-    const values = new Map()
-    const add = value => { const key = JSON.stringify(value); values.set(key, (values.get(key) || 0) + 1) }
-    fragment.descendants(node => {
-      if (['table', 'image', 'bullet_list', 'ordered_list', 'blockquote', 'code_block', 'math_inline', 'writing_comment_inline', 'writing_comment_block'].includes(node.type.name)) add(['node', node.toJSON()])
-      if (!node.isTextblock) return
-      const active = new Map()
-      const flush = key => { add(['mark', key, active.get(key)]); active.delete(key) }
-      node.forEach(child => {
-        const marks = new Set(child.marks.map(mark => JSON.stringify(mark.toJSON())))
-        for (const key of active.keys()) if (!marks.has(key)) flush(key)
-        // An atom's value participates in its surrounding mark, not just its
-        // empty textContent. Adjacent text node splitting is immaterial.
-        const value = child.isText ? child.text : JSON.stringify({ type: child.type.name, attrs: child.attrs, text: child.textContent })
-        for (const key of marks) active.set(key, (active.get(key) || '') + value)
-      })
-      for (const key of active.keys()) flush(key)
+// Without a complete rendering witness, every HTML character, mark, atom and
+// block boundary must match in order. The candidate may supply missing math or
+// images (still qualified by the resource pipeline), but may not replace plain
+// words, collapse breaks, change heading levels or drop unmarked paragraphs.
+// Trailing empty HTML paragraphs are retained, not counted away.
+export function preservedClipboardContent(before, after, { parse, normalize, toPaste } = {}) {
+  function explicitStrong(node) {
+    if (!parse || !node.isText || node.marks.length || !node.text.includes('**')) return Fragment.from(node)
+    // Recognize only explicit strong syntax, using the existing normalization
+    // and parser. Sentinels prevent paragraph-edge whitespace from disappearing.
+    // Reconstructing the spelling proves that no escapes/links/other syntax was
+    // consumed while interpreting these markers. This is a comparison only.
+    const source = normalize('z' + node.text + 'z'), parsed = parse(source)
+    if (parsed?.childCount !== 1 || parsed.firstChild.type.name !== 'paragraph') return Fragment.from(node)
+    const paragraph = parsed.firstChild
+    let spelling = '', valid = true
+    paragraph.forEach(child => {
+      if (!child.isText || child.marks.some(mark => mark.type.name !== 'strong')) { valid = false; return }
+      spelling += child.marks.length ? '**' + child.text + '**' : child.text
     })
-    return values
+    if (!valid || spelling !== source || paragraph.firstChild.marks.length || paragraph.lastChild.marks.length) return Fragment.from(node)
+    // Use the same whitespace handling as the actual paste candidate, including
+    // the spaces moved outside a malformed closing ** pair by normalize().
+    const content = (toPaste ? toPaste(parsed).firstChild : paragraph).content
+    return content.cut(1, content.size - 1)
   }
-  const expected = features(before), available = features(after)
-  return [...expected].every(([key, count]) => (available.get(key) || 0) >= count)
+  function tokens(fragment, interpretStrong = false) {
+    const result = []
+    fragment.forEach(node => {
+      const content = interpretStrong ? explicitStrong(node) : Fragment.from(node)
+      content.forEach(child => {
+        if (child.isText) for (const text of child.text) result.push({ text, marks: child.marks })
+        else result.push({ node: child })
+      })
+    })
+    return result
+  }
+  const addition = token => ['math_inline', 'image'].includes(token?.node?.type.name)
+  const space = token => token?.text === ' ' || token?.text === '\t'
+  function inlinePreserved(original, candidate) {
+    const left = tokens(original, true), right = tokens(candidate)
+    let i = 0, adjacentAddition = false
+    for (let j = 0; j < right.length; j++) {
+      const a = left[i], b = right[j]
+      const equal = a && (a.node ? b.node && a.node.eq(b.node)
+        : b.text === a.text && Mark.sameSet(a.marks, b.marks))
+      if (equal) { i++; adjacentAddition = false; continue }
+      if (addition(b)) { adjacentAddition = true; continue }
+      // Additional spacing around a newly supplied formula/resource is safe;
+      // existing whitespace and hard_break nodes still have to be consumed.
+      if (space(b)) {
+        let next = j + 1
+        while (space(right[next])) next++
+        if (adjacentAddition || addition(right[next])) continue
+      }
+      return false
+    }
+    return i === left.length
+  }
+  const displayMath = node => node.type.name === 'code_block' && String(node.attrs.language).toLowerCase() === 'latex'
+  function emptyParagraph(node) {
+    if (node.type.name !== 'paragraph' || node.marks.length) return false
+    let empty = true
+    node.forEach(child => { if (!(child.type.name === 'hardbreak' || (child.isText && !child.marks.length && /^[ \t\r\n]*$/.test(child.text)))) empty = false })
+    return empty
+  }
+  function matchNode(original, candidate) {
+    if (original.eq(candidate)) return candidate
+    if (!original.sameMarkup(candidate) || original.isLeaf || original.type.spec.code) return null
+    if (original.isTextblock) return inlinePreserved(original.content, candidate.content) ? candidate : null
+    const content = matchChildren(original.content, candidate.content)
+    return content && candidate.type.validContent(content) ? candidate.copy(content) : null
+  }
+  function matchChildren(original, candidate) {
+    const merged = []
+    let i = 0
+    for (let j = 0; j < candidate.childCount; j++) {
+      const next = candidate.child(j), matched = i < original.childCount ? matchNode(original.child(i), next) : null
+      if (matched) { merged.push(matched); i++; continue }
+      if (displayMath(next)) { merged.push(next); continue }
+      return null
+    }
+    for (; i < original.childCount; i++) {
+      const extra = original.child(i)
+      if (!emptyParagraph(extra)) return null
+      merged.push(extra)
+    }
+    return Fragment.fromArray(merged)
+  }
+  return matchChildren(before, after)
+}
+
+export function richContentPreserved(before, after, options) {
+  return preservedClipboardContent(before, after, options) !== null
 }
 
 export function mathContent(fragment) {

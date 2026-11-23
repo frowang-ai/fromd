@@ -41,6 +41,74 @@ function mathNodes(doc) {
 }
 const expectedMath = Object.entries(mathPasteValues).map(([key, value]) => ({ display: key === 'fraction', value }))
 
+for (const [name, text, html, expectedText, structure] of [
+  ['plain suffix', '正文 $x$', '<p>正文 x HTML-only</p>', '正文 x HTML-only', null],
+  ['same-length text', '甲乙 $x$', '<p>乙甲</p>', '乙甲', null],
+  ['hard break', '第一行第二行 $x$', '<p>第一行<br>第二行</p>', '第一行第二行', 'hardbreak'],
+  ['heading level', '# 标题 $x$', '<h2>标题</h2>', '标题', 'heading'],
+  ['paragraph boundary', '甲乙 $x$', '<p>甲</p><p>乙</p>', '甲乙', 'paragraphs'],
+]) test(`review H1 preserves HTML ${name} without a full rendering witness`, async ({ page }, testInfo) => {
+  await boot(page)
+  await paste(page, text, html)
+  await page.screenshot({ path: testInfo.outputPath('review-h1.png'), fullPage: true })
+  const captured = await capture(page)
+  function plain(node) { return node.text || (node.content || []).map(plain).join('') }
+  expect(plain(captured.doc)).toBe(expectedText)
+  expect(mathNodes(captured.doc)).toEqual([])
+  if (structure === 'hardbreak') expect(captured.doc.content[0].content.some(node => node.type === 'hardbreak')).toBe(true)
+  if (structure === 'heading') expect(captured.doc.content[0]).toMatchObject({ type: 'heading', attrs: { level: 2 } })
+  if (structure === 'paragraphs') expect(captured.doc.content.map(node => node.type)).toEqual(['paragraph', 'paragraph'])
+})
+
+for (const delimiter of ['dollar', 'bracket']) test(`review M1 preserves display math inside neutral spans: ${delimiter}`, async ({ page }, testInfo) => {
+  const [open, close] = delimiter === 'dollar' ? ['$$', '$$'] : [String.raw`\[`, String.raw`\]`]
+  await boot(page)
+  await paste(page, '', `<p><span class="line">${open}</span><br><span class="line" data-line="2">a=b</span><br><span class="line">${close}</span></p>`)
+  await page.screenshot({ path: testInfo.outputPath('review-m1.png'), fullPage: true })
+  expect(mathNodes((await capture(page)).doc)).toEqual([{ display: true, value: 'a=b' }])
+  expect((await capture(page)).markdown).toContain('$$\na=b\n$$')
+})
+
+test('review M2 recognizes clipboard fragment sentinels without discarding document comments', async ({ page }, testInfo) => {
+  await boot(page)
+  await paste(page, mathPasteMarkdown, '<!--StartFragment-->' + new MarkdownIt().render(mathPasteMarkdown) + '<!--EndFragment-->')
+  await page.screenshot({ path: testInfo.outputPath('review-m2.png'), fullPage: true })
+  expect(mathNodes((await capture(page)).doc)).toEqual(expectedMath)
+  await expect(body(page).locator('strong')).toHaveCount(2)
+})
+
+test('review H1 retains trailing HTML breaks while supplying an absent formula', async ({ page }) => {
+  await boot(page)
+  const html = '<p>正文 </p><p><br><br></p>'
+  await paste(page, '', html)
+  const originalTail = (await capture(page)).doc.content[1]
+  await page.keyboard.press('Control+z')
+  await paste(page, '正文 $x$', html)
+  const result = await capture(page)
+  expect(mathNodes(result.doc)).toEqual([{ display: false, value: 'x' }])
+  expect(result.doc.content).toHaveLength(2)
+  // PM treats the last <br> as a trailing cursor placeholder. Compare with
+  // its HTML-only control instead of assuming one PM node per DOM <br>.
+  expect(result.doc.content[1]).toEqual(originalTail)
+})
+
+for (const tag of ['span', 'p']) for (const [style, mark] of [['font-weight:700', 'strong'], ['font-style:italic', 'em']]) {
+  test(`review M1 keeps semantic ${tag} style ${style}`, async ({ page }) => {
+    await boot(page)
+    const styled = `<${tag} class="line" style="${style}">$$a=b$$</${tag}>`
+    await paste(page, '', tag === 'p' ? styled : `<p>${styled}</p>`)
+    expect(mathNodes((await capture(page)).doc)).toEqual([{ display: false, value: 'a=b' }])
+    await expect(body(page).locator(`${mark} .writing-math-inline`)).toHaveCount(1)
+  })
+}
+
+test('review M2 preserves ordinary comments and unknown wrappers', async ({ page }) => {
+  await boot(page)
+  const html = '<div data-owner="external"><!--StartFragment extra-->' + new MarkdownIt().render(mathPasteMarkdown) + '<!--EndFragment--></div>'
+  await paste(page, mathPasteMarkdown, html)
+  expect((await capture(page)).markdown).toContain('<!--StartFragment extra-->')
+})
+
 test('standard dollar math paste keeps exact nodes, single undo and source/save/reload semantics', async ({ page }, testInfo) => {
   await boot(page)
   const initial = (await capture(page)).doc
