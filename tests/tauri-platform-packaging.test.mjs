@@ -11,9 +11,16 @@ test('platform overlays preserve the complete shared main window and 0.5.2 ident
  const win=await json('apps/tauri/src-tauri/tauri.windows.conf.json')
  const mac=await json('apps/tauri/src-tauri/tauri.macos.conf.json')
  assert.equal(base.version,'0.5.2')
+ assert.equal(base.productName,'fromd')
+ assert.equal(base.identifier,'com.frowang.frowd.tauri.v1')
+ assert.equal(base.mainBinaryName,'frowd-tauri')
+ assert.equal(base.app.windows[0].title,'fromd')
+ assert.equal(base.bundle.shortDescription,'fromd Markdown editor')
+ assert.equal(win.bundle.windows.nsis.startMenuFolder,'fromd')
  assert.equal((await json('apps/tauri/package.json')).version,base.version)
  assert.match(await readFile(join(root,'apps/tauri/src-tauri/Cargo.toml'),'utf8'),/version = "0\.5\.2"/)
  for(const overlay of [win,mac]){
+  assert.equal(overlay.productName,'fromd')
   assert.equal(overlay.app.windows.length,1)
   const {decorations,...window}=overlay.app.windows[0]
   assert.deepEqual(window,base.app.windows[0])
@@ -54,12 +61,12 @@ test('Mach-O validates thin and both-endian FAT slices including architecture me
  const library=universal();library.writeUInt32LE(6,64+12);assert.throws(()=>machoArchitecture(library),/non-executable/)
  const unsupported=macho('aarch64');unsupported.writeUInt32LE(99,8);assert.throws(()=>machoArchitecture(unsupported),/subtype/)
 })
-const plist=(version='0.5.2',id='com.frowang.frowd.tauri.v1',minimum='11.0')=>`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleShortVersionString</key><string>${version}</string><key>CFBundleIdentifier</key><string>${id}</string><key>LSMinimumSystemVersion</key><string>${minimum}</string></dict></plist>`
+const plist=(version='0.5.2',id='com.frowang.frowd.tauri.v1',minimum='11.0')=>`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleName</key><string>fromd</string><key>CFBundleExecutable</key><string>frowd-tauri</string><key>CFBundleShortVersionString</key><string>${version}</string><key>CFBundleIdentifier</key><string>${id}</string><key>LSMinimumSystemVersion</key><string>${minimum}</string></dict></plist>`
 test('macOS artifact validator accepts both architectures and rejects malformed delivery',async()=>{
  const tempRoot=join(root,'output/native-temp');await mkdir(tempRoot,{recursive:true})
  const temp=await mkdtemp(join(tempRoot,'mac-artifact-'))
  try{
-  const app=join(temp,'frowd.app'),contents=join(app,'Contents'),dmg=join(temp,'frowd.dmg')
+  const app=join(temp,'fromd.app'),contents=join(app,'Contents'),dmg=join(temp,'fromd_0.5.2_aarch64.dmg')
   await mkdir(join(contents,'MacOS'),{recursive:true});await mkdir(join(contents,'Resources/licenses'),{recursive:true})
   const info=join(contents,'Info.plist'),exe=join(contents,'MacOS/frowd-tauri')
   await writeFile(info,plist());await writeFile(dmg,'synthetic-dmg')

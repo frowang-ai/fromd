@@ -12,6 +12,7 @@ pub(super) struct CloseState {
 pub(super) enum CloseEvent {
     Requested { exit: bool },
     Saved { macos: bool },
+    UpdateLaunched,
     ListenerReady,
     ListenerDetached,
     Cancel,
@@ -51,6 +52,10 @@ impl CloseState {
                     CloseAction::Close
                 }
             }
+            CloseEvent::UpdateLaunched => {
+                self.close_confirmed = true;
+                CloseAction::Exit
+            }
             CloseEvent::ListenerReady => {
                 self.listener_ready = true;
                 self.dispatch_pending()
@@ -73,6 +78,12 @@ mod tests {
         let mut state = CloseState::default();
         assert_eq!(state.apply(CloseEvent::ListenerReady), CloseAction::Wait);
         state
+    }
+    #[test]
+    fn update_launch_allows_exit_without_a_second_save_request() {
+        let mut state = listening();
+        assert_eq!(state.apply(CloseEvent::UpdateLaunched), CloseAction::Exit);
+        assert_eq!(state.apply(CloseEvent::Requested { exit: true }), CloseAction::Allow);
     }
     #[test]
     fn early_close_waits_until_a_listener_can_receive_it() {

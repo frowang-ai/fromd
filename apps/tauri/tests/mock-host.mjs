@@ -8,6 +8,10 @@ export function installMockHost(options = {}) {
  ]).map((d,position)=>[d.id,{path:null,revision:0,position,dirty:false,conflict:false,viewState:null,...d,savedText:d.path?d.markdown:'',preview:d.markdown.slice(0,1200)}]));
  let activeId=options.activeId??'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
  const h={rows,externalTexts:new Map(),calls:[],holds:new Set(options.holds||[]),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
+ h.updateResult=options.updateResult??{currentVersion:'0.5.2',version:'0.6.0',platform:'windows'};
+ const updateListeners=new Set();
+ h.onUpdateProgress=callback=>{updateListeners.add(callback);return()=>updateListeners.delete(callback)};
+ h.updateProgress=(downloaded,total)=>{for(const callback of updateListeners)callback({downloaded,total})};
  h.importChoice=null;h.importSources=new Map();h.pendingImport=null;
  h.objects=new Map(options.objects||[]);h.bindings=new Map((options.bindings||[]).map(([id,refs])=>[id,new Set(refs)]));h.resourceChoice=null;
  h.resourceUrl=(id,reference)=>{const object=h.objects.get(reference);return h.bindings.get(id)?.has(reference)&&object?'data:'+object.mime+';base64,'+object.base64:null};
@@ -31,6 +35,15 @@ export function installMockHost(options = {}) {
   if(h.fail===command)throw Error('合成写入失败');
   const doc=rows.get(args.id);
   switch(command){
+   case 'check_updates':return structuredClone(h.updateResult);
+   case 'download_update':h.updateProgress(8,8);h.updateDownloaded=true;return;
+   case 'install_update':{
+    if(!h.updateDownloaded)throw Error('安装包未下载');
+    h.frozenAtUpdate=document.querySelector('.ProseMirror')?.getAttribute('contenteditable')==='false';
+    h.installedSnapshot={rows:structuredClone([...rows.values()]),bindings:structuredClone([...h.bindings]),objects:structuredClone([...h.objects])};
+    h.closed=true;return;
+   }
+   case 'open_update_page':h.updatePageOpened=true;return;
    case 'pdf_images':{
     if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');
     // Typed inline fixture echo only; real byte/decoder limits belong to Rust

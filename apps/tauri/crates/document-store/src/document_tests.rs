@@ -2,6 +2,51 @@ use super::*;
 use tempfile::tempdir;
 
 #[test]
+fn checkpoint_reports_busy_and_allows_retry_after_reader_releases() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(dir.path(), 100_000).unwrap();
+    store.conn.busy_timeout(std::time::Duration::from_millis(5)).unwrap();
+    let id = store.create("before", "draft").unwrap().active_id.unwrap();
+    store.checkpoint().unwrap();
+    let reader = Connection::open(dir.path().join("drafts.sqlite")).unwrap();
+    reader.execute_batch("BEGIN; SELECT * FROM documents;").unwrap();
+    store.update(&id, "after", 1).unwrap();
+    assert!(store.checkpoint().is_err());
+    reader.execute_batch("ROLLBACK;").unwrap();
+    store.checkpoint().unwrap();
+    assert_eq!(store.read_stored(&id).unwrap().markdown, "after");
+}
+#[test]
+fn update_checkpoint_reopen_retains_all_drafts_shelves_and_resource_ownership() {
+    let dir = tempdir().unwrap();
+    let png = include_bytes!("../../../tests/fixtures/synthetic-resource.png");
+    let (id, shelved, image, attachment, view);
+    {
+        let mut store = Store::open(dir.path(), 100_000).unwrap();
+        id = store.create("未命名草稿", "").unwrap().active_id.unwrap();
+        let resources = store.import_resources(&id, &[ResourceInput { name: "sample.png".into(), size: png.len(), image: true }], png).unwrap();
+        image = resources[0].reference.clone();
+        attachment = store.import_resources(&id, &[ResourceInput { name: "data.txt".into(), size: 7, image: false }], b"payload").unwrap()[0].reference.clone();
+        store.update(&id, &format!("最新正文 ![]({image}) [附件]({attachment})"), 1).unwrap();
+        view = serde_json::json!({"mode":"source","scrollTop":321});
+        store.set_view(&id, view.clone()).unwrap();
+        shelved = store.create("收起页面正文", "收起标题").unwrap().active_id.unwrap();
+        store.shelve(&shelved).unwrap();
+        store.checkpoint().unwrap();
+    }
+    let mut reopened = Store::open(dir.path(), 100_000).unwrap();
+    let snapshot = reopened.snapshot().unwrap();
+    assert_eq!(snapshot.documents.len(), 2);
+    let draft = reopened.read(&id).unwrap();
+    assert!(draft.metadata.path.is_none());
+    assert_eq!(draft.metadata.view_state, view);
+    assert!(draft.markdown.contains("最新正文"));
+    assert!(snapshot.documents.iter().find(|d| d.id == shelved).unwrap().shelved);
+    assert_eq!(reopened.read(&shelved).unwrap().markdown, "收起页面正文");
+    assert_eq!(reopened.resource_image(&id, &image).unwrap().0, png);
+    assert_eq!(fs::read(reopened.managed_attachment(&id, &attachment).unwrap().unwrap()).unwrap(), b"payload");
+}
+#[test]
 fn nullable_active_and_schema3_round_trip() {
     let dir = tempdir().unwrap();
     let id;

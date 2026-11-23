@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "frowd",
+  "productName": "fromd",
   "version": "0.5.2",
   "identifier": "com.frowang.frowd.tauri.v1",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "frowd",
+        "title": "fromd",
         "width": 1280,
         "height": 820,
         "minWidth": 480,
@@ -48,7 +48,7 @@
     },
     "publisher": "Fro",
     "category": "Productivity",
-    "shortDescription": "frowd Markdown editor",
+    "shortDescription": "fromd Markdown editor",
     "copyright": "Copyright (c) Frowang contributors"
   },
   "plugins": {}

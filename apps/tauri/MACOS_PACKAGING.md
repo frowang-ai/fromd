@@ -1,6 +1,6 @@
 # macOS 构建与验收（0.5.2）
 
-frowd 的正式产品代码分为三层：
+fromd 的正式产品代码分为三层：
 
 - **跨平台产品内核**：`packages/editor` 维护 Markdown、公式、选区、历史与完整文稿 PDF HTML；`apps/tauri/crates/document-store/src` 维护 SQLite、文档、资源、导入与搜索；`src/documents/coordinator.mjs` 串行协调保存、切页、导出和关闭。Rust 内核拥有自己的 `lib.rs`，不反向引用宿主源码。编辑包仅接收 `linkModifier` / `mathDoneShortcut` 参数，不导入 Tauri。
 - **薄平台壳**：`src/platform.mjs` 提供平台描述、快捷键匹配与显示；`WindowChrome.vue` 提供 Windows 自绘窗口栏和 macOS 紧凑工具栏；`src-tauri` 负责 IPC、对话框、协议、原生菜单、退出与分页打印。Windows 使用 WebView2，macOS 使用 WKWebView/AppKit。
@@ -23,11 +23,11 @@ npm run tauri:installer:mac
 npm --prefix apps/tauri run tauri -- build --config src-tauri/tauri.macos.conf.json --bundles app,dmg --target x86_64-apple-darwin -- --locked
 ```
 
-默认产物在 `apps/tauri/src-tauri/target/[目标架构/]release/bundle/macos/frowd.app` 和 `bundle/dmg/*.dmg`。设置 `CARGO_TARGET_DIR` 后以该目录为准。产物检查示例：
+默认产物在 `apps/tauri/src-tauri/target/[目标架构/]release/bundle/macos/fromd.app` 和 `bundle/dmg/*.dmg`。设置 `CARGO_TARGET_DIR` 后以该目录为准。产物检查示例：
 
 ```sh
-node apps/tauri/scripts/check-macos-artifact.mjs --app path/to/frowd.app --dmg path/to/frowd_0.5.2_aarch64.dmg --arch aarch64 --version 0.5.2
-ditto -c -k --keepParent path/to/frowd.app frowd-0.5.2-aarch64.app.zip
+node apps/tauri/scripts/check-macos-artifact.mjs --app path/to/fromd.app --dmg path/to/fromd_0.5.2_aarch64.dmg --arch aarch64 --version 0.5.2
+ditto -c -k --keepParent path/to/fromd.app fromd-0.5.2-aarch64.app.zip
 ```
 
 脚本检查 Info.plist 版本/身份/最低 macOS 11.0、64 位 Mach-O 架构、7 份非空许可证及非空 DMG。支持 thin ARM64/x86_64 及大小端标准 FAT/Universal（FAT 头使用 32 位偏移，不含 FAT64；内部 slice 是 64 位 Mach-O），逐 slice 校验 CPU/subtype、可执行头、偏移、长度、对齐和重叠。架构参数严格匹配 slice 集合：`--arch universal` 要求恰好两个 slice，分别为 ARM64 和 x86_64；单一架构参数要求恰好一个匹配 slice，拒绝 Universal；`arm64` 是 `aarch64` 的别名。macOS 上首先执行系统 `plutil -lint`，二进制 plist 再转换为 XML 读取；其他平台可校验 XML plist 中的指定字段。现有 CI 的 Node 测试覆盖合成 Universal 与损坏样本，macOS 任务同时执行真实 plist lint。该检查不运行应用、不挂载或安装 DMG，也不替代签名和实际启动验收。
@@ -36,13 +36,23 @@ ditto -c -k --keepParent path/to/frowd.app frowd-0.5.2-aarch64.app.zip
 
 `.github/workflows/tauri-build.yml` 仅在手动触发（`workflow_dispatch`，可选 `all` / `macos` / `windows`）时执行，不在 push 或 PR 时自动编译；日常编译与验收均在本地机器完成。手动运行时，macos-latest 分别构建 Apple Silicon 与 Intel 的 APP/DMG；windows-latest 构建 x64 NSIS。每项先运行 Node 和两套 Rust 测试，再用锁文件构建与检查实际产物。
 
-在私有仓库的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `frowd-macos-aarch64-0.5.2` 或 `frowd-macos-x86_64-0.5.2`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。流水线仅上传 Actions Artifacts，不创建 GitHub Release、不发布更新源；未配置签名、公证或自动更新。
+在公开仓库 `frowang-ai/fromd` 的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `fromd-macos-aarch64-0.5.2` 或 `fromd-macos-x86_64-0.5.2`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。各平台产物带有 SHA256SUMS.txt；最终 `fromd-release-assets-0.5.2` artifact 合并全平台资产并重新生成统一校验表。流水线仅上传 Actions Artifacts，不创建 GitHub Release；未配置签名、公证或静默自替换。客户端支持手动检查公开 Release。
 
 ## 首次打开与数据位置
 
-这是未签名的自用构建。将 DMG 中的 `frowd.app` 拖到 Applications，首次打开如被 Gatekeeper 阻止，核对来源后在系统设置 → 隐私与安全性中允许这一次打开，再按系统确认步骤操作。不需要全局关闭 Gatekeeper。系统可能仍要求签名/公证；实际结果记入验收。
+这是未签名的自用构建。将 DMG 中的 `fromd.app` 拖到 Applications，首次打开如被 Gatekeeper 阻止，核对来源后在系统设置 → 隐私与安全性中允许这一次打开，再按系统确认步骤操作。不需要全局关闭 Gatekeeper。系统可能仍要求签名/公证；实际结果记入验收。
 
 macOS 使用 Tauri 应用身份 `com.frowang.frowd.tauri.v1` 的应用数据目录，不迁移旧 Electron 数据。测试使用 debug 构建及本任务临时 `FROWANG_USER_DATA`，不以真实笔记作为首次验证样本。
+
+## 手动检查更新
+
+原生应用菜单 fromd → 关于 fromd 下方提供「检查更新…」。最新正式版本来自
+`https://api.github.com/repos/frowang-ai/fromd/releases/latest`；左下角轻量弹窗
+适配浅色/深色主题，显示检查中、最新版本、可用版本和错误重试。点击「前往下载更新」
+只通过受控 opener 打开固定的 `https://github.com/frowang-ai/fromd/releases/latest`。
+下载对应架构 DMG，正常退出应用后拖入 Applications 覆盖。当前未签名/公证，
+不进行应用内静默替换。资料仍使用 `~/Library/Application Support/com.frowang.frowd.tauri.v1`
+中的 `drafts.sqlite` 和 `resources/objects`，覆盖应用不搬动或重建文稿资料。
 
 ## 原生行为与 PDF
 

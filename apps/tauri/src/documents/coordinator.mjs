@@ -21,6 +21,7 @@ export class DocumentCoordinator {
   report(error) { this.state.error = String(error?.message ?? error); this.state.saveState = '保存失败'; }
   run(action) {
     const next = this.tail.catch(() => {}).then(async () => {
+      if(this.terminal) throw Error('更新安装程序已启动，正在退出。');
       if(this.initializing) await this.initializing;
       if(!this.state.loaded) throw Error("页面仍在恢复，请稍候再试。");
       this.state.busy = true;
@@ -30,7 +31,7 @@ export class DocumentCoordinator {
         release = await this.port.freeze?.();
         return await action();
       } catch (error) { this.report(error); throw error; }
-      finally { release?.(); this.state.busy = false; }
+      finally { if(!this.terminal){release?.(); this.state.busy = false;} }
     });
     this.tail = next; return next;
   }
@@ -364,6 +365,18 @@ export class DocumentCoordinator {
   }
   undoRemove() {
     return this.run(async () => { await this.flush(); const old = this.state.activeId; this.metadata(await this.api.undo(), true); if (old !== this.state.activeId) await this.loadActive(); });
+  }
+  handoffUpdate(install) {
+    return this.run(async () => {
+      await this.flush();
+      await Promise.all([...this.saves.values(), ...this.nameSaves.values()]);
+      await this.api.checkpoint();
+      await install();
+      // Only a successful native spawn commits this exit. Keep the editor frozen
+      // and reject queued mutations during the IPC-reply -> process-exit interval.
+      this.terminal = true;
+      this.timers.forEach(clearTimeout); this.timers.clear();
+    });
   }
   drain() { return this.run(async () => { await this.flush(); await Promise.all(this.saves.values()); await this.api.checkpoint(); }); }
   close() { return this.run(async () => { await this.flush(); await this.api.checkpoint(); await this.api.closeReady(); }); }

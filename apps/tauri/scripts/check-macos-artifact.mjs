@@ -62,7 +62,7 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.2',identifie
   if(process.platform!=='darwin')fail('Binary Info.plist requires macOS plutil; use XML plist for portable validation')
   xml=execFileSync('/usr/bin/plutil',['-convert','xml1','-o','-',plistPath],{encoding:'utf8'})
  }
- for(const [key,expected]of Object.entries({CFBundleShortVersionString:version,CFBundleIdentifier:identifier,LSMinimumSystemVersion:minimumSystemVersion})){
+ for(const [key,expected]of Object.entries({CFBundleName:'fromd',CFBundleExecutable:'frowd-tauri',CFBundleShortVersionString:version,CFBundleIdentifier:identifier,LSMinimumSystemVersion:minimumSystemVersion})){
   const actual=plistString(xml,key);if(actual!==expected)fail(`${key}: expected ${expected}, got ${actual}`)
  }
  const executable=join(contents,'MacOS','frowd-tauri')

@@ -51,16 +51,17 @@ jobs:
         shell: bash
         run: |
           bundle="$CARGO_TARGET_DIR/${{ matrix.target }}/release/bundle"
-          app="$bundle/macos/frowd.app"
+          app="$bundle/macos/fromd.app"
           dmgs=("$bundle"/dmg/*.dmg)
           test "${#dmgs[@]}" -eq 1
           node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.2
           mkdir -p output/artifacts
-          ditto -c -k --keepParent "$app" 'output/artifacts/frowd-0.5.2-${{ matrix.arch }}.app.zip'
+          ditto -c -k --keepParent "$app" 'output/artifacts/fromd-0.5.2-${{ matrix.arch }}.app.zip'
           cp "${dmgs[0]}" output/artifacts/
+          node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: frowd-macos-${{ matrix.arch }}-0.5.2
+          name: fromd-macos-${{ matrix.arch }}-0.5.2
           path: output/artifacts/*
           if-no-files-found: error
   windows:
@@ -84,8 +85,35 @@ jobs:
       - run: npm run tauri:installer:win
       - name: Validate GUI executable
         run: ./apps/tauri/scripts/check-windows-artifact.ps1 -Path "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/frowd-tauri.exe" -ExpectedVersion 0.5.2
+      - name: Archive installer and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force output/artifacts | Out-Null
+          Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/fromd_0.5.2_x64-setup.exe" output/artifacts/
+          node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: frowd-windows-x64-0.5.2
-          path: output/cargo-target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          name: fromd-windows-x64-0.5.2
+          path: output/artifacts/*
+          if-no-files-found: error
+  release-assets:
+    # Build archives only. Publishing a GitHub Release is a separate action.
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fromd-*-0.5.2
+          path: output/artifacts
+          merge-multiple: true
+      - name: Regenerate a single checksum manifest for all platforms
+        run: node scripts/release-checksums.mjs output/artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fromd-release-assets-0.5.2
+          path: output/artifacts/*
           if-no-files-found: error
