@@ -1,0 +1,402 @@
+use frowd_documents::filename::suggested_name;
+mod document_links;
+mod close_lifecycle;
+use close_lifecycle::{CloseState, CloseEvent, CloseAction};
+mod protocol_urls;
+mod file_import_host;
+mod resource_host;
+mod pdf;
+#[cfg(target_os = "macos")]
+mod menu_macos;
+use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
+use serde::Serialize;
+use serde_json::Value;
+use std::{
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex, MutexGuard,
+    },
+};
+use tauri::{Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+
+struct AppState {
+    store: Mutex<Store>,
+    file_import: Mutex<Option<frowd_documents::file_import::FileImport>>,
+    close: Mutex<CloseState>,
+}
+fn lock<'a>(state: &'a State<'_, AppState>) -> Result<MutexGuard<'a, Store>, String> {
+    state
+        .store
+        .lock()
+        .map_err(|_| "文档服务已停止，请保留当前内容。".into())
+}
+#[tauri::command]
+fn list_metadata(state: State<'_, AppState>) -> Result<Snapshot, String> {
+    lock(&state)?.snapshot().map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn search_documents(
+    query: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<frowd_documents::search::SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = lock(&state)?.search(&query).map_err(|e| e.to_string());
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn read_document(id: String, state: State<'_, AppState>) -> Result<Document, String> {
+    lock(&state)?.read(&id).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn create_document(
+    markdown: Option<String>,
+    title: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Snapshot, String> {
+    lock(&state)?
+        .create(
+            markdown.as_deref().unwrap_or(""),
+            title.as_deref().unwrap_or("未命名笔记"),
+        )
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn update_document(
+    id: String,
+    markdown: String,
+    revision: i64,
+    state: State<'_, AppState>,
+) -> Result<Snapshot, String> {
+    lock(&state)?
+        .update(&id, &markdown, revision)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn rename_document(
+    id: String,
+    title: String,
+    state: State<'_, AppState>,
+) -> Result<Snapshot, String> {
+    lock(&state)?.rename(&id, &title).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn set_view_state(
+    id: String,
+    view_state: Value,
+    state: State<'_, AppState>,
+) -> Result<Snapshot, String> {
+    lock(&state)?
+        .set_view(&id, view_state)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn activate_document(id: String, state: State<'_, AppState>) -> Result<Snapshot, String> {
+    lock(&state)?.activate(&id).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn shelve_document(id: String, state: State<'_, AppState>) -> Result<Snapshot, String> {
+    lock(&state)?.shelve(&id).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn expand_all(state: State<'_, AppState>) -> Result<Snapshot, String> {
+    lock(&state)?.expand_all().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn shelve_others(id: String, state: State<'_, AppState>) -> Result<Snapshot, String> {
+    lock(&state)?.shelve_others(&id).map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn shelve_all(state: State<'_, AppState>) -> Result<Snapshot, String> {
+    lock(&state)?.shelve_all().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn remove_document(
+    id: String,
+    decision: String,
+    state: State<'_, AppState>,
+) -> Result<Snapshot, String> {
+    lock(&state)?
+        .remove(&id, &decision)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn undo_remove(state: State<'_, AppState>) -> Result<Snapshot, String> {
+    lock(&state)?.undo_remove().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn reorder_documents(
+    ids: Vec<String>,
+    layout_revision: i64,
+    state: State<'_, AppState>,
+) -> Result<Snapshot, String> {
+    lock(&state)?
+        .reorder_visible(&ids, layout_revision)
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn checkpoint(state: State<'_, AppState>) -> Result<(), String> {
+    lock(&state)?.checkpoint().map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct FileResult {
+    cancelled: bool,
+    snapshot: Option<Snapshot>,
+}
+#[tauri::command]
+async fn open_document(app: tauri::AppHandle) -> Result<FileResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let selected = app
+            .dialog()
+            .file()
+            .add_filter("Markdown / 文本", &["md", "markdown", "txt"])
+            .blocking_pick_file();
+        let Some(selected) = selected else {
+            return Ok(FileResult {
+                cancelled: true,
+                snapshot: None,
+            });
+        };
+        let path = selected.into_path().map_err(|e| e.to_string())?;
+        let state = app.state::<AppState>();
+        let snapshot = lock(&state)?.open_file(&path).map_err(|e| e.to_string())?;
+        Ok(FileResult {
+            cancelled: false,
+            snapshot: Some(snapshot),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn save_document(
+    id: String,
+    save_as: bool,
+    app: tauri::AppHandle,
+) -> Result<FileResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let doc = lock(&state)?
+            .snapshot()
+            .map_err(|e| e.to_string())?
+            .documents
+            .into_iter()
+            .find(|d| d.id == id)
+            .ok_or_else(|| "笔记已经移除。".to_owned())?;
+        let target = if save_as || doc.path.is_none() {
+            let mut dialog = app
+                .dialog()
+                .file()
+                .add_filter("Markdown", &["md"])
+                .set_file_name(suggested_name(&doc.title));
+            if let Some(path) = doc.path.as_ref().and_then(|p| Path::new(p).parent()) {
+                dialog = dialog.set_directory(path);
+            }
+            let Some(selected) = dialog.blocking_save_file() else {
+                return Ok(FileResult {
+                    cancelled: true,
+                    snapshot: None,
+                });
+            };
+            Some(selected.into_path().map_err(|e| e.to_string())?)
+        } else {
+            None
+        };
+        let snapshot = lock(&state)?
+            .save_file(&id, target.as_deref())
+            .map_err(|e| e.to_string())?;
+        Ok(FileResult {
+            cancelled: false,
+            snapshot: Some(snapshot),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn open_document_link(
+    id: String,
+    href: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if resource_host::reveal_managed(&app, &state, &id, &href)? {
+        return Ok(());
+    }
+    let doc = lock(&state)?
+        .snapshot()
+        .map_err(|e| e.to_string())?
+        .documents
+        .into_iter()
+        .find(|d| d.id == id)
+        .ok_or_else(|| "页面已经移除。".to_owned())?;
+    document_links::open(&app, &href, doc.path.as_deref())
+}
+fn transition_close(state: &AppState, event: CloseEvent) -> Result<CloseAction, String> {
+    state.close.lock().map(|mut state| state.apply(event))
+        .map_err(|_| "窗口关闭状态不可用，请保留当前内容。".into())
+}
+#[tauri::command]
+fn ack_close_listener(window: tauri::WebviewWindow, state: State<'_, AppState>) -> Result<bool, String> {
+    if window.label() != "main" { return Err("只能由主窗口确认关闭监听。".into()); }
+    // Atomically claim a pending request through the IPC reply, not a second event.
+    transition_close(&state, CloseEvent::ListenerReady).map(|action| action == CloseAction::RequestSave)
+}
+#[tauri::command]
+fn close_ready(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    // The native action is chosen only after the renderer and store saved successfully.
+    lock(&state)?.checkpoint().map_err(|e| e.to_string())?;
+    let action = transition_close(&state, CloseEvent::Saved { macos: cfg!(target_os = "macos") })?;
+    if action == CloseAction::Exit { app.exit(0); return Ok(()); }
+    if !matches!(action, CloseAction::Hide | CloseAction::Close) { return Ok(()); }
+    let result = app.get_webview_window("main").ok_or_else(|| "应用窗口已关闭。".to_owned())
+        .and_then(|window| {
+            if action == CloseAction::Hide { window.hide() } else { window.close() }
+                .map_err(|e| e.to_string())
+        });
+    if result.is_err() { let _ = transition_close(&state, CloseEvent::Cancel); }
+    result
+}
+#[tauri::command]
+fn cancel_close(state: State<'_, AppState>) -> Result<(), String> {
+    transition_close(&state, CloseEvent::Cancel).map(|_| ())
+}
+#[cfg(target_os = "macos")]
+fn reopen_main(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let window = match app.get_webview_window("main") {
+        Some(window) => window,
+        None => {
+            // Recover an unexpectedly destroyed window from the same platform config.
+            let state = app.state::<AppState>();
+            let _ = transition_close(&state, CloseEvent::ListenerDetached);
+            let config = app.config().app.windows.iter().find(|config| config.label == "main")
+                .expect("main window configuration is required");
+            tauri::WebviewWindowBuilder::from_config(app, config)?.build()?
+        }
+    };
+    window.unminimize()?;
+    window.show()?;
+    window.set_focus()
+}
+fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    if cfg!(debug_assertions) {
+        if let Some(directory) = std::env::var_os("FROWANG_USER_DATA") {
+            let path = PathBuf::from(directory);
+            if !path.is_absolute() {
+                return Err("FROWANG_USER_DATA must be absolute".into());
+            }
+            return Ok(path);
+        }
+    }
+    Ok(app.path().app_data_dir()?)
+}
+pub fn run() {
+    tauri::Builder::default()
+        .manage(pdf::PdfState::default())
+        .register_uri_scheme_protocol("frowd-pdf", pdf::document_response)
+        .register_asynchronous_uri_scheme_protocol("frowd-resource", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let label = ctx.webview_label().to_owned();
+            tauri::async_runtime::spawn_blocking(move || {
+                responder.respond(resource_host::image_response(&app, request, &label))
+            });
+        })
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .setup(|app| {
+            let store = Store::open(&profile(app)?, MAX_SESSION_BYTES)?;
+            app.manage(AppState {
+                store: Mutex::new(store),
+                file_import: Mutex::new(None),
+                close: Mutex::new(CloseState::default()),
+            });
+            #[cfg(target_os = "macos")]
+            menu_macos::install(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != "main" { return; }
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = transition_close(&window.state::<AppState>(), CloseEvent::ListenerDetached);
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<AppState>();
+                let action = transition_close(&state, CloseEvent::Requested { exit: false });
+                if !matches!(action, Ok(CloseAction::Allow)) {
+                    api.prevent_close();
+                    if matches!(action, Ok(CloseAction::RequestSave)) && window.emit("frowd:close-requested", ()).is_err() {
+                        let _ = transition_close(&state, CloseEvent::Cancel);
+                    }
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            pdf::pdf_images,
+            pdf::export_pdf,
+            file_import_host::choose_document_import,
+            file_import_host::prepare_document_import_resources,
+            file_import_host::commit_document_import,
+            resource_host::import_resources,
+            resource_host::choose_resources,
+            resource_host::reuse_resources,
+            list_metadata,
+            search_documents,
+            read_document,
+            create_document,
+            update_document,
+            rename_document,
+            set_view_state,
+            activate_document,
+            shelve_document,
+            expand_all,
+            shelve_others,
+            shelve_all,
+            remove_document,
+            undo_remove,
+            reorder_documents,
+            open_document,
+            save_document,
+            checkpoint,
+            ack_close_listener,
+            close_ready,
+            cancel_close,
+            open_document_link
+        ])
+        .build(tauri::generate_context!())
+        .expect("frowd startup failed; original profile preserved")
+        .run(|app, event| {
+            match event {
+                tauri::RunEvent::ExitRequested { api, .. } => {
+                    let state = app.state::<AppState>();
+                    if let Some(window) = app.get_webview_window("main") {
+                        let action = transition_close(&state, CloseEvent::Requested { exit: true });
+                        if matches!(action, Ok(CloseAction::Allow)) { return; }
+                        api.prevent_exit();
+                        if matches!(action, Ok(CloseAction::RequestSave)) && window.emit("frowd:close-requested", ()).is_err() {
+                            let _ = transition_close(&state, CloseEvent::Cancel);
+                        }
+                    } else if let Err(error) = lock(&state).and_then(|store| store.checkpoint().map_err(|e| e.to_string())) {
+                        eprintln!("Exit checkpoint failed: {error}");
+                        api.prevent_exit();
+                    }
+                }
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { .. } => {
+                    if let Err(error) = reopen_main(app) { eprintln!("Cannot reopen main window: {error}"); }
+                }
+                _ => {}
+            }
+        });
+}

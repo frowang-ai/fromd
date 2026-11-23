@@ -1,5 +1,6 @@
 # 第一轮写作功能（0.5.0）
 
+> 历史归档：本文记录当时的探索/验证阶段，原版本行为、命令和计数仅作历史证据。当前唯一客户端为 Tauri 0.5.2，现行说明由 [客户端入口](../apps/tauri/README.md)、`apps/tauri/DESKTOP_FEEDBACK.md`、`WINDOWS_INSTALLER.md` 与 `MACOS_PACKAGING.md` 接替；旧收起动效、未实现 PDF 或 Electron 命令不代表现行行为。
 本轮围绕新建、写作、收起、找回和保存页面扩展。未命名页面可以直接写作、粘贴图片和自动恢复。大纲、搜索和阅读设置按需展开。
 
 ## 查找与页面搜索

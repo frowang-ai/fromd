@@ -12,8 +12,9 @@ import * as core from '@milkdown/kit/core'
 import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
+import { Fragment, Slice } from '@milkdown/kit/prose/model'
 import { closeHistory } from '@milkdown/kit/prose/history'
-import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView } from './writingViewState.js'
+import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView, updateEmbeddedViewEditability } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import * as utils from '@milkdown/kit/utils'
 import { noteScriptPlugins } from './compatibility/noteScriptMarks.js'
@@ -21,27 +22,38 @@ import { writingHtmlFormattingPlugins, preservePastedComments } from './writingH
 import { serializeNoteNestedMath, replaceNoteMathInputRules } from './compatibility/noteEditorCompatibility.js'
 import { normalizeWritingPastedMath } from './writingMathCompatibility.js'
 import { normalizeWritingMarkdown } from './writingMarkdownCompatibility.js'
+import { serializeAlertMarkers } from './writingAlertSerialization.js'
 import { isAllowedResourceUrl } from './markdown/sanitize.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
+import { installWritingMarkdownViews, writingMarkdownExtensions, mermaidCodeLanguage } from './writingMarkdownExtensions.js'
+import { installWritingSelectionWrap } from './writingSelectionWrap.js'
 import { installWritingListKeys, writingListLabels } from './writingListKeys.js'
 import { installWritingListViews } from './writingListView.js'
-import { describeWritingDocument, installWritingClipboard } from './writingClipboard.js'
+import { describeWritingDocument, installWritingClipboard, snapshotPasteEvent } from './writingClipboard.js'
 import { logWritingEvent } from './writingDiagnostics.js'
-import { writingSearchPlugin, findInView, replaceInView, clearViewSearch } from './writingSearch.js'
-import { writingCodeTheme } from './writingCodeTheme.js'
+import './editorFonts.css'
+import { installWritingLinks } from './writingLinks.js'
+import { configureWritingTables } from './writingTableSelection.js'
+import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
+import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
+import { markdownRange } from './writingMarkdownLocation.js'
+import {headingRange} from './writingHeadingLocation.js'
+import {prepareEndBlank as prepareEndBlankAtPoint,placeEndBlank as placeEndBlankAtPoint} from './writingEndBlank.js'
 import '@milkdown/crepe/theme/common/style.css'
+import { writingCodeTheme } from './writingCodeTheme.js'
 import '@milkdown/crepe/theme/classic.css'
 import 'katex/dist/katex.min.css'
 import './writingLists.css'
 import './writingTextStyles.css'
+import './writingMarkdownExtensions.css'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null } })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change'])
+const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
-let editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
+let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
 let activeSession = null, sessionResolver = null, allPlugins, switching = false, updateTimer, rememberedViews = null, restoredViews = []
-let resolveReady
+let resolveReady, disposeLinks
 const initialized = new Promise(resolve => { resolveReady = resolve })
 const view = () => editor?.editor.action(ctx => ctx.get(core.editorViewCtx))
 function serializePreservingOriginal(doc, baseline = initialDoc, normalized = initialSerialized, raw = original) {
@@ -53,6 +65,7 @@ function serializePreservingOriginal(doc, baseline = initialDoc, normalized = in
 function getMarkdown() { return created ? serializePreservingOriginal(view().state.doc) : original }
 function replaceMarkdown(markdown) {
   if (!editor) return
+  view().dispatch(closeHistory(view().state.tr))
   editor.editor.action(utils.replaceAll(markdown))
   original = markdown; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown(); clearTimeout(updateTimer); rememberedViews = null
   emit('update:modelValue', markdown)
@@ -65,15 +78,18 @@ async function settleComposition() {
 async function whenReady() { if (!await initialized) throw new Error(error.value || '编辑器已关闭。') }
 function rememberView() { if (created && activeSession) rememberedViews = captureEmbeddedViews(view()) }
 function captureSession() {
-  if (!created || !activeSession) return null
+  if (!created || disposed || !activeSession) return null
   const v = view(), embedded = rememberedViews ?? captureEmbeddedViews(v)
   return { original, initialDoc, initialSerialized, state: v.state.reconfigure({ plugins: allPlugins.filter(plugin => plugin.key === 'history$') }), embedded }
 }
-function selection() { const s = view()?.state.selection; return s ? { anchor: s.anchor, head: s.head } : undefined }
+function selection() { if (!created || disposed || !activeSession) return undefined; const s = view().state.selection; return { anchor: s.anchor, head: s.head } }
 function setState(state) { editor.editor.ctx.set(core.editorStateCtx, state); view().updateState(state) }
 function activateSession({ id, generation, snapshot, markdown = '', viewState, resolveImage }) {
   if (!created || disposed) throw new Error('编辑器尚未就绪。')
   if (view().composing) throw new Error('请先完成输入法组合输入。')
+  // A schema's node/mark specs close over this editor's live Milkdown context.
+  // Never reuse states from another instance (including an HMR-destroyed one).
+  snapshot = snapshot?.state?.schema === view().state.schema ? snapshot : null
   switching = true; clearTimeout(updateTimer); activeSession = null; rememberedViews = null
   try {
     sessionResolver = resolveImage
@@ -103,48 +119,150 @@ function focusSessionView() {
   if (!created || !activeSession) return
   focusEmbeddedView(view(), restoredViews); restoredViews = []
 }
-function find(query, matchCase = false, index = 0, select = true) {
-  if (!created) return { count: 0, index: -1, truncated: false }
-  if (select) { restoredViews = []; rememberedViews = null }
-  return findInView(view(), query, matchCase, index, select)
-}
-function clearSearch() { if (created) clearViewSearch(view()) }
-function replaceSearch(query, replacement, matchCase = false, index = 0, all = false) {
-  if (!created || view().composing) throw new Error('请先完成输入法组合输入。')
-  return replaceInView(view(), query, replacement, matchCase, index, all)
-}
-function insertImages(sources, dropPoint) {
-  if (!created || view().composing) throw new Error('请先完成输入法组合输入。')
-  const v = view(), transaction = closeHistory(v.state.tr)
-  const destination = dropPoint && v.posAtCoords(dropPoint)
-  if (destination) transaction.setSelection(TextSelection.near(transaction.doc.resolve(destination.pos)))
-  for (const source of sources) {
-    const attrs = typeof source === 'string' ? { src: source, alt: '' } : { src: source.src, alt: source.alt || '' }
-    transaction.replaceSelectionWith(v.state.schema.nodes.image.create(attrs))
-  }
-  v.dispatch(transaction.scrollIntoView()); v.dispatch(closeHistory(v.state.tr)); v.focus()
-}
-function goToHeading(index) {
-  if (!created) return false
-  let found = null, current = 0
-  view().state.doc.descendants((node, position) => {
-    if (node.type.name === 'heading' && current++ === index) found = position
-  })
-  if (found === null) return false
-  const v = view()
-  restoredViews = []; rememberedViews = null
-  v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, found + 1)).setMeta('addToHistory', false).scrollIntoView())
-  v.focus()
-  v.nodeDOM(found)?.scrollIntoView({ block: 'center' })
-  return true
-}
 function clearSession() {
   if (!created) return
   switching = true; clearTimeout(updateTimer); activeSession = null; rememberedViews = null; restoredViews = []; sessionResolver = null
   try { setState(EditorState.create({ schema: view().state.schema, plugins: allPlugins })); original = ''; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown() }
   finally { switching = false }
 }
-defineExpose({ getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView, find, replaceSearch, clearSearch, insertImages, goToHeading })
+function setEditable(value) {
+  editor?.setReadonly(!value)
+  if (created) updateEmbeddedViewEditability(view())
+}
+function revealMarkdown(offset, needle = '') {
+  if (!created || !activeSession) return false
+  const v = view(), markdown = getMarkdown()
+  const range = markdownRange(v.state.doc, editor.editor.ctx.get(core.remarkCtx).parse(markdown), markdown, offset, needle)
+  if (!range) return false
+  v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, range.from, range.to)).scrollIntoView())
+  const dom = v.domAtPos(range.from).node
+  const element = dom.nodeType === Node.ELEMENT_NODE ? dom : dom.parentElement
+  element?.scrollIntoView({ block: 'start' })
+  return range.exact
+}
+function revealHeading(target,owner){
+ if(!created||disposed||switching||!activeSession||owner?.id!==activeSession.id||owner.generation!==activeSession.generation)return null
+ const v=view(),markdown=getMarkdown(),ctx=editor.editor.ctx
+ const range=headingRange(v.state.doc,ctx.get(core.remarkCtx).parse(markdown),ctx.get(core.parserCtx)(markdown),markdown,target)
+ if(!range)return null
+ const element=v.nodeDOM(range.nodePos)
+ if(!(element instanceof Element))return null
+ v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc,range.from)).setMeta('addToHistory',false))
+ return element
+}
+function resourceDropPosition(clientX,clientY) {
+ if(!created||!activeSession)return null
+ const hit=view().posAtCoords({left:clientX,top:clientY})
+ return Number.isInteger(hit?.pos)?hit.pos:null
+}
+function resourceDropState(){return view()?.state??null}
+// Host registers immutable references first. One transaction preserves history.
+function insertResources(items,position=null,expectedState=null) {
+  if (!created || !activeSession || view().composing) throw Error('资源插入时编辑会话不可用。')
+ const v = view(), {schema} = v.state, nodes = []
+ if(expectedState&&v.state!==expectedState)throw Error('拖入期间正文已变化，请重新拖入。')
+  for (const item of items) {
+    if (!/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(item.reference)) throw Error('资源引用无效。')
+    if (nodes.length) nodes.push(schema.text(' '))
+    if (item.image) nodes.push(schema.nodes.image.create({src:item.reference,alt:item.name,title:''}))
+    else nodes.push(schema.text(item.name || '附件', [schema.marks.link.create({href:item.reference,title:null})]))
+  }
+  if (!nodes.length) return
+ const slice=new Slice(Fragment.fromArray(nodes),0,0)
+ if(position!==null){
+  if(!Number.isInteger(position)||position<0||position>v.state.doc.content.size)throw Error('拖入位置已失效，请重新拖入。')
+  const content=nodes.length===1?nodes[0]:slice.content
+  const tr=v.state.tr.insert(position,content)
+  const nextPosition=Math.min(position+(content.nodeSize??content.size??1),tr.doc.content.size)
+  tr.setSelection(TextSelection.near(tr.doc.resolve(nextPosition),1)).scrollIntoView().setMeta('uiEvent','drop')
+  v.dispatch(closeHistory(v.state.tr));v.dispatch(tr);v.dispatch(closeHistory(v.state.tr));return
+ }
+  v.dispatch(closeHistory(v.state.tr))
+ const plan=clipboard.prepare(v,{clipboardData:null},slice,{authorized:true})
+  clipboard.commit(v,plan,{authorized:true})
+  v.dispatch(closeHistory(v.state.tr))
+}
+const FIND_LIMIT = 10000
+function findTextMatches(query, matchCase = false) {
+  if (!query) return []
+  const matches = [], fold = value => matchCase ? value : value.replace(/[A-Z]/g, c => c.toLowerCase()), wanted = fold(query)
+  const limit = FIND_LIMIT
+  view().state.doc.descendants((node, pos) => {
+    if (matches.length >= limit) return false
+    if (!node.isTextblock) return
+    let run = '', pieces = []
+    const flush = () => {
+      if (!run || matches.length >= limit) { run = ''; pieces = []; return }
+      const folded = fold(run); let at = 0
+      while ((at = folded.indexOf(wanted, at)) >= 0) {
+        const end = at + query.length, first = pieces.find(piece => at < piece.end && end > piece.start), last = [...pieces].reverse().find(piece => at < piece.end && end > piece.start)
+        if (first && last) { matches.push({ from: pos + 1 + first.offset + Math.max(0, at - first.start), to: pos + 1 + last.offset + Math.min(last.text.length, end - last.start), marks: first.marks }); if (matches.length >= limit) break }
+        at = end || at + 1
+      }
+      run = ''; pieces = []
+    }
+    node.forEach((child, offset) => { if (matches.length >= limit) return; if (!child.isText) { flush(); return }; const start = run.length; pieces.push({ start, end: start + child.text.length, offset, text: child.text, marks: child.marks }); run += child.text })
+    flush()
+  })
+  return matches
+}
+function findMatch(query, index = 0, reveal = true, matchCase = false) {
+  const matches = findTextMatches(query, matchCase), selected = matches.length ? matches[((index % matches.length) + matches.length) % matches.length] : null
+  if (selected && reveal) { const v = view(); v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, selected.from, selected.to)).scrollIntoView()); v.focus() }
+  return { count: matches.length, limited: matches.length >= FIND_LIMIT, index: selected ? matches.indexOf(selected) : -1, match: selected }
+}
+function nextMatchIndex(matches, from) { const next = matches.findIndex(match => match.from >= from); return next < 0 ? 0 : next }
+function utf8Bytes(text) { return new TextEncoder().encode(text).byteLength }
+function replacementSize(text, query, replacement, count) { if (utf8Bytes(text) + (utf8Bytes(replacement) - utf8Bytes(query)) * count > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
+function ensureSerializedCapacity(doc) { const markdown = editor.editor.ctx.get(core.serializerCtx)(doc); if (utf8Bytes(markdown) > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
+function replaceFind(query, replacement, index = 0, all = false, matchCase = false) {
+  const matches = findTextMatches(query, matchCase); if (!matches.length) return { count: 0, replaced: 0, index: -1, limited: false }
+  if (all && matches.length >= FIND_LIMIT) throw Error('匹配数量达到 10000 上限，未执行全部替换。')
+  const v = view()
+  replacementSize(v.state.doc.textContent, query, replacement, all ? matches.length : 1)
+  if (all) { let tr = v.state.tr; for (const match of [...matches].reverse()) tr = tr.replaceWith(match.from, match.to, replacement ? v.state.schema.text(replacement, match.marks) : null); ensureSerializedCapacity(tr.doc); v.dispatch(closeHistory(v.state.tr)); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr)); return { count: matches.length, replaced: matches.length, index: -1, limited: false } }
+  const selected = matches[((index % matches.length) + matches.length) % matches.length]
+  const tr = v.state.tr.replaceWith(selected.from, selected.to, replacement ? v.state.schema.text(replacement, selected.marks) : null); ensureSerializedCapacity(tr.doc); v.dispatch(closeHistory(v.state.tr)); v.dispatch(tr.scrollIntoView().setMeta('uiEvent', 'input')); v.dispatch(closeHistory(v.state.tr))
+  const next = findTextMatches(query, matchCase), nextIndex = nextMatchIndex(next, selected.from + replacement.length)
+  return { count: next.length, replaced: 1, limited: next.length >= FIND_LIMIT, index: nextIndex }
+}
+function prepareFileImport(source) {
+  if(!created)throw Error('编辑器尚未就绪。')
+  const ctx=editor.editor.ctx
+  return prepareImportedFile(source,{schema:view().state.schema,remark:ctx.get(core.remarkCtx),parse:ctx.get(core.parserCtx),serialize:ctx.get(core.serializerCtx)})
+}
+function resourceMarkdownReferences(markdown,range,before) {
+  const remark=editor.editor.ctx.get(core.remarkCtx),tree=remark.parse(markdown)
+  return before===undefined?markdownResources(tree,range):markdownPasteResources(remark.parse(before),tree,range)
+}
+function prepareResourcePaste(payload) {
+  if (!created || !activeSession) throw Error('编辑会话不可用。')
+  if (payload.error) throw Error(payload.error)
+  const v=view(),plan=payload.preparedState===v.state?{...payload.plan,event:payload.event}:clipboard.prepare(v,payload.event,payload.slice,{authorized:true})
+  return {state:v.state,plan,references:plan.literal?[]:sliceResources(plan.resourceSlice)}
+}
+function commitResourcePaste(prepared) {
+  const v=view()
+  if(v.state!==prepared.state)throw Error('正文或选区已变化，请重新粘贴。')
+  // The planned table transaction is tied to this exact state. Mark its history
+  // boundary without dispatching a separate transaction that would stale it.
+  if(prepared.plan.table?.handled)closeHistory(prepared.plan.table.transaction)
+  else v.dispatch(closeHistory(v.state.tr))
+  if(prepared.plan.literal)v.dispatch(v.state.tr.insertText(prepared.plan.event.clipboardData.getData('text/plain')).scrollIntoView())
+  else clipboard.commit(v,prepared.plan,{authorized:true})
+  v.dispatch(closeHistory(v.state.tr))
+}
+function focus() { if (created) view().focus() }
+function prepareEndBlank(point){
+ if(!created||disposed||switching||!activeSession)return null
+ const plan=prepareEndBlankAtPoint(view(),point)
+ return plan?{...plan,owner:{...activeSession}}:null
+}
+function placeEndBlank(plan){
+ if(!created||disposed||switching||!activeSession||plan?.owner?.id!==activeSession.id||plan.owner.generation!==activeSession.generation)return false
+ return placeEndBlankAtPoint(view(),plan)
+}
+defineExpose({ revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -157,15 +275,15 @@ onMounted(async () => {
       },
       featureConfigs: {
         [Crepe.Feature.Placeholder]: { text: '从这里开始写…', mode: 'doc' },
-        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言', theme: writingCodeTheme },
+        [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言', theme: writingCodeTheme, languages: [mermaidCodeLanguage] },
       },
     })
     // Replace the generic-transaction-only synchronizer; input rules carry
     // metadata and must still receive correct labels before the DOM renders.
     await editor.editor.remove(syncListOrderPlugin)
+    await configureWritingTables(editor.editor)
     if (disposed) return
-    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils))
-    editor.editor.use(utils.$prose(() => writingSearchPlugin))
+    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils)).use(writingMarkdownExtensions)
     editor.editor.use(imageSchema.extendSchema(previous => ctx => {
       const schema = previous(ctx)
       return { ...schema, parseDOM: schema.parseDOM.map(rule => rule.tag === 'img[src]' ? {
@@ -175,7 +293,7 @@ onMounted(async () => {
         const originalSrc = attrs.src
         const resolver = sessionResolver || props.resolveImage
         const safeSrc = resolver ? resolver(originalSrc) : (isAllowedResourceUrl(originalSrc) ? originalSrc : null)
-        if (safeSrc) attrs.src = safeSrc
+        if (safeSrc) { attrs.src = safeSrc; if (props.resourceImport) attrs.crossorigin = 'anonymous' }
         else { delete attrs.src; attrs.alt = `${attrs.alt || ''} [图片暂不可用]` }
         return [dom[0], attrs]
       } }
@@ -192,7 +310,7 @@ onMounted(async () => {
           logWritingEvent('markdown-parsed', { editorId, textLength: markdown.length, normalized: normalized !== markdown, ...(doc ? describeWritingDocument(doc) : {}) })
           return doc
         })
-        ctx.set(core.serializerCtx, doc => serializeNoteNestedMath(serializer(doc), remark))
+        ctx.set(core.serializerCtx, doc => serializeAlertMarkers(serializeNoteNestedMath(serializer(doc), remark), text => remark.parse(text)))
         // Reuse the website's tested dollar-delimiter rules; this demo owns the
         // math UI and intentionally does not load Crepe's tooltip feature.
         const seed = new InputRule(/(?:\$)([^$]+)(?:\$)$/, () => null)
@@ -213,6 +331,7 @@ onMounted(async () => {
     v.setProps({ dispatchTransaction(transaction) {
       const owner = activeSession, next = v.state.apply(transaction)
       v.updateState(next)
+      if (owner && !switching && (transaction.selectionSet || transaction.docChanged)) emit('view-change', { ...owner })
       if (!owner || switching || !transaction.docChanged) return
       rememberedViews = null
       const doc = next.doc, baseline = initialDoc, normalized = initialSerialized, raw = original
@@ -222,15 +341,38 @@ onMounted(async () => {
         emit('session-change', { ...owner, markdown: serializePreservingOriginal(doc, baseline, normalized, raw) })
       }, 150)
     } })
+    if (props.linkNavigation) disposeLinks = installWritingLinks(v, { modifier: props.linkModifier, root: root.value, ctx: editor.editor.ctx, getOwner: () => activeSession, onOpen: value => emit('open-link', value) })
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
-    installWritingMathViews(view())
+    installWritingMathViews(view(), { doneShortcut: props.mathDoneShortcut })
+    installWritingMarkdownViews(view())
     installWritingListViews(view())
     installWritingListKeys(view())
-    installWritingClipboard(view(), {
+    installWritingSelectionWrap(view(), () => props.isComposing?.() || false)
+    clipboard=installWritingClipboard(view(), {
+      deferPaste:props.resourceImport?(editorView,event,plan)=>{
+        if(!activeSession||!editorView.editable||switching||plan.literal)return false
+        let references,error
+        try{references=sliceResources(plan.resourceSlice)}catch(cause){error=cause.message}
+        if(!error&&!references.length)return false
+        event.preventDefault()
+        emit('resource-paste',{...activeSession,payload:{mode:'rendered',slice:plan.inputSlice,preparedState:editorView.state,plan,event:snapshotPasteEvent(event),error}})
+        return true
+      }:undefined,
+      parsePlain:props.resourceImport,
       editorId,
       parse: markdown => editor.editor.action(ctx => ctx.get(core.parserCtx)(markdown)),
       normalize: markdown => editor.editor.action(ctx => normalizeWritingMarkdown(markdown, text => ctx.get(core.remarkCtx).parse(text))),
     })
+    if (props.resourceImport) {
+      const handlers = v.props.handleDOMEvents || {}
+      v.setProps({handleDOMEvents:{...handlers,paste(editorView,event) {
+        const files = Array.from(event.clipboardData?.files || [])
+        if (!files.length) return handlers.paste?.(editorView,event) || false
+        event.preventDefault()
+        if (activeSession && editorView.editable && !switching) emit('resource-files',{...activeSession,files})
+        return true
+      }}})
+    }
     logWritingEvent('editor-ready', { editorId, ...describeWritingDocument(view().state.doc) })
     view().dom.setAttribute('role', 'textbox')
     view().dom.setAttribute('aria-label', 'Markdown 正文')
@@ -242,43 +384,56 @@ onMounted(async () => {
   }
   finally { loading.value = false }
 })
-onBeforeUnmount(() => { disposed = true; clearTimeout(updateTimer); resolveReady(false); if (created) editor?.destroy().catch(() => {}) })
+onBeforeUnmount(() => {
+  // Flush the final body/selection before destroying ctx. The normal change
+  // notification is debounced and may not have reached the host before HMR.
+  if (created && activeSession && !switching) {
+    try { emit('session-release', { ...activeSession, markdown: getMarkdown(), selection: selection() }) }
+    catch (cause) { logWritingEvent('editor-release-error', { editorId, errorType: cause instanceof TypeError ? 'TypeError' : 'Error' }) }
+  }
+  disposed = true; disposeLinks?.(); clearTimeout(updateTimer); resolveReady(false)
+  if (created) editor?.destroy().catch(() => {})
+})
 </script>
 <style>
-.writing-search-match { background: #f5df85; color: #272c25; }
-.writing-search-current { background: #e8b64e; outline: 2px solid #986c25; outline-offset: 1px; }
 .writing-editor .milkdown {
   --crepe-color-background: #fffefa; --crepe-color-surface: #fffefa;
   --crepe-color-on-background: #333b38; --crepe-color-on-surface: #333b38;
   --crepe-color-primary: #3c7161; --crepe-color-secondary: #e4eee8;
   --crepe-color-hover: #eef2ed; --crepe-color-selected: #dceae1;
-  --crepe-font-default: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-  --crepe-font-title: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --crepe-font-default: var(--editor-font-text);
+  --crepe-font-title: var(--editor-font-text);
+  --crepe-font-code: var(--editor-font-mono);
 }
 .writing-editor .milkdown > .ProseMirror { padding: 0; min-height: 65vh; font-size: 16px; line-height: 1.9; outline: none; overflow-wrap: anywhere; }
 .writing-editor .milkdown > .ProseMirror h1 { font-size: 2em; font-weight: 650; letter-spacing: -.03em; line-height: 1.4; margin: 0 0 1em; }
 .writing-editor .milkdown > .ProseMirror h2 { font-size: 1.4em; font-weight: 600; margin: 1.8em 0 .6em; }
 .writing-editor .milkdown > .ProseMirror h3 { font-size: 1.15em; }
 .writing-editor .milkdown > .ProseMirror p { margin: .8em 0; }
+.writing-editor .writing-link-open { border: 0; border-left: 1px solid #e1e5e1; border-radius: 0; background: transparent; color: #3c7161; font: inherit; white-space: nowrap; padding: 3px 8px; cursor: pointer; }
+.writing-editor .writing-link-open:hover { background: #eef2ed; }
+.writing-editor .writing-link-open:focus-visible { outline: 2px solid #59927e; outline-offset: 1px; }
 .writing-editor .milkdown-table-block { overflow-x: auto; max-width: 100%; }
 .writing-editor img { max-width: 100%; }
 .writing-editor .writing-math { cursor: text; }
 .writing-editor .writing-math-preview { border-radius: 3px; }
 .writing-editor .writing-math-preview:hover { background: #edf3ed; }
-.writing-editor .writing-math-preview:focus-visible { outline: 2px solid #59927e; }
+.writing-editor .writing-math-preview:focus-visible { outline: 2px solid #59927e; outline-offset: 3px; }
 .writing-editor .writing-math-inline { display: inline; }
-.writing-editor .writing-math-block { margin: 1.3em 0; padding: 0; border: 1px solid transparent; border-radius: 6px; }
-.writing-editor .writing-math-block.is-editing { border-color: #d8e0e6; }
-.writing-editor .writing-math-block > .writing-math-preview { padding: 12px; overflow-x: auto; }
+.writing-editor .writing-math-placeholder { color: var(--reading-muted, #7d837c); font-style: italic; }
+.writing-editor .writing-math-preview.is-incomplete .writing-math-placeholder { font-size: .85em; font-style: normal; }
+.writing-editor .writing-math-block { margin: 1em 0; padding: 0; border: 0; }
+.writing-editor .writing-math-block > .writing-math-preview { min-height: 2.5em; padding: .4em 0; overflow-x: auto; text-align: center; }
+.writing-editor .writing-math-block > .writing-math-preview .katex-display { margin: 0; }
 .writing-editor .writing-math-block > .writing-math-preview:hover { background: transparent; }
-.writing-editor .writing-block-source { background: #f4f6f8; border-bottom: 1px solid #d8e0e6; }
+.writing-editor .writing-block-source { background: #f4f6f8; border: 1px solid #e2e5e9; border-radius: 3px; }
 .writing-editor .writing-block-source[hidden] { display: none; }
 .writing-editor .writing-block-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 0; }
-.writing-editor .writing-block-fence { color: #8b94a2; font: 14px/1.6 Consolas, monospace; }
+.writing-editor .writing-block-fence { color: #8b94a2; font: 14px/1.6 var(--editor-font-mono); }
 .writing-editor .writing-block-fence.is-ending { display: block; padding: 0 12px 6px; }
-.writing-editor .writing-block-done { padding: 2px 6px; font-size: 12px; color: #64717d; }
+.writing-editor .writing-block-done { padding: 2px 6px; font-size: 14px; line-height: 1; color: #64717d; }
 .writing-editor .writing-block-done:focus-visible { outline: 2px solid #376ba8; }
-.writing-editor .writing-math-source { font: 14px/1.65 Consolas, monospace; color: #275b4a; border: 1px solid #aac3b5; border-radius: 4px; background: #f3f8f0; padding: 3px 6px; max-width: 100%; outline-color: #59927e; box-sizing: border-box; }
+.writing-editor .writing-math-source { font: 14px/1.65 var(--editor-font-mono); color: #275b4a; border: 1px solid #aac3b5; border-radius: 4px; background: #f3f8f0; padding: 3px 6px; max-width: 100%; outline-color: #59927e; box-sizing: border-box; }
 .writing-editor .writing-math .writing-math-source[hidden], .writing-editor .writing-math-preview[hidden], .writing-editor .writing-math-source-wrap[hidden] { display: none; }
 .writing-editor .writing-math-source-wrap { display: inline-flex; align-items: baseline; vertical-align: baseline; max-width: 100%; line-height: inherit; }
 .writing-editor .writing-math-delimiter { color: #b3b3b0; user-select: none; font: inherit; }
@@ -293,6 +448,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(updateTimer); resolveReady
   background: #252724; color: #fffef8; box-shadow: 0 3px 10px #0002;
   font-size: 18px; line-height: 1.5; overflow: auto; overscroll-behavior: contain;
 }
-.writing-math-live-preview.is-incomplete { font: 12px/1.5 'Microsoft YaHei', sans-serif; color: #e2e1d8; }
+.writing-math-live-preview.is-incomplete, .writing-math-live-preview.is-empty { font: 13px/1.5 var(--editor-font-text); color: #e2e1d8; }
+.writing-math-live-preview.is-empty .writing-math-placeholder { font-style: italic; }
 .writing-editor .katex-display { margin: .5em 0; }
 </style>

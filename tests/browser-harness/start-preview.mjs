@@ -12,16 +12,21 @@ export async function startWritingPreview({ port = 5198 } = {}) {
     root, configFile: false, logLevel: 'error',
     cacheDir: resolve(root, `node_modules/.vite-writing-${port || 'test'}`),
     resolve: { alias: { '@': resolve(root, 'src') } },
-    optimizeDeps: { include: ['@milkdown/crepe', '@milkdown/kit/core', '@milkdown/kit/ctx', '@milkdown/kit/utils', '@milkdown/kit/prose/state', '@milkdown/kit/prose/history', '@milkdown/kit/prose/inputrules', '@milkdown/kit/preset/commonmark', 'remark-math', 'katex'] },
-    server: { host: '127.0.0.1', port, strictPort: Boolean(port), fs: { allow: [root, realpathSync(resolve(root, 'node_modules'))] } },
+    optimizeDeps: { entries: ['tests/browser-harness/ProbeWritingApp.vue'], include: ['@milkdown/crepe', '@milkdown/kit/core', '@milkdown/kit/ctx', '@milkdown/kit/utils', '@milkdown/kit/prose/state', '@milkdown/kit/prose/history', '@milkdown/kit/prose/inputrules', '@milkdown/kit/preset/commonmark', 'remark-math', 'katex'] },
+    server: {
+      host: '127.0.0.1', port, strictPort: Boolean(port),
+      fs: { allow: [root, realpathSync(resolve(root, 'node_modules'))] },
+      // Native linker temp files and large build trees are not editor sources.
+      // Anchor paths to this checkout: it may itself live under _worktrees.
+      watch: { ignored: ['output', 'release', 'apps/tauri/src-tauri/target', 'apps/tauri/crates/document-store/target', 'website/_worktrees'].map(path => resolve(root, path).replaceAll('\\', '/') + '/**') },
+    },
     plugins: [vue(), { name: 'standalone-writing-preview', configureServer(s) {
       s.middlewares.use(async (req, res, next) => {
         const pathname = new URL(req.url, 'http://localhost').pathname
         if (pathname === '/__notes-export/pdf') return exportPdf(req, res)
-        if (pathname !== '/' && pathname !== '/__editor' && pathname !== '/__search') return next()
-        const component = pathname === '/__search' ? 'SearchProbe' : 'ProbeWritingApp'
+        if (pathname !== '/' && pathname !== '/__editor') return next()
         res.setHeader('Content-Type', 'text/html; charset=utf-8')
-        res.end(await s.transformIndexHtml(req.url, `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>未命名笔记</title></head><body><div id="app"></div><script type="module">import {createApp} from 'vue';import App from '/tests/browser-harness/${component}.vue';createApp(App).mount('#app');</script></body></html>`))
+        res.end(await s.transformIndexHtml(req.url, `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>未命名笔记</title></head><body><div id="app"></div><script type="module">import {createApp} from 'vue';import App from '/tests/browser-harness/ProbeWritingApp.vue';createApp(App).mount('#app');</script></body></html>`))
       })
     } }],
   })

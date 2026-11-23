@@ -1,5 +1,5 @@
 import { registerEmbeddedView, trackCodeBlockView } from './writingViewState.js'
-import katex from 'katex'
+import { renderMathPreview } from './writingMathPreview.js'
 import remarkMath from 'remark-math'
 import { $nodeSchema, $remark } from '@milkdown/kit/utils'
 import { codeBlockSchema } from '@milkdown/kit/preset/commonmark'
@@ -16,8 +16,8 @@ export const writingMathSchema = $nodeSchema('math_inline', () => ({
   attrs: { value: { default: '' } },
   parseDOM: [{ tag: 'span[data-type="math_inline"]', getAttrs: dom => ({ value: dom.dataset.value || '' }) }],
   toDOM: node => ['span', { 'data-type': 'math_inline', 'data-value': node.attrs.value }, node.attrs.value],
-  parseMarkdown: { match: node => node.type === 'inlineMath', runner: (state, node, type) => state.addNode(type, { value: node.value }) },
-  toMarkdown: { match: node => node.type.name === 'math_inline', runner: (state, node) => state.addNode('inlineMath', undefined, node.attrs.value) },
+  parseMarkdown: { match: node => node.type === 'inlineMath', runner: (state, node, type) => state.addNode(type, { value: node.value.trim() ? node.value : '' }) },
+  toMarkdown: { match: node => node.type.name === 'math_inline', runner: (state, node) => state.addNode('inlineMath', undefined, node.attrs.value.trim() ? node.attrs.value : ' ') },
 }))
 const blockMath = $remark('writing-block-math', () => () => tree => {
   function visit(node) {
@@ -59,10 +59,7 @@ function inlineFormulaView(initial, view, getPos) {
   const inlineUi = createInlineMathPresentation(dom, source)
   const value = () => node.attrs.value
   function render() {
-    if (!opened) {
-      if (!value()) preview.textContent = '空公式 · 点击编辑'
-      else katex.render(value(), preview, { displayMode: false, throwOnError: false, trust: false })
-    }
+    if (!opened) renderMathPreview(preview, value())
     if (source.value !== value()) {
       const start = source.selectionStart, end = source.selectionEnd
       source.value = value()
@@ -117,7 +114,7 @@ function inlineFormulaView(initial, view, getPos) {
   source.addEventListener('keydown', event => {
     if (event.isComposing || composing) return
     const mod = event.ctrlKey || event.metaKey
-    if (mod && ['z', 'y'].includes(event.key.toLowerCase())) {
+    if (mod && !event.altKey && ['z', 'y'].includes(event.key.toLowerCase())) {
       event.preventDefault()
       const action = event.key.toLowerCase() === 'y' || event.shiftKey ? redo : undo
       action(view.state, view.dispatch.bind(view)); return
@@ -169,7 +166,7 @@ function inlineFormulaView(initial, view, getPos) {
     destroy() { destroyed = true; unregister(); inlineUi?.destroy() },
   }
 }
-export function installWritingMathViews(view) {
+export function installWritingMathViews(view, options = {}) {
   const previous = view.props.nodeViews || {}, previousKeydown = view.props.handleKeyDown
   view.setProps({
     handleKeyDown(editor, event) {
@@ -202,7 +199,7 @@ export function installWritingMathViews(view) {
     ...previous,
     math_inline: (node, editor, getPos) => inlineFormulaView(node, editor, getPos),
     code_block: (node, editor, getPos, decorations, innerDecorations) => {
-      if (String(node.attrs.language).toLowerCase() === 'latex') return blockFormulaView(node, editor, getPos)
+      if (String(node.attrs.language).toLowerCase() === 'latex') return blockFormulaView(node, editor, getPos, options)
       return trackCodeBlockView(previous.code_block?.(node, editor, getPos, decorations, innerDecorations), editor, getPos) || null
     },
   } })

@@ -2,11 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { analyzeMarkdown, countWritingText } from '../packages/editor/src/markdown/analysis.js'
 import { getMarkdownRenderer } from '../packages/editor/src/markdown/renderer.js'
-import {
-  DEFAULT_READING_PREFERENCES, normalizeReadingPreferences, loadReadingPreferences,
-  saveReadingPreferences, resolvedReadingTheme, readingStyle,
-} from '../apps/desktop/src/renderer/readingPreferences.js'
-
 test('outline recognizes ATX, Setext and quoted headings while ignoring code and comments', () => {
   const markdown = '# 标题 **加粗**\n\n```md\n# 代码里的标题\n```\n\n第二节\n---\n\n> ### 引用标题\n\n<!-- # 隐藏 -->\n'
   const result = analyzeMarkdown(markdown)
@@ -51,27 +46,4 @@ test('Markdown analysis excludes syntax, URLs and hidden comments while counting
   assert.equal(analyzeMarkdown('<div><!-- hidden -->visible</div>').wordCount, 1)
   assert.equal(analyzeMarkdown('<div>A &amp; B<script>hidden()</script></div>').wordCount, 2)
   assert.equal(analyzeMarkdown('<table><tr><td>First</td><td>Second</td></tr></table>').wordCount, 2)
-})
-
-test('preferences validate untrusted storage and write only supported settings', () => {
-  assert.deepEqual(normalizeReadingPreferences({ fontSize: 99, width: '720', theme: 'unknown', markdown: 'private' }), DEFAULT_READING_PREFERENCES)
-  let stored
-  const storage = { getItem: () => stored, setItem: (key, value) => { assert.equal(key, 'frowd.reading-preferences.v1'); stored = value } }
-  const preferences = { fontSize: 20, width: 720, theme: 'system' }
-  assert.deepEqual(loadReadingPreferences(storage), { preferences: DEFAULT_READING_PREFERENCES, error: '' })
-  assert.equal(saveReadingPreferences({ ...preferences, markdown: 'private' }, storage).error, '')
-  assert.deepEqual(JSON.parse(stored), preferences)
-  assert.deepEqual(loadReadingPreferences(storage).preferences, preferences)
-  assert.equal(resolvedReadingTheme(preferences, true), 'dark')
-  assert.equal(resolvedReadingTheme(preferences, false), 'light')
-  assert.deepEqual(readingStyle(preferences), { '--reading-font-size': '20px', '--reading-column-width': '720px' })
-})
-
-test('corrupt or unavailable preference storage preserves usable defaults or current values with feedback', () => {
-  assert.match(loadReadingPreferences({ getItem: () => '{' }).error, /无法读取/)
-  const storage = { getItem() { throw new Error('denied') }, setItem() { throw new Error('denied') } }
-  assert.deepEqual(loadReadingPreferences(storage).preferences, DEFAULT_READING_PREFERENCES)
-  const result = saveReadingPreferences({ fontSize: 18, width: 1080, theme: 'dark' }, storage)
-  assert.equal(result.preferences.theme, 'dark')
-  assert.match(result.error, /保存失败/)
 })

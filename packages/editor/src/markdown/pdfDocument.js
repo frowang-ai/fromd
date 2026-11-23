@@ -1,11 +1,13 @@
 import { renderMarkdown } from './index.js'
+import { renderMermaid } from './mermaid.js'
+import { extensionCss } from './extensions.js'
 
 const pdfCss = `
-  @page { size: A4; margin: 18mm; }
+  :root { --editor-font-text: -apple-system, "Segoe UI", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; --editor-font-mono: "SF Mono", Menlo, Monaco, Consolas, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace; }
   * { box-sizing: border-box; }
   body { margin: 0; background: #eeece8; color: #242321; }
-  .markdown-body { width: 210mm; margin: 24px auto; padding: 18mm; background: white; box-shadow: 0 2px 12px #0001; font: 11pt/1.75 'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif; overflow-wrap: anywhere; }
-  h1, h2, h3, h4, h5, h6 { font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif; line-height: 1.4; break-after: avoid; margin: 1.3em 0 .65em; }
+  .markdown-body { width: 210mm; margin: 24px auto; padding: 18mm; background: white; box-shadow: 0 2px 12px #0001; font: 11pt/1.75 var(--editor-font-text); overflow-wrap: anywhere; }
+  h1, h2, h3, h4, h5, h6 { font-family: var(--editor-font-text); line-height: 1.4; break-after: avoid; margin: 1.3em 0 .65em; }
   h1 { font-size: 20pt; } h2 { font-size: 16pt; } h3 { font-size: 13pt; }
   .markdown-body > :first-child { margin-top: 0; }
   p { margin: .7em 0; orphans: 3; widows: 3; }
@@ -18,12 +20,12 @@ const pdfCss = `
   thead { display: table-header-group; } tr, img { break-inside: avoid; }
   img { display: block; max-width: 100%; height: auto; margin: .8em auto; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f5f4f1; border: 1px solid #e1ded8; border-radius: 4px; }
-  code { font-family: Consolas, 'Courier New', monospace; font-size: .9em; }
+  code { font-family: var(--editor-font-mono); font-size: .9em; }
   :not(pre) > code { background: #f5f4f1; padding: .1em .25em; }
   a { color: #32567b; text-decoration: underline; }
   u { text-decoration: underline; text-underline-offset: .15em; }
   mark { color: inherit; background: #fff0a8; padding: .03em .12em; border-radius: 2px; }
-  kbd { font: .85em/1.5 Consolas, 'Microsoft YaHei', monospace; padding: .12em .4em; margin: 0 .12em; color: #39434a; background: #f2f4f5; border: 1px solid #ccd2d5; border-bottom-width: 2px; border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+  kbd { font: .85em/1.5 var(--editor-font-mono); padding: .12em .4em; margin: 0 .12em; color: #39434a; background: #f2f4f5; border: 1px solid #ccd2d5; border-bottom-width: 2px; border-radius: 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
   .katex { display: inline-block; white-space: nowrap; }
   .katex-display { margin: 1em 0; break-inside: avoid; }
   hr { border: 0; border-top: 1px solid #ddd; margin: 1.5em 0; }
@@ -38,12 +40,24 @@ const pdfCss = `
 
 // Build the complete sanitized document, never copy the editor's lazy DOM.
 // Resources are embedded by the caller; PDF workers must not fetch user URLs.
-export async function buildPdfDocument({ markdown, title = '文档', resolveImage }) {
+export async function buildPdfDocument({ markdown, title = '文档', resolveImage, pageLayout = 'css' }) {
+  if (!['css', 'native'].includes(pageLayout)) throw Error('Unknown PDF page layout owner');
   const doc = document.implementation.createHTMLDocument(title)
   doc.documentElement.lang = 'zh-CN'
-  const style = doc.createElement('style'); style.textContent = pdfCss; doc.head.append(style)
+  // Exactly one owner supplies paper size/margins. Browser/Electron consumers
+  // retain CSS A4/18mm; native printers supply them through their print settings.
+  const pageCss = pageLayout === 'css' ? '@page { size: A4; margin: 18mm; }' : '';
+  const style = doc.createElement('style'); style.textContent = pageCss + pdfCss + extensionCss; doc.head.append(style)
   const article = doc.createElement('article'); article.className = 'markdown-body'
   article.innerHTML = renderMarkdown(markdown)
+  // Diagram code still passes through the unchanged Markdown sanitizer first;
+  // only the local renderer's generated SVG uses the dedicated SVG sanitizer.
+  for (const code of article.querySelectorAll('pre > code.language-mermaid, pre.language-mermaid > code')) {
+    const figure = doc.createElement('figure'); figure.className = 'writing-mermaid-figure'
+    try { figure.innerHTML = await renderMermaid(code.textContent) }
+    catch (error) { throw new Error(`Mermaid 图表无法导出：${error.message}`) }
+    code.parentElement.replaceWith(figure)
+  }
   for (const item of article.querySelectorAll('li')) {
     const content = item.firstElementChild?.tagName === 'P' ? item.firstElementChild : item
     const first = content.firstChild
@@ -55,7 +69,7 @@ export async function buildPdfDocument({ markdown, title = '文档', resolveImag
   }
   await Promise.all([...article.querySelectorAll('img')].map(async image => {
     const original = image.getAttribute('src')
-    const src = resolveImage ? resolveImage(original) : original
+    const src = resolveImage ? await resolveImage(original) : original
     if (!src) throw new Error('文档中有图片不可用，请检查后重新导出。')
     if (src.startsWith('data:image/')) { image.src = src; return }
     const url = new URL(src, document.baseURI)

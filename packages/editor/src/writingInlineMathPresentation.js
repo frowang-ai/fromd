@@ -1,4 +1,4 @@
-import katex from 'katex'
+import { renderMathPreview } from './writingMathPreview.js'
 
 // Presentation for inline math only. The existing node view still owns edits,
 // transactions, cancellation and undo; this layer owns sizing and the preview.
@@ -50,13 +50,7 @@ export function createInlineMathPresentation(dom, source) {
       source.style.height = `${Math.max(lineHeight, Math.min(lineHeight * 8, source.scrollHeight))}px`
       if (lastValue !== source.value) {
         lastValue = source.value
-        try {
-          if (!source.value.trim()) tooltip.textContent = '输入公式'
-          else katex.render(source.value, tooltip, { throwOnError: true, trust: false, displayMode: false })
-          tooltip.classList.remove('is-incomplete')
-        } catch {
-          tooltip.textContent = '公式尚未完整'; tooltip.classList.add('is-incomplete')
-        }
+        renderMathPreview(tooltip, source.value)
       }
       position()
     })

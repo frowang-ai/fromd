@@ -1,5 +1,6 @@
 # MVP 迭代与交付边界
 
+> 历史归档：本文记录当时的探索/验证阶段，原版本行为、命令和计数仅作历史证据。当前唯一客户端为 Tauri 0.5.2，现行说明由 [客户端入口](apps/tauri/README.md)、`apps/tauri/DESKTOP_FEEDBACK.md`、`WINDOWS_INSTALLER.md` 与 `MACOS_PACKAGING.md` 接替；旧收起动效、未实现 PDF 或 Electron 命令不代表现行行为。
 产品名 frowd。用户原则是先完成最小可运行版本，按真实行为验证后再扩功能。当前0.5.0按用户授权扩展写作与找回页面的能力，详细状态和历史入口见 [README 项目记忆](README.md#项目记忆)，实际测试范围归 [VALIDATION](VALIDATION.md)。
 
 ## 已完成阶段

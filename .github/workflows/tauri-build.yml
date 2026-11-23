@@ -1,0 +1,82 @@
+name: Tauri desktop builds
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'feat/tauri-*']
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: tauri-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  macos:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: aarch64
+          - target: x86_64-apple-darwin
+            arch: x86_64
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/output/cargo-target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - run: npm ci --ignore-scripts
+      - run: npx --yes pnpm@10.11.0 --dir apps/tauri install --frozen-lockfile
+      - run: npm test
+      - run: npm run test:tauri
+      - run: cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
+      - run: cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
+      - name: Build unsigned app and dmg
+        run: npm --prefix apps/tauri run tauri -- build --config src-tauri/tauri.macos.conf.json --bundles app,dmg --target ${{ matrix.target }} -- --locked
+      - name: Validate and archive
+        shell: bash
+        run: |
+          bundle="$CARGO_TARGET_DIR/${{ matrix.target }}/release/bundle"
+          app="$bundle/macos/frowd.app"
+          dmgs=("$bundle"/dmg/*.dmg)
+          test "${#dmgs[@]}" -eq 1
+          node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.2
+          mkdir -p output/artifacts
+          ditto -c -k --keepParent "$app" 'output/artifacts/frowd-0.5.2-${{ matrix.arch }}.app.zip'
+          cp "${dmgs[0]}" output/artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frowd-macos-${{ matrix.arch }}-0.5.2
+          path: output/artifacts/*
+          if-no-files-found: error
+  windows:
+    runs-on: windows-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/output/cargo-target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - run: npm ci --ignore-scripts
+      - run: npx --yes pnpm@10.11.0 --dir apps/tauri install --frozen-lockfile
+      - run: npm test
+      - run: npm run test:tauri
+      - run: cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
+      - run: cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
+      - run: npm run tauri:installer:win
+      - name: Validate GUI executable
+        run: ./apps/tauri/scripts/check-windows-artifact.ps1 -Path "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/frowd-tauri.exe" -ExpectedVersion 0.5.2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frowd-windows-x64-0.5.2
+          path: output/cargo-target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
