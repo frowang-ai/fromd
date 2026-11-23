@@ -1,12 +1,14 @@
 // Synthetic MIME payloads through the real PM paste path + mock native IPC.
 // From the repo root (cmd): set FROWD_BROWSER_PORT=15673&& npm --prefix apps/tauri run test:browser -- markdown-math-paste.browser.spec.mjs
 // Shared four-entry comparison: npm run test:editor -- --grep "数学粘贴保真"
-// No OS clipboard or real Paseo capture: MarkdownIt without math simulates a
-// producer that supplies intact Markdown alongside prematurely rendered HTML.
+// The Paseo copy-button cases reproduce the installed Desktop 0.17.3 payload
+// factory/configuration, verified in isolation; no OS clipboard/native claim.
 import { test, expect } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
 import MarkdownIt from 'markdown-it'
 import { installMockHost } from './mock-host.mjs'
 import { mathPasteMarkdown, mathPasteValues } from '../../../tests/fixtures/writing-math-paste.mjs'
+import { createPaseoMarkdownClipboardContent } from '../../../tests/fixtures/paseo-clipboard.mjs'
 
 const body = page => page.locator('.ProseMirror:visible')
 async function boot(page, markdown = '') {
@@ -40,6 +42,95 @@ function mathNodes(doc) {
   return result
 }
 const expectedMath = Object.entries(mathPasteValues).map(([key, value]) => ({ display: key === 'fraction', value }))
+
+for (const [name, extra, link] of [
+  ['standard', '', null],
+  ['autolink', '\n\n资料：https://example.com/paper?q=base#methods', 'https://example.com/paper?q=base#methods'],
+  ['local-link', '\n\n[本地合成参考](file:///C:/synthetic/reference.md "合成标题")', 'file:///C:/synthetic/reference.md'],
+]) test(`Paseo copy button 0.17.3 preserves math with ${name}`, async ({ page }, testInfo) => {
+  const payload = createPaseoMarkdownClipboardContent(mathPasteMarkdown + extra)
+  expect(payload.html).toMatch(/^<meta charset="utf-8">/)
+  if (link) expect(payload.html).toContain(`href="${link}"`)
+  await boot(page)
+  const initial = (await capture(page)).doc
+  await paste(page, payload.plainText, payload.html)
+  await page.screenshot({ path: testInfo.outputPath(`paseo-${name}.png`), fullPage: true })
+  const after = await capture(page)
+  expect(mathNodes(after.doc)).toEqual(expectedMath)
+  await expect(body(page).locator('.katex-error,.is-incomplete,.is-empty')).toHaveCount(0)
+  await expect(body(page).locator('strong')).toHaveCount(2)
+  if (link) {
+    expect(after.markdown).toContain(link)
+    await expect(body(page).locator('a')).toHaveAttribute('href', link.startsWith('file:') ? '' : link)
+  }
+  await page.keyboard.press('Control+z')
+  expect((await capture(page)).doc).toEqual(initial)
+  await page.keyboard.press('Control+y')
+  expect(mathNodes((await capture(page)).doc)).toEqual(expectedMath)
+  await page.keyboard.press('Control+/')
+  const source = page.getByRole('textbox', { name: 'Markdown 源码', exact: true })
+  await source.fill((await source.inputValue()) + '\n')
+  await page.keyboard.press('Control+/')
+  expect(mathNodes((await capture(page)).doc)).toEqual(expectedMath)
+  await page.keyboard.press('Control+s')
+  const saved = (await capture(page)).markdown
+  await expect.poll(() => page.evaluate(() => window.__FROWD_TEST_HOST__.rows.get('a').savedText)).toBe(saved)
+  await page.addInitScript(installMockHost, { markdown: saved })
+  await page.reload()
+  await expect(body(page)).toHaveAttribute('contenteditable', 'true')
+  expect(mathNodes((await capture(page)).doc)).toEqual(expectedMath)
+  if (link) {
+    expect((await capture(page)).markdown).toContain(link)
+    await expect(body(page).locator('a')).toHaveAttribute('href', link.startsWith('file:') ? '' : link)
+  }
+})
+
+test('Paseo charset witness accepts only a single leading UTF-8 declaration', async ({ page }) => {
+  await boot(page)
+  const text = mathPasteMarkdown + '\n\n资料：https://example.com/paper?q=base#methods'
+  const payload = createPaseoMarkdownClipboardContent(text), meta = '<meta charset="utf-8">'
+  const content = payload.html.slice(meta.length)
+  const cases = [
+    ['verified prefix', payload.html, true],
+    ['no prefix', content, true],
+    ['whitespace and fragment sentinel', ' \n<!--StartFragment-->\n' + payload.html + '<!--EndFragment-->', true],
+    ['ASCII case and single quotes', "<META charset = 'UTF-8'>" + content, true],
+    ['unquoted charset', '<meta charset=utf-8>' + content, true],
+    ['self-closing charset', '<meta charset="utf-8"/>' + content, true],
+    ['unquoted self-closing charset', '<meta charset=utf-8 />' + content, true],
+    ['slash inside unquoted value', '<meta charset=utf-8/>' + content, false],
+    ['http-equiv', '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">' + content, false],
+    ['other metadata', '<meta name="author" content="HTML-only">' + content, false],
+    ['extra attribute', '<meta charset="utf-8" data-owner="external">' + content, false],
+    ['duplicate attribute', '<meta charset="utf-8" charset="utf-16">' + content, false],
+    ['different charset', '<meta charset="utf-16">' + content, false],
+    ['two charset metas', meta + meta + content, false],
+    ['trailing charset', content + meta, false],
+    ['nested paragraph', content.replace('<p>', '<p>' + meta), false],
+    ['nested head', '<head>' + meta + '</head>' + content, false],
+    ['unknown wrapper', '<div class="producer">' + payload.html + '</div>', false],
+    ['ordinary comment', '<!--HTML-only-->' + payload.html, false],
+    ['changed link destination', payload.html.replace('href="https://example.com/paper', 'href="https://example.com/other'), false],
+    ['extra text', payload.html + '<p>HTML-only</p>', false],
+  ]
+  const module = '/@fs/' + fileURLToPath(new URL('../../../packages/editor/src/writingClipboardRecovery.js', import.meta.url)).replaceAll('\\', '/')
+  const results = await page.evaluate(async ({ module, text, cases }) => {
+    const { isRenderedMarkdownClipboard } = await import(module)
+    return cases.map(([name, html]) => [name, isRenderedMarkdownClipboard(text, html, document)])
+  }, { module, text, cases })
+  expect(results).toEqual(cases.map(([name, , accepted]) => [name, accepted]))
+})
+
+test('Paseo charset prefix preserves HTML-only text, links and comments', async ({ page }) => {
+  await boot(page)
+  const payload = createPaseoMarkdownClipboardContent(mathPasteMarkdown)
+  await paste(page, payload.plainText, payload.html + '<p>HTML-only <strong>专属粗体</strong> <a href="https://example.com/authoritative" title="HTML title">链接</a></p><!--HTML-only metadata-->')
+  await expect(body(page)).toContainText('HTML-only')
+  await expect(body(page).locator('strong').last()).toHaveText('专属粗体')
+  await expect(body(page).locator('a')).toHaveAttribute('href', 'https://example.com/authoritative')
+  await expect(body(page).locator('a')).toHaveAttribute('title', 'HTML title')
+  expect((await capture(page)).markdown).toContain('<!--HTML-only metadata-->')
+})
 
 for (const [name, text, html, expectedText, structure] of [
   ['plain suffix', '正文 $x$', '<p>正文 x HTML-only</p>', '正文 x HTML-only', null],

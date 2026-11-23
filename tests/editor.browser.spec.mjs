@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import MarkdownIt from 'markdown-it'
 import katex from 'katex'
 import { mathPasteMarkdown, mathPasteValues, mathPasteHtml } from './fixtures/writing-math-paste.mjs'
+import { createPaseoMarkdownClipboardContent } from './fixtures/paseo-clipboard.mjs'
 import { displayMathEditingSample } from './fixtures/writing-display-math.mjs'
 import { startWritingPreview } from './browser-harness/start-preview.mjs'
 
@@ -244,10 +245,11 @@ test('加粗兼容不改变同段已有强调、转义星号和公式内容', as
   await expect(body(page).locator('.writing-math-inline annotation')).toHaveText('\\text{**星号 **}')
 })
 
-for (const mode of ['source', 'plain', 'markdown-html', 'katex-html']) {
+for (const mode of ['source', 'plain', 'markdown-html', 'katex-html', 'paseo-copy']) {
   test(`数学粘贴保真：标准美元公式、下标和内含公式的粗体 ${mode}`, async ({ page }, testInfo) => {
     await open(page, mode === 'source' ? mathPasteMarkdown : '')
-    const html = mode === 'markdown-html' ? new MarkdownIt().render(mathPasteMarkdown)
+    const html = mode === 'paseo-copy' ? createPaseoMarkdownClipboardContent(mathPasteMarkdown).html
+      : mode === 'markdown-html' ? new MarkdownIt().render(mathPasteMarkdown)
       : mode === 'katex-html' ? mathPasteHtml((value, displayMode = false) => katex.renderToString(value, { displayMode })) : ''
     if (mode !== 'source') await pasteContent(page, mathPasteMarkdown, html)
     await page.screenshot({ path: testInfo.outputPath(`math-paste-${mode}.png`), fullPage: true })

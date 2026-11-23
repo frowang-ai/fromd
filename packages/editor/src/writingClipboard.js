@@ -129,7 +129,14 @@ function isVscodeLatex(data) {
 // target document is not yet authorized for a copied resource. Keep the source
 // alt/title in the inert paste candidate; resource qualification happens later.
 function markdownSlice(view, doc) {
-  const fragment = DOMSerializer.fromSchema(view.state.schema).serializeFragment(doc.content)
+  const serializer = DOMSerializer.fromSchema(view.state.schema)
+  const marks = { ...serializer.marks }
+  // This fragment is detached and parsed straight back into PM, never displayed.
+  // The display serializer neutralizes file: (and unsafe) hrefs; do not read
+  // those empty display values back as source. Real DOM still uses the schema's
+  // original sanitizer, and opening links still goes through the host policy.
+  if (marks.link) marks.link = mark => ['a', { ...mark.attrs }]
+  const fragment = new DOMSerializer(serializer.nodes, marks).serializeFragment(doc.content)
   const images = []
   doc.descendants(node => { if (node.type.name === 'image') images.push(node) })
   fragment.querySelectorAll('img').forEach((image, index) => {

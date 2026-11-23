@@ -7,8 +7,20 @@ import { Fragment, Mark } from '@milkdown/kit/prose/model'
 // Raw HTML is disabled: source containing HTML-only metadata must not qualify
 // merely because rendering it verbatim happens to reproduce the clipboard.
 const plainRenderer = new MarkdownIt()
+// Paseo Desktop 0.17.3's message copy factory uses html:false, linkify:true
+// and accepts explicit file: links. Reproduce that rendering only for equality
+// checks; actual links still pass through the editor/host's existing policies.
+const linkedRenderer = new MarkdownIt({ html: false, linkify: true })
+const validateLink = linkedRenderer.validateLink.bind(linkedRenderer)
+linkedRenderer.validateLink = href => href.trim().toLowerCase().startsWith('file://') || validateLink(href)
+
 export function isRenderedMarkdownClipboard(text, html, document) {
   if (!document) return false
+  // The verified copy factory prefixes exactly one UTF-8 charset declaration.
+  // Strip it only at the raw top-level prolog (optional whitespace/sentinels).
+  // Checking raw spelling prevents DOM parsing from hiding duplicate attrs or
+  // moving a nested <head> meta to the fragment root. No other meta is ignored.
+  const clipboardHtml = html.replace(/^((?:[\t\n\f\r ]|<!--(?:StartFragment|EndFragment)-->)*?)<meta[\t\n\f\r ]+charset[\t\n\f\r ]*=[\t\n\f\r ]*(?:(?:"utf-8"|'utf-8')[\t\n\f\r ]*\/?>|utf-8(?:[\t\n\f\r ]+\/?>|>))/i, '$1')
   function shape(markup) {
     const template = document.createElement('template')
     template.innerHTML = markup
@@ -40,7 +52,8 @@ export function isRenderedMarkdownClipboard(text, html, document) {
     }
     return JSON.stringify(children(template.content))
   }
-  return shape(html) === shape(plainRenderer.render(text))
+  const actual = shape(clipboardHtml)
+  return [plainRenderer, linkedRenderer].some(renderer => actual === shape(renderer.render(text)))
 }
 
 // Without a complete rendering witness, every HTML character, mark, atom and
