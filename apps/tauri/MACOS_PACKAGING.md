@@ -34,7 +34,7 @@ ditto -c -k --keepParent path/to/frowd.app frowd-0.5.2-aarch64.app.zip
 
 ## CI 产物
 
-`.github/workflows/tauri-build.yml` 在手动触发、main/feat/tauri-* push 和 PR 时执行。macos-latest 分别构建 Apple Silicon 与 Intel 的 APP/DMG；windows-latest 构建 x64 NSIS。每项先运行 Node 和两套 Rust 测试，再用锁文件构建与检查实际产物。
+`.github/workflows/tauri-build.yml` 仅在手动触发（`workflow_dispatch`，可选 `all` / `macos` / `windows`）时执行，不在 push 或 PR 时自动编译；日常编译与验收均在本地机器完成。手动运行时，macos-latest 分别构建 Apple Silicon 与 Intel 的 APP/DMG；windows-latest 构建 x64 NSIS。每项先运行 Node 和两套 Rust 测试，再用锁文件构建与检查实际产物。
 
 在私有仓库的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `frowd-macos-aarch64-0.5.2` 或 `frowd-macos-x86_64-0.5.2`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。流水线仅上传 Actions Artifacts，不创建 GitHub Release、不发布更新源；未配置签名、公证或自动更新。
 
@@ -58,9 +58,9 @@ Cmd+Q、菜单退出和 Dock Quit 都先经过 `ExitRequested` → `frowd:close-
 
 ## Mac 真机验收清单
 
-本地 Windows 单测、模拟平台浏览器回归不代表 macOS 原生验收通过。CI 编译、实际打开和以下检查分别记录：
+本地 Windows 单测、模拟平台浏览器回归不代表 macOS 原生验收通过。macOS 本机构建（或按需手动触发 CI 编译）、实际打开和以下检查分别记录：
 
-1. 两架构 CI 编译、Rust 测试、APP/DMG 产物校验；在对应机器打开，确认图标、版本、标题栏与菜单。
+1. 两架构本机构建（或手动触发 CI 编译）、Rust 测试、APP/DMG 产物校验；在对应机器打开，确认图标、版本、标题栏与菜单。
 2. 中文输入法最后一段组合输入，立即 Cmd+Q / 菜单退出 / Dock Quit；重开核对正文与名称。模拟写入失败后取消退出，确保窗口保留；恢复写入后再退出。初创或 Dock 重建后立即红叉/Cmd+Q，确认恢复完成后仍能保存并关闭/退出；红叉保存隐藏后点击 Dock 恢复，继续编辑再红叉、再恢复后 Cmd+Q；还要覆盖最小化和异常销毁后的 Dock 重建。
 3. 确认 Cmd+N/O/S、Shift+Cmd+S、Cmd+/、Cmd+F、Option+Cmd+F、Cmd+,、缩放各只触发一次；Cmd+H 隐藏、Cmd+Tab 切换应用、Ctrl+Tab 切换页面。50%–200% 缩放下交通灯稳定。
 4. 正文/表格链接普通点击编辑，Cmd+Click 打开网页或定位文件；POSIX 绝对路径含冒号、相对路径、受管附件均正常。正文图片在无 Origin 或仅有 Referer 的 WKWebView 请求下显示，其他来源仍拒绝。

@@ -1,9 +1,16 @@
 name: Tauri desktop builds
 on:
   workflow_dispatch:
-  push:
-    branches: [main, 'feat/tauri-*']
-  pull_request:
+    inputs:
+      platform:
+        description: 'Target platform to build'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - macos
+          - windows
 permissions:
   contents: read
 concurrency:
@@ -11,6 +18,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   macos:
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'macos' || inputs.platform == '' }}
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -56,6 +64,7 @@ jobs:
           path: output/artifacts/*
           if-no-files-found: error
   windows:
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == '' }}
     runs-on: windows-latest
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/output/cargo-target

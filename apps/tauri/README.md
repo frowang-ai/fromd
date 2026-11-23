@@ -5,7 +5,8 @@ Windows and macOS shells. See [macOS packaging, architecture and native acceptan
 and [Windows installer](WINDOWS_INSTALLER.md). macOS uses a decorated system
 window, native menus, Cmd-based commands and AppKit A4 paginated PDF export.
 The historical validation counts below describe earlier Windows releases, not
-macOS acceptance; current native macOS checks run in the Tauri build workflow.
+macOS acceptance; current native macOS checks run locally on macOS (or via the
+manual Tauri build workflow).
 
 The current round starts from `feat/tauri-blackboard-v1` at `f648c93` and compares
 Electron 0.5 capabilities with the existing Tauri application. It retains the
