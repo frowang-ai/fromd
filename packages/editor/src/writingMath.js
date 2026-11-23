@@ -16,8 +16,8 @@ export const writingMathSchema = $nodeSchema('math_inline', () => ({
   attrs: { value: { default: '' } },
   parseDOM: [{ tag: 'span[data-type="math_inline"]', getAttrs: dom => ({ value: dom.dataset.value || '' }) }],
   toDOM: node => ['span', { 'data-type': 'math_inline', 'data-value': node.attrs.value }, node.attrs.value],
-  parseMarkdown: { match: node => node.type === 'inlineMath', runner: (state, node, type) => state.addNode(type, { value: node.value }) },
-  toMarkdown: { match: node => node.type.name === 'math_inline', runner: (state, node) => state.addNode('inlineMath', undefined, node.attrs.value) },
+  parseMarkdown: { match: node => node.type === 'inlineMath', runner: (state, node, type) => state.addNode(type, { value: node.value.trim() ? node.value : '' }) },
+  toMarkdown: { match: node => node.type.name === 'math_inline', runner: (state, node) => state.addNode('inlineMath', undefined, node.attrs.value.trim() ? node.attrs.value : ' ') },
 }))
 const blockMath = $remark('writing-block-math', () => () => tree => {
   function visit(node) {

@@ -159,8 +159,8 @@ muted text color and active code lines use an opaque quiet fill to retain the
 existing dark-code readability requirement.
 Source and license references are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 Focused checks: `npm run test:tauri:browser -- heading-hierarchy.browser.spec.mjs markdown-theme.browser.spec.mjs`.
-This is the on-screen Tauri writing theme; print/PDF and retained Electron styles
-keep their existing contracts.
+This is the on-screen Tauri writing theme; print/PDF keeps its independent
+A4, 18mm and 11pt contract.
 Word/non-whitespace-character counts sit beside the floating name/save state;
 code and formula source count toward the totals. Header 阅读, View > 阅读设置… or
 Ctrl+, opens font size, width and light/dark/system settings. Defaults retain

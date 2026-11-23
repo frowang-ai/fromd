@@ -7,14 +7,17 @@ export function alertKind(text) {
 }
 
 export function markdownAlerts(md) {
-  md.core.ruler.after('inline', 'frowd-alerts', state => {
+  md.core.ruler.after('text_join', 'frowd-alerts', state => {
     const stack = []
     state.tokens.forEach((token, index) => {
       if (token.type === 'blockquote_open') stack.push(index)
       if (token.type !== 'blockquote_close') return
       const start = stack.pop(), inline = state.tokens[start + 2]
       if (state.tokens[start + 1]?.type !== 'paragraph_open' || inline?.type !== 'inline') return
-      const kind = alertKind(inline.content)
+      // Parsed inline tokens decode legacy escaped brackets but retain marks.
+      // Only a plain first text token followed by a line break/end is a marker.
+      const first = inline.children?.[0], next = inline.children?.[1]
+      const kind = first?.type === 'text' && (!next || ['softbreak', 'hardbreak'].includes(next.type)) ? alertKind(first.content) : null
       if (kind) {
         state.tokens[start].attrJoin('class', 'writing-alert')
         state.tokens[start].attrSet('data-alert', kind)

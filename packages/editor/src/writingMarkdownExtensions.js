@@ -33,7 +33,8 @@ const alerts = $prose(() => new Plugin({ props: {
     state.doc.descendants((node, position) => {
       if (node.type.name !== 'blockquote' || node.firstChild?.type.name !== 'paragraph') return
       const text = node.firstChild.textContent, kind = alertKind(text)
-      if (!kind) return
+      const first = node.firstChild.firstChild
+      if (!kind || !first?.isText || first.marks.length || !first.text.startsWith(`[!${kind}]`)) return
       decorations.push(Decoration.node(position, position + node.nodeSize, { class: 'writing-alert', 'data-alert': kind }))
       decorations.push(Decoration.inline(position + 2, position + 2 + kind.length + 3, { class: 'writing-alert-marker' }))
     })

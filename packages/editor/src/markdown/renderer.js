@@ -38,6 +38,19 @@ export function createMarkdownRenderer() {
       displayMode: false
     }
   })
+  // remark-math 6 parses $ $ as an empty inline atom; texmath rejects the
+  // whitespace form. Consume only a single-dollar, same-line whitespace pair.
+  // Inline code/escapes and link destinations retain markdown-it's own boundaries.
+  md.inline.ruler.before('escape', 'frowd-empty-inline-math', (state, silent) => {
+    const start = state.pos
+    if (state.src[start] !== '$' || state.src[start - 1] === '$') return false
+    const match = /^\$[ \t]+\$(?!\$)/.exec(state.src.slice(start, state.posMax))
+    if (!match) return false
+    if (!silent) state.push('frowd_empty_math', '', 0)
+    state.pos += match[0].length
+    return true
+  })
+  md.renderer.rules.frowd_empty_math = () => ''
   md.use(footnote).use(markdownAlerts)
   // Match the GFM parser's identifier case folding, while retaining the actual
   // definition label. This only changes print token matching, never stored text.

@@ -22,6 +22,7 @@ import { writingHtmlFormattingPlugins, preservePastedComments } from './writingH
 import { serializeNoteNestedMath, replaceNoteMathInputRules } from './compatibility/noteEditorCompatibility.js'
 import { normalizeWritingPastedMath } from './writingMathCompatibility.js'
 import { normalizeWritingMarkdown } from './writingMarkdownCompatibility.js'
+import { serializeAlertMarkers } from './writingAlertSerialization.js'
 import { isAllowedResourceUrl } from './markdown/sanitize.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
 import { installWritingMarkdownViews, writingMarkdownExtensions, mermaidCodeLanguage } from './writingMarkdownExtensions.js'
@@ -309,7 +310,7 @@ onMounted(async () => {
           logWritingEvent('markdown-parsed', { editorId, textLength: markdown.length, normalized: normalized !== markdown, ...(doc ? describeWritingDocument(doc) : {}) })
           return doc
         })
-        ctx.set(core.serializerCtx, doc => serializeNoteNestedMath(serializer(doc), remark))
+        ctx.set(core.serializerCtx, doc => serializeAlertMarkers(serializeNoteNestedMath(serializer(doc), remark), text => remark.parse(text)))
         // Reuse the website's tested dollar-delimiter rules; this demo owns the
         // math UI and intentionally does not load Crepe's tooltip feature.
         const seed = new InputRule(/(?:\$)([^$]+)(?:\$)$/, () => null)

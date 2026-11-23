@@ -170,7 +170,8 @@ test('普通代码块改为 Mermaid 后立即渲染，撤销恢复普通代码�
   await page.locator('.language-list-item').filter({ hasText: /^Mermaid$/i }).click()
   await expect(page.locator('.writing-mermaid-svg')).toBeVisible()
   await expect(page.locator('.writing-mermaid-svg')).toContainText('图表结果')
-  await page.locator('.ProseMirror').click(); await page.keyboard.press('Control+z')
+  // Focus without creating a new paragraph by clicking the trailing blank canvas.
+  await page.locator('.ProseMirror').focus(); await page.keyboard.press('Control+z')
   await expect(page.locator('.writing-mermaid')).toHaveCount(0)
   expect(await capture(page)).toContain('```text')
 })

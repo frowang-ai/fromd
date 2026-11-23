@@ -31,7 +31,9 @@ classDiagram、stateDiagram、erDiagram、gantt、pie、journey、gitGraph、min
 保存时保留标准 `[^id]` 定义；正文编辑后可能沿用现有序列化器统一缩进与空行。
 
 提示块支持 `[!NOTE]`、`[!TIP]`、`[!IMPORTANT]`、`[!WARNING]`、`[!CAUTION]`，
-标记单独占引用块第一行。正文保留可编辑标记，并以颜色和边线区分；普通引用沿用原行为。
+标记单独占引用块第一行，且标记本身必须是无格式的纯文本；`[!*NOTE*]` 等带 marks 的写法在正文和 PDF 中均视为普通引用。正文保留可编辑标记，并以颜色和边线区分。编辑后保存会将合法首段标记恢复为标准 `[!NOTE]` 拼写；旧文件中的 `\[!NOTE]` 也按相同纯文本规则识别，代码和普通正文不受影响。
+
+空行内公式在屏幕保留 `〈空公式〉`，可再次点击编辑。保存使用 `$ $`（单空格）表示空值，纯空白公式也归一为这一表示；项目锁定的 remark-math 可以解析此语法，重读恢复空节点，PDF 安静忽略空公式且保持同一段落。不会写成含混的 `$$`，也不会用人为 LaTeX 命令代替用户源码。组合回归见 `semantic-roundtrip.browser.spec.mjs`。
 
 共享 `buildPdfDocument({markdown,title,resolveImage})` 保持原签名，兼容同步图片 resolver，
 也接受 Promise。它从完整 Markdown 构造文档，等待所有 Mermaid 图表完成，
