@@ -32,9 +32,9 @@ regenerate it with `node apps/tauri/scripts/inventory-editor-licenses.mjs`.
 
 ## Client entry points
 
-Run the following from the repository root. The unqualified root
-`npm run dev` / `npm run build` still run the retained **Electron** project.
-The Tauri app's own Vite commands are invoked through these scripts:
+Run the following from the repository root. The root `npm run dev` / `npm run build` now delegate to the sole **Tauri** client.
+The retired Electron host is available only in Git history. The following scripts
+all refer to this client:
 
 | Command | Purpose |
 | --- | --- |

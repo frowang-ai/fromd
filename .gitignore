@@ -5,6 +5,7 @@ output/
 test-results/
 playwright-report/
 .pi/
+website/_worktrees/
 *.log
 
 # Tauri local build output
