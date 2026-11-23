@@ -13,6 +13,17 @@ Windows 顶栏合并名称、菜单和窗口按钮；空白区及名称可拖动
 确认，不直接销毁窗口。名称、保存状态、字数位于正文上方左侧，占用独立
 一行，正文滚动不会遮住它们。
 
+macOS 保留系统标题栏、交通灯与原生菜单，不再叠加 Web 品牌/文稿标题栏。
+「阅读」位于标签栏右侧，页面全收起或标签横向滚动时仍可进入；原生菜单中的
+「阅读设置…」及 ⌘, 沿用原入口。名称、保存状态和字数收为正文上方的轻量信息行，
+未落盘页面保留带「名称」标签的直接输入框及右键「改名」，无需另存文件；
+名称输入的 docId、输入法组合态、自动保存和关闭 flush 流程保持一致。
+
+Mac 屏幕字体优先使用系统字体及苹方回退，侧栏随窗口宽度在 208–248 px 之间
+变化，≤760 px 继续使用原有抽屉。侧栏不新增拖拽调宽或布局持久化。
+阅读设置沿用现有字号、正文宽度、主题及本地存储；PDF 排版仍独立。
+Mac 原生菜单负责已注册快捷键，DOM 保留 Ctrl+Tab 与未注册别名，不重复派发。
+
 收起和恢复直接更新页面列表与当前页，不截图、不播放动画，也没有动效开关。
 操作仍先备份最后正文和名称，成功持久收起后才激活下一页；保存或收起失败时
 保留原页并提示错误。侧栏隐藏、窄窗和系统“减少动态效果”设置下行为一致。
@@ -80,6 +91,20 @@ powershell.exe -NoProfile -File output/interactive-preview/stop.ps1
 输入状态，前端改动无需重新打 release 或安装包。
 
 ## 相关验证入口
+
+Mac 布局与 Windows 保留路径使用合成文稿及模拟 IPC，可在 Windows 上运行：
+
+```powershell
+$env:FROWD_BROWSER_PORT='15741'
+npm run test:tauri:browser -- platform.browser.spec.mjs desktop-feedback.browser.spec.mjs reading.browser.spec.mjs rename.browser.spec.mjs workspace.browser.spec.mjs
+```
+
+`platform.browser.spec.mjs` 覆盖 Mac 1280×820、1440×900、560×720、360×640，
+保留对应截图和深色截图；另保留 Windows 1280×820 截图。证据位于忽略提交的
+`output/tauri-browser-results/`。覆盖阅读入口及焦点返回、长标签横向滚动、全部收起、
+免落盘改名、合成 IME 和源码/名称关闭备份。浏览器使用平台策略模拟，不能验收
+真实 macOS 系统字体、AppKit 菜单事件、交通灯、WKWebView 或物理输入法。
+快捷键归属另见 `platform.test.mjs`；原生菜单实机单次派发仍须在 Mac 验收。
 
 ```powershell
 # 本机 Windows 保留了 1421–1520（含 1452）；使用独立的 14520。

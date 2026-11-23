@@ -1,5 +1,6 @@
 <template>
-  <header class="app-header" :data-platform="platform.os" :data-native-menu="platform.nativeMenu" @mousedown="drag">
+  <!-- AppKit already supplies the titlebar and menus on macOS. -->
+  <header v-if="!platform.nativeMenu" class="app-header" :data-platform="platform.os" :data-native-menu="platform.nativeMenu" @mousedown="drag">
     <div class="brand"><img src="./assets/icon.png" alt="" /><span>fromd</span><small v-if="previewWindow">开发预览</small></div>
     <slot v-if="!platform.nativeMenu" name="menu" />
     <span class="window-document">{{ title || 'fromd' }}</span>
