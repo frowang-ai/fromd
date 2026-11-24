@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :data-theme="readingTheme" :data-zoom="zoom" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
+  <div class="app-shell" :data-platform="platform.os" :data-native-menu="platform.nativeMenu" :data-theme="readingTheme" :data-zoom="zoom" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
     <WindowChrome :platform="platform" :title="current?.title" @error="coordinator.report($event)">
       <template #menu><nav class="app-menu" aria-label="应用菜单">
         <details ref="fileMenu"><summary>文件</summary><div class="menu-popup">
@@ -82,6 +82,7 @@
             </div>
           </div>
           <button class="new-tab" aria-label="新建页面" :disabled="state.busy || !state.loaded" @click="action(() => coordinator.create())">＋</button>
+          <button v-if="platform.nativeMenu" ref="readingButton" class="reading-button" :disabled="state.busy || !state.loaded" :aria-expanded="readingOpen" aria-label="阅读设置" :title="'阅读设置（' + shortcutLabel('reading') + '）'" @click="openReading">阅读</button>
         </div>
 
         <div v-if="state.error" class="error-notice" role="alert"><span>{{ state.error }}</span><button aria-label="关闭错误提示" @click="state.error = ''">×</button></div>
@@ -96,8 +97,9 @@
           <button aria-label="关闭查找替换" @click="closeFind">×</button>
         </div>
         <div v-if="current" class="name-dock" :inert="editingLocked">
-          <span aria-hidden="true">♧</span>
-          <input v-if="!current.path" :key="current.id" :data-doc-id="current.id" :value="nameDraft" aria-label="当前页面名称" placeholder="未命名笔记"
+          <label v-if="platform.os === 'macos' && !current.path" for="document-name" class="name-label">名称</label>
+          <span v-else aria-hidden="true">♧</span>
+          <input v-if="!current.path" id="document-name" :key="current.id" :data-doc-id="current.id" :value="nameDraft" aria-label="当前页面名称" placeholder="未命名笔记" :title="platform.os === 'macos' ? '编辑页面名称，无需另存为文件' : undefined"
             @focus="nameFocus" @input="nameInput" @compositionstart="nameStart" @compositionend="nameEnd" @blur="finishName" @keydown.enter="nameEnter" />
           <span v-else class="file-name" :title="current.path">{{ current.title }}</span>
           <span class="save-state" role="status" aria-label="保存状态">{{ state.saveState }}</span>

@@ -28,3 +28,66 @@
 .app-header{padding-right:0;gap:18px;user-select:none;min-height:43px}.brand{flex-shrink:0}.brand small{font-size:10px;color:#859881}.window-document{flex:1;max-width:none;min-width:0;text-align:right}.window-controls{display:flex;align-self:stretch;margin-left:0;flex-shrink:0}.window-controls button{width:44px;font-size:17px;padding:0}.window-controls button:hover{background:#82957e22}.window-controls .window-close:hover{background:#c64444;color:white}.row-close{border-radius:3px}.row-close:hover{color:#a44343;background:#c1535310}.page-context button:focus-visible{outline-offset:-2px;background:#edf3e7}
 @media(max-width:760px){.app-header{padding-left:10px;gap:10px}.brand small,.window-document{display:none}.app-menu{gap:14px}.window-controls{margin-left:auto}.window-controls button{width:36px}.name-dock{align-self:flex-start}}
 @media(max-width:360px){.app-header{padding-left:8px;gap:6px}.brand>span,.reading-button{display:none}.app-menu{gap:10px}.window-controls button{width:32px}.menu-popup{position:fixed;top:43px;left:6px;min-width:0;width:calc(100vw - 12px)}}
+
+/* macOS keeps the system titlebar; the workspace supplies only document tools.
+   Scope typography to the screen so PDF/print and the Windows shell stay intact. */
+@media screen {
+  .app-shell[data-platform=macos] {
+    --editor-font-text: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+    --mac-sidebar-width: clamp(208px, 18vw, 248px);
+    font-family: var(--editor-font-text);
+  }
+  .app-shell[data-platform=macos] .sidebar {
+    width: var(--mac-sidebar-width);
+    flex-basis: var(--mac-sidebar-width);
+    padding: 12px 10px;
+  }
+  .app-shell[data-platform=macos] .sidebar-top { margin: 0 2px 12px; min-height: 32px; }
+  .app-shell[data-platform=macos] .sidebar-switch { border-radius: 8px; padding: 2px; }
+  .app-shell[data-platform=macos] .sidebar-switch button { border-radius: 6px; padding: 5px 14px; }
+  .app-shell[data-platform=macos] .page-search { border-radius: 7px; padding: 7px 9px; }
+  .app-shell[data-platform=macos] .page-row { min-height: 34px; border-radius: 6px; }
+  .app-shell[data-platform=macos] .page-title { font-size: 13px; padding: 7px; }
+  .app-shell[data-platform=macos] .row-close,
+  .app-shell[data-platform=macos] .row-more { width: 25px; min-height: 28px; }
+  .app-shell[data-platform=macos] .tabbar { min-height: 44px; padding: 5px 12px; gap: 8px; }
+  .app-shell[data-platform=macos] .tabs { flex: 1; }
+  .app-shell[data-platform=macos] .tab { border-radius: 6px; padding: 2px 6px 2px 9px; }
+  .app-shell[data-platform=macos] .tab-title { font-size: 13px; min-width: 0; }
+  .app-shell[data-platform=macos] .workbar-toggle,
+  .app-shell[data-platform=macos] .new-tab { flex-shrink: 0; min-width: 28px; min-height: 30px; }
+  .app-shell[data-platform=macos] .tabbar > .reading-button { display: block; font-size: 12px; min-height: 30px; padding: 5px 10px; }
+  .app-shell[data-platform=macos] .name-dock {
+    align-self: stretch;
+    margin: 0 20px;
+    max-width: calc(100% - 40px);
+    min-height: 42px;
+    padding: 6px 0;
+    gap: 8px;
+    border: 0;
+    border-bottom: 1px solid var(--reading-border);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .app-shell[data-platform=macos] .name-label { font-size: 11px; color: var(--reading-muted); cursor: text; }
+  .app-shell[data-platform=macos] .name-dock input {
+    flex: 0 1 210px;
+    width: 210px;
+    font-size: 12px;
+    padding: 4px 6px;
+    border: 1px solid var(--reading-border);
+    border-radius: 5px;
+  }
+  .app-shell[data-platform=macos] .name-dock input:hover,
+  .app-shell[data-platform=macos] .name-dock input:focus { background: var(--reading-surface); }
+  .app-shell[data-platform=macos] .file-name { font-size: 12px; }
+  .app-shell[data-platform=macos] .save-state { font-size: 11px; color: var(--reading-muted); }
+  .app-shell[data-platform=macos] .writing-count { margin-left: auto; font-size: 11px; }
+  .app-shell[data-platform=macos] .reading-settings { border-radius: 10px; }
+  @media (max-width: 760px) {
+    .app-shell[data-platform=macos] .sidebar.drawer { width: min(260px, 85vw); }
+    .app-shell[data-platform=macos] .name-dock { margin-inline: 14px; max-width: calc(100% - 28px); }
+    .app-shell[data-platform=macos] .name-dock input { flex-basis: min(210px, 36vw); }
+  }
+}

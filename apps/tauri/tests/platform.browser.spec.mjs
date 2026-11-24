@@ -1,14 +1,15 @@
 import {test,expect} from '@playwright/test'
 import {installMockHost} from './mock-host.mjs'
-async function boot(page,platform,{native=false,markdown='[网页](https://example.com/)\n\n$$\nx^2\n$$\n'}={}){
- await page.addInitScript(installMockHost,{markdown})
+async function boot(page,platform,{native=false,markdown='[网页](https://example.com/)\n\n$$\nx^2\n$$\n',documents}={}){
+ await page.addInitScript(installMockHost,{markdown,documents})
  await page.goto(`/?testHost=1&testPlatform=${platform}${native?'&testNativeChrome=1':''}`)
  await expect(page.locator('.loading-state')).toHaveCount(0)
  await expect(page.locator('.ProseMirror:visible')).toBeVisible()
 }
 for(const platform of ['windows','macos']){
  const primary=platform==='macos'?'Meta':'Control'
- test(`${platform}: platform chrome and shortcut labels`,async({page})=>{
+ test(`${platform}: platform chrome and shortcut labels`,async({page},testInfo)=>{
+  await page.setViewportSize({width:1280,height:820})
   await boot(page,platform)
   await page.getByText('文件',{exact:true}).click()
   await expect(page.getByRole('button',{name:/新建页面.*(?:Ctrl\+N|⌘N)/})).toContainText(platform==='macos'?'⌘N':'Ctrl+N')
@@ -22,7 +23,9 @@ for(const platform of ['windows','macos']){
   await boot(page,platform,{native:true})
   await expect(page.locator('.window-controls')).toHaveCount(platform==='macos'?0:1)
   await expect(page.locator('.app-menu')).toHaveCount(platform==='macos'?0:1)
+  await expect(page.locator('.app-header')).toHaveCount(platform==='macos'?0:1)
   await expect(page.getByRole('button',{name:'阅读设置',exact:true})).toBeVisible()
+  if(platform==='windows')await page.screenshot({path:testInfo.outputPath('windows-1280x820.png')})
  })
  test(`${platform}: source, find, zoom and explicit Ctrl+Tab`,async({page})=>{
   await boot(page,platform)
@@ -54,3 +57,100 @@ for(const platform of ['windows','macos']){
   expect((await calls())[0].args.href).toBe('https://example.com/')
  })
 }
+
+for(const [width,height] of [[1280,820],[1440,900],[560,720],[360,640]]){
+ test(`macOS compact workspace at ${width}x${height} keeps document tools and reading preferences reachable`,async({page},testInfo)=>{
+  await page.setViewportSize({width,height})
+  const markdown='# 留出思考的空间\n\n从一个想法开始，随手写下推导、摘录与问题。页面名称独立于正文，不必先选择文件夹。\n\n## 接着写下去\n\n- 整理正在阅读的材料\n- 记录还没有答案的问题\n- 让下一步自然发生\n\n行内公式 $E=mc^2$ 与正文一起排版。\n'
+  await boot(page,'macos',{native:true,markdown})
+  await expect(page.locator('.app-header,.window-document')).toHaveCount(0)
+  const reading=page.getByRole('button',{name:'阅读设置',exact:true})
+  await expect(page.locator('.tabbar').getByRole('button',{name:'阅读设置',exact:true})).toBeVisible()
+  const name=page.getByRole('textbox',{name:'当前页面名称',exact:true})
+  await expect(page.locator('.name-label')).toHaveText('名称')
+  await expect(page.getByRole('status',{name:'字数统计'})).toContainText('字词')
+  for(const control of [name,reading,page.getByRole('status',{name:'保存状态'}),page.getByRole('status',{name:'字数统计'}),page.locator('.new-tab')]){
+   const box=await control.boundingBox()
+   expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(width)
+  }
+  const dock=await page.locator('.name-dock').boundingBox(),panel=await page.locator('.editor-panel').boundingBox()
+  expect(dock.y+dock.height).toBeLessThanOrEqual(panel.y)
+  expect(panel.y).toBeLessThan(width>760?100:125)
+  if(width>760){
+   const sidebar=await page.locator('.sidebar').boundingBox()
+   expect(sidebar.width/width).toBeLessThan(.2)
+  }else{
+   await page.getByRole('button',{name:'显示页面工作栏'}).click()
+   await expect(page.locator('.sidebar.drawer')).toBeVisible()
+   await page.getByRole('button',{name:'隐藏工作栏',exact:true}).click()
+   await expect(page.locator('.sidebar')).toBeHidden()
+  }
+  await expect(page.locator('.app-shell')).toHaveCSS('font-family',/-apple-system.*BlinkMacSystemFont.*system-ui.*PingFang SC/)
+  await page.screenshot({path:testInfo.outputPath(`macos-${width}x${height}.png`)})
+  await reading.click()
+  await page.getByRole('combobox',{name:'正文字号',exact:true}).selectOption('18')
+  await page.getByRole('combobox',{name:'正文宽度',exact:true}).selectOption('720')
+  await page.getByRole('combobox',{name:'主题',exact:true}).selectOption('dark')
+  await page.keyboard.press('Escape')
+  await expect(reading).toBeFocused()
+  await expect(page.locator('.ProseMirror:visible')).toHaveCSS('font-size','18px')
+  await expect(page.locator('.pm-scroller > .writing-editor')).toHaveCSS('max-width','720px')
+  if(width===1440)await page.screenshot({path:testInfo.outputPath('macos-1440x900-dark.png')})
+  await page.reload()
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-theme','dark')
+  await expect(page.locator('.ProseMirror:visible')).toHaveCSS('font-size','18px')
+  await page.keyboard.press('Meta+/')
+  await expect(page.getByRole('textbox',{name:'Markdown 源码',exact:true})).toHaveValue(markdown)
+ })
+}
+
+test('macOS compact rename retains IME ownership and source input through normal close',async({page})=>{
+ const markdown='# 正文标题保持\n\n__保留原文__\n\n<!-- comment -->\n'
+ await boot(page,'macos',{native:true,markdown})
+ const name=page.getByRole('textbox',{name:'当前页面名称',exact:true})
+ await page.locator('[data-tab-id="a"] .tab-title').click({button:'right'})
+ await page.getByRole('menuitem',{name:'改名',exact:true}).click()
+ await expect(name).toBeFocused()
+ await name.dispatchEvent('compositionstart',{data:'pin'})
+ await name.evaluate(el=>{el.value='中文页面名称';el.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true,data:'名称'}))})
+ await name.dispatchEvent('keydown',{key:'Process',code:'Slash',metaKey:true,isComposing:true,keyCode:229})
+ await expect(page.locator('.ProseMirror:visible')).toBeVisible()
+ await page.locator('[data-tab-id="b"] .tab-title').click()
+ await expect(name).toHaveAttribute('data-doc-id','a')
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').title)).toBe('方案讨论')
+ await name.dispatchEvent('compositionend',{data:'中文页面名称'})
+ await expect(name).toHaveAttribute('data-doc-id','b')
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').title)).toBe('中文页面名称')
+ await page.locator('[data-tab-id="a"] .tab-title').click()
+ await page.keyboard.press('Meta+/')
+ const source=page.getByRole('textbox',{name:'Markdown 源码',exact:true})
+ await expect(source).toHaveValue(markdown)
+ await source.dispatchEvent('keydown',{key:'Process',code:'Slash',metaKey:true,isComposing:true,keyCode:229})
+ await expect(source).toBeVisible()
+ await source.fill(markdown+'\n最后一次源码输入')
+ await name.fill('退出前名称')
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.requestClose())
+ const stored=await page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a'))
+ expect(stored.title).toBe('退出前名称');expect(stored.path).toBeNull()
+ expect(stored.markdown).toBe(markdown+'\n最后一次源码输入')
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.closed)).toBe(true)
+})
+
+test('macOS reading action survives a full shelf and horizontally overflowing tabs',async({page})=>{
+ await page.setViewportSize({width:560,height:720})
+ const documents=Array.from({length:12},(_,i)=>({id:i?'doc'+i:'a',title:`很长的合成页面名称与阅读记录 ${i}`,markdown:'# 合成文稿',shelved:false}))
+ await boot(page,'macos',{native:true,documents})
+ const reading=page.getByRole('button',{name:'阅读设置',exact:true})
+ const tabs=await page.locator('.tabs').evaluate(el=>({scroll:el.scrollWidth,width:el.clientWidth}))
+ expect(tabs.scroll).toBeGreaterThan(tabs.width)
+ await reading.click();await expect(page.getByRole('dialog',{name:'阅读设置'})).toBeVisible()
+ await page.keyboard.press('Escape')
+ await page.locator('[data-tab-id="a"] .tab-title').click({button:'right'})
+ await page.getByRole('menuitem',{name:'收起全部页面',exact:true}).click()
+ await expect(page.locator('.empty-desktop')).toBeVisible()
+ await expect(page.locator('.name-dock')).toHaveCount(0)
+ await reading.click();await expect(page.getByRole('dialog',{name:'阅读设置'})).toBeVisible()
+ await page.keyboard.press('Escape');await expect(reading).toBeFocused()
+ await page.locator('.new-tab').click()
+ await expect(page.getByRole('textbox',{name:'当前页面名称',exact:true})).toBeVisible()
+})
