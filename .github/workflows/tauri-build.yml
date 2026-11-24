@@ -45,7 +45,10 @@ jobs:
       - run: npm run test:tauri
       - run: cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
       - run: cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
-      - name: Build ad-hoc signed app and dmg (no notarization)
+      - name: Build ad-hoc signed app and unsigned dmg
+        env:
+          # Run Finder customization in CI; a layout failure must fail the build.
+          TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
         run: npm --prefix apps/tauri run tauri -- build --config src-tauri/tauri.macos.conf.json --bundles app,dmg --target ${{ matrix.target }} -- --locked
       - name: Verify signatures, inspect dmg and archive
         shell: bash
@@ -57,15 +60,31 @@ jobs:
           node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.2
           # Validate the delivered copy too; never repair/re-sign artifacts here.
           hdiutil verify "${dmgs[0]}"
-          mount=$(mktemp -d "$RUNNER_TEMP/fromd-dmg.XXXXXX")
-          hdiutil attach "${dmgs[0]}" -readonly -nobrowse -mountpoint "$mount"
-          trap 'hdiutil detach "$mount"; rmdir "$mount"' EXIT
-          test -L "$mount/Applications"
-          test "$(readlink "$mount/Applications")" = /Applications
-          node apps/tauri/scripts/check-macos-artifact.mjs --app "$mount/fromd.app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.2
-          hdiutil detach "$mount"
-          trap - EXIT
-          rmdir "$mount"
+          (
+            mount=$(mktemp -d "$RUNNER_TEMP/fromd-dmg.XXXXXX")
+            cleanup_dmg() {
+              local status=$? cleanup_status
+              trap - EXIT
+              # Attach can fail after mounting. Always clean up; keep the first failure status.
+              if hdiutil detach "$mount"; then :; else
+                cleanup_status=$?
+                printf 'DMG detach failed (%s): %s\n' "$cleanup_status" "$mount" >&2
+                if [ "$status" -eq 0 ]; then status=$cleanup_status; fi
+              fi
+              if rmdir "$mount"; then :; else
+                cleanup_status=$?
+                printf 'DMG mount directory cleanup failed (%s): %s\n' "$cleanup_status" "$mount" >&2
+                if [ "$status" -eq 0 ]; then status=$cleanup_status; fi
+              fi
+              exit "$status"
+            }
+            trap cleanup_dmg EXIT
+            # The configured licenseFile embeds an EULA. Answer once, then provide EOF.
+            hdiutil attach "${dmgs[0]}" -readonly -nobrowse -mountpoint "$mount" <<< 'y'
+            test -L "$mount/Applications"
+            test "$(readlink "$mount/Applications")" = /Applications
+            node apps/tauri/scripts/check-macos-artifact.mjs --app "$mount/fromd.app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.2
+          )
           # Ad-hoc is not notarization: spctl rejection is not a build failure.
           mkdir -p output/artifacts
           ditto -c -k --keepParent "$app" 'output/artifacts/fromd-0.5.2-${{ matrix.arch }}.app.zip'

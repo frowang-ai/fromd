@@ -44,7 +44,7 @@ all refer to this client:
 | `npm run tauri:check` | Check the Rust host |
 | `npm run tauri:build` | Build a release executable with `--no-bundle` |
 | `npm run tauri:installer` / `tauri:installer:win` | Build an unsigned Windows x64 NSIS Setup.exe; no install or publication |
-| `npm run tauri:installer:mac` | Build ad-hoc signed macOS APP/DMG using the platform configuration (not notarized) |
+| `npm run tauri:installer:mac` | Build an ad-hoc signed macOS APP and an unsigned DMG containing it (not notarized) |
 | `npm run test:tauri` | Tauri Node tests |
 | `npm run test:tauri:browser` | Browser tests with mock native IPC |
 | `npm run test:tauri:native` | Real debug executable / WebView2 / SQLite tests |

@@ -10,7 +10,7 @@ fromd 的正式产品代码分为三层：
 
 需要 macOS、Xcode Command Line Tools、Node 22.19+、Rust 1.93.1。依赖与两个 Cargo.lock 必须保留；不使用 `cargo update`。
 
-锁文件固定 `@tauri-apps/cli 2.12.1`；该版本随包的 `config.schema.json` 支持 `bundle.macOS.signingIdentity` 和 `bundle.macOS.dmg` 背景、窗口尺寸及图标位置。当前配置设置 `signingIdentity: "-"`，按 [Tauri 官方说明](https://v2.tauri.app/distribute/sign/macos/#ad-hoc-signing) 使用免费 ad-hoc 签名，不需要付费开发者会员或证书。不要设置 `APPLE_SIGNING_IDENTITY` 覆盖它，也不要注入 Apple 证书/公证凭据；保留默认 hardened runtime，不添加额外 entitlements。
+锁文件固定 `@tauri-apps/cli 2.12.1`；该版本随包的 `config.schema.json` 支持 `bundle.macOS.signingIdentity` 和 `bundle.macOS.dmg` 背景、窗口尺寸及图标位置。当前配置设置 `signingIdentity: "-"`，按 [Tauri 官方说明](https://v2.tauri.app/distribute/sign/macos/#ad-hoc-signing) 对 **APP** 使用免费 ad-hoc 签名，不需要付费开发者会员或证书。锁定的 Tauri 版本对 `"-"` 跳过 **DMG 容器自身**的签名，DMG 内的 APP 仍需通过签名验证。不要设置 `APPLE_SIGNING_IDENTITY` 覆盖它，也不要注入 Apple 证书/公证凭据；保留默认 hardened runtime，不添加额外 entitlements。
 
 **发行状态：已发布的 v0.5.2 包按未签名、未公证分发；这次 ad-hoc 配置尚未发行，版本号未自增。** 新构建的 ad-hoc 签名不提供 Apple 认证的开发者身份，不是 Developer ID 或公证，不能保证 Gatekeeper 放行。
 
@@ -44,7 +44,7 @@ codesign --verify --deep --strict --all-architectures --verbose=2 path/to/fromd.
 
 签名缺失、内容篡改或工具失败都会使最终产物检查失败；脚本只验证，不重新签名。其他平台仅做可移植的结构检查，输出 `signature.status: "not-run"`，不能计为签名通过。Node 测试使用合成 Mach-O 与签名调用替身，不冒充真实签名验收。`spctl --assess --type execute --verbose=4 path/to/fromd.app` 可用于人工了解 Gatekeeper 判断，但 ad-hoc 未公证遭拒是可能结果，不作为此构建的失败条件；不要用 `codesign --deep --force` 修改最终产物掩盖验证失败。
 
-脚本本身不挂载 DMG；手动工作流另执行 `hdiutil verify`、只读挂载、确认 `Applications` 指向 `/Applications`，再检查 DMG 内的 app。它们均不启动应用，不替代实际安装/首次打开验收。
+脚本本身不挂载 DMG；手动工作流另执行 `hdiutil verify`、只读挂载、确认 `Applications` 指向 `/Applications`，再检查 DMG 内的 app。共享 `licenseFile` 会让 Tauri 嵌入 EULA，CI 挂载使用 `<<< 'y'` 仅应答一次并随后提供 EOF，不使用无限 `yes` 管道。挂载前注册清理；挂载/校验失败仍尝试卸载与删除临时目录，保留原始失败状态并输出清理错误；校验成功但卸载或目录清理失败同样阻止归档。它们均不启动应用，不替代实际安装/首次打开验收。
 
 ### DMG 安装布局
 
@@ -55,6 +55,8 @@ codesign --verify --deep --strict --all-architectures --verbose=2 path/to/fromd.
 ## CI 产物
 
 `.github/workflows/tauri-build.yml` 仅在手动触发（`workflow_dispatch`，可选 `all` / `macos` / `windows`）时执行，不在 push 或 PR 时自动编译；日常编译与验收均在本地机器完成。手动运行时，macos-latest 分别构建 Apple Silicon 与 Intel 的 APP/DMG；windows-latest 构建 x64 NSIS。每项先运行 Node 和两套 Rust 测试，再用锁文件构建与检查实际产物。
+
+macOS 构建步骤设置 `TAURI_BUNDLER_DMG_IGNORE_CI: 'true'`：Tauri 在 `CI=true` 下默认传入 `--skip-jenkins` 跳过 Finder 布局，此变量让 CI 也执行背景及 APP / Applications 图标位置的定制。定制失败直接使构建失败，不回退为未定制的 DMG；实际 Finder 效果仍需 Mac 验收。
 
 在公开仓库 `frowang-ai/fromd` 的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `fromd-macos-aarch64-0.5.2` 或 `fromd-macos-x86_64-0.5.2`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。各平台产物带有 SHA256SUMS.txt；最终 `fromd-release-assets-0.5.2` artifact 合并全平台资产并重新生成统一校验表。流水线仅上传 Actions Artifacts，不创建 GitHub Release；macOS 构建使用上述 ad-hoc 配置，不配置 Developer ID、公证或静默自替换，也不启用 Tauri updater。客户端已有的手动检查公开 Release 保持不变。真实 Mac 编译和手动运行 Actions 需按当前任务授权执行，不把 Windows 单测结果标成 Mac 验收。
 
