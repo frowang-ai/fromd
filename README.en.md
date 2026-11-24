@@ -59,10 +59,16 @@ Download the latest release (**v0.5.2**) from [**GitHub Releases**](https://gith
 | Platform | Package | Notes |
 | --- | --- | --- |
 | **Windows 10 / 11 (x64)** | `fromd_<version>_x64-setup.exe` | Per-user NSIS installer (no admin required), custom install directory supported; bootstraps WebView2 if missing |
-| **macOS Apple Silicon (M1–M4)** | `fromd_<version>_aarch64.dmg` | macOS 11.0+; `.app.zip` also provided |
+| **macOS Apple Silicon (M series)** | `fromd_<version>_aarch64.dmg` | Also called ARM64; macOS 11.0+; `.app.zip` also provided |
 | **macOS Intel (x64)** | `fromd_<version>_x64.dmg` | macOS 11.0+; `.app.zip` also provided |
 
-Every release includes `SHA256SUMS.txt`. Guides: [Windows Install (ZH)](docs/install-windows.md) · [macOS Install (ZH)](docs/install-macos.md) · [FAQ (ZH)](docs/faq.md).
+For a MacBook Air, check **Apple menu → About This Mac**: **Apple M-series → aarch64 (ARM64)**; **Intel → x64 (x86_64)**. Verify the download against `SHA256SUMS.txt` from the same official Release. Open the DMG, drag `fromd.app` into **Applications**, wait for the copy to finish, eject the DMG, then open `/Applications/fromd.app`.
+
+The published **v0.5.2** packages were distributed as **unsigned**, and macOS packages are **not notarized**. The repository now configures free **ad-hoc signing for future builds; this change has not been released**. Ad-hoc signing checks content integrity after signing; it is not Developer ID signing, Apple notarization, or a guarantee that Gatekeeper will allow launch.
+
+If macOS cannot verify the developer, verify the source and hash, then use **System Settings → Privacy & Security → Open Anyway** if available. A **“damaged”** message can also indicate a corrupt download or invalid signature: re-download, verify, and reinstall first. If the same message persists and you trust the verified app, the [installation guide](docs/install-macos.md#第一次打开) explains the optional, manual `xattr -dr com.apple.quarantine "/Applications/fromd.app"` command. It removes only this app's quarantine attribute, does not disable Gatekeeper globally, and cannot repair real corruption or an invalid signature. Stop and report a malware warning or persistent failure.
+
+Guides: [Windows Install (ZH)](docs/install-windows.md) · [macOS Install (ZH)](docs/install-macos.md) · [FAQ (ZH)](docs/faq.md).
 
 **Manual In-App Updates:** `fromd` never checks for updates silently in the background. Use **File → 检查更新…** (Windows) or **fromd → 检查更新…** (macOS) to check on demand. On Windows, clicking **立即更新** verifies the SHA-256 checksum, waits for active IME input and flushes all SQLite drafts (`wal_checkpoint(FULL)`), then launches the NSIS installer in place while preserving 100% of your existing notes, shelved pages, images, and preferences.
 

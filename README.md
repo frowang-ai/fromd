@@ -61,10 +61,12 @@ fromd 专注于把「随手开写、公式推导、干净排版、导出分享�
 | 平台与芯片 | 安装包文件名 | 说明 |
 | --- | --- | --- |
 | **Windows 10 / 11 (x64)** | `fromd_<版本>_x64-setup.exe` | 按当前用户安装（免管理员权限），支持自选 D/F 盘安装目录；缺失 WebView2 时自动引导安装 |
-| **macOS Apple Silicon (M1–M4)** | `fromd_<版本>_aarch64.dmg` | 最低 macOS 11.0；另提供同内容的 `.app.zip` |
+| **macOS Apple 芯片（M 系列）** | `fromd_<版本>_aarch64.dmg` | 也叫 ARM64；最低 macOS 11.0；另有 `.app.zip` |
 | **macOS Intel (x64)** | `fromd_<版本>_x64.dmg` | 最低 macOS 11.0；另提供同内容的 `.app.zip` |
 
-每个版本均附带 `SHA256SUMS.txt` 校验表，下载后可在终端核对哈希值：
+MacBook Air 也分 Apple 芯片和 Intel：在苹果菜单 →「关于本机」查看，**M 系列选 aarch64，Intel 选 x64**。打开 DMG 后把 `fromd.app` 拖入 **Applications / 应用程序**，等待复制完成、推出 DMG，再从 `/Applications/fromd.app` 打开。
+
+每个版本均附带 `SHA256SUMS.txt` 校验表，请先确认文件来自本仓库同一 Release，下载后在终端核对哈希值：
 
 ```powershell
 # Windows PowerShell
@@ -76,7 +78,10 @@ Get-FileHash .\fromd_0.5.2_x64-setup.exe -Algorithm SHA256
 shasum -a 256 fromd_0.5.2_aarch64.dmg
 ```
 
-详细安装步骤与首次打开说明（含未签名 SmartScreen / macOS Gatekeeper 放行指引、数据目录位置与卸载说明）：
+当前已发布的 **v0.5.2** 包按未签名分发，macOS 未公证。仓库新加入的免费 **ad-hoc 签名尚未发行**；它不等于 Developer ID 或苹果公证，也不保证 Gatekeeper 放行。遇到「无法验证开发者」与「已损坏」时按安装说明分别处理，先核对来源/哈希并重新下载，不要关闭全局 Gatekeeper。
+
+详细安装步骤、首次打开、数据位置与卸载说明：
+
 - 📘 **[Windows 安装说明](docs/install-windows.md)**
 - 🍎 **[macOS 安装说明](docs/install-macos.md)**
 - 💡 **[常见问题 (FAQ)](docs/faq.md)**

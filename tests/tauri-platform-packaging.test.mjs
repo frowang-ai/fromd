@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFile,mkdir,mkdtemp,writeFile,rm} from 'node:fs/promises'
 import {fileURLToPath} from 'node:url'
 import {join} from 'node:path'
-import {checkMacosArtifact,licenseFiles,machoArchitecture} from '../apps/tauri/scripts/check-macos-artifact.mjs'
+import {checkMacosArtifact as validateMacosArtifact,checkMacosSignature,licenseFiles,machoArchitecture} from '../apps/tauri/scripts/check-macos-artifact.mjs'
 const root=fileURLToPath(new URL('../',import.meta.url))
 const json=async name=>JSON.parse(await readFile(join(root,name),'utf8'))
 test('platform overlays preserve the complete shared main window and 0.5.2 identity',async()=>{
@@ -33,6 +33,17 @@ test('platform overlays preserve the complete shared main window and 0.5.2 ident
  assert.equal(base.bundle.createUpdaterArtifacts,false)
  assert.equal(base.bundle.windows,undefined)
  assert.equal(mac.bundle.macOS.minimumSystemVersion,'11.0')
+ assert.equal(mac.bundle.macOS.signingIdentity,'-')
+ const dmg=mac.bundle.macOS.dmg
+ const background=await readFile(join(root,'apps/tauri/src-tauri',dmg.background))
+ assert.equal(background.subarray(0,8).toString('hex'),'89504e470d0a1a0a')
+ assert.equal(background.readUInt32BE(16),dmg.windowSize.width)
+ assert.equal(background.readUInt32BE(20),dmg.windowSize.height)
+ for(const position of [dmg.appPosition,dmg.applicationFolderPosition]){
+  assert.ok(position.x>64&&position.x<dmg.windowSize.width-64)
+  assert.ok(position.y>64&&position.y<dmg.windowSize.height-64)
+ }
+ assert.ok(dmg.applicationFolderPosition.x-dmg.appPosition.x>128)
  const icon=await readFile(join(root,'apps/tauri/src-tauri/icons/icon.icns'))
  assert.equal(icon.subarray(0,4).toString(),'icns');assert.equal(icon.readUInt32BE(4),icon.length)
  const blocks=[];for(let i=8;i<icon.length;){blocks.push(icon.subarray(i,i+4).toString());const size=icon.readUInt32BE(i+4);assert.ok(size>8);i+=size;assert.ok(i<=icon.length)}
@@ -62,7 +73,33 @@ test('Mach-O validates thin and both-endian FAT slices including architecture me
  const unsupported=macho('aarch64');unsupported.writeUInt32LE(99,8);assert.throws(()=>machoArchitecture(unsupported),/subtype/)
 })
 const plist=(version='0.5.2',id='com.frowang.frowd.tauri.v1',minimum='11.0')=>`<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleName</key><string>fromd</string><key>CFBundleExecutable</key><string>frowd-tauri</string><key>CFBundleShortVersionString</key><string>${version}</string><key>CFBundleIdentifier</key><string>${id}</string><key>LSMinimumSystemVersion</key><string>${minimum}</string></dict></plist>`
+test('macOS signature verification rejects invalid signatures and tool errors without re-signing',()=>{
+ const app=join(root,'output','signature fixture','fromd.app'),calls=[]
+ const run=(command,args,options)=>{calls.push({command,args,options});return {status:0,stdout:'',stderr:'valid on disk\nsatisfies its Designated Requirement\n'}}
+ const result=checkMacosSignature(app,{platform:'darwin',run})
+ assert.equal(result.status,'verified')
+ assert.match(result.details,/valid on disk/)
+ assert.equal(calls.length,1)
+ assert.equal(calls[0].command,'/usr/bin/codesign')
+ assert.deepEqual(calls[0].args,['--verify','--deep','--strict','--all-architectures','--verbose=2',app])
+ assert.equal(calls[0].options.timeout,120000)
+ for(const failure of [
+  {status:1,stderr:'code object is not signed at all'},
+  {status:1,stderr:'a sealed resource is missing or invalid'},
+  {status:null,signal:'SIGTERM',stderr:''},
+  {status:null,error:new Error('spawn ENOENT')},
+ ])assert.throws(()=>checkMacosSignature(app,{platform:'darwin',run:()=>failure}),/codesign verification (failed|could not run)/)
+})
+test('portable artifact checks report native signature verification as not run',()=>{
+ for(const platform of ['win32','linux']){
+  const result=checkMacosSignature('fromd.app',{platform,run:()=>assert.fail('must not invoke codesign off macOS')})
+  assert.equal(result.status,'not-run');assert.match(result.reason,/macOS/)
+ }
+})
 test('macOS artifact validator accepts both architectures and rejects malformed delivery',async()=>{
+ // Synthetic Mach-O headers cannot be signed; mock only this boundary, retaining real plutil on macOS.
+ const signature={status:'not-run',reason:'synthetic fixture'}
+ const checkMacosArtifact=options=>validateMacosArtifact(options,{verifySignature:()=>signature})
  const tempRoot=join(root,'output/native-temp');await mkdir(tempRoot,{recursive:true})
  const temp=await mkdtemp(join(tempRoot,'mac-artifact-'))
  try{
@@ -72,6 +109,8 @@ test('macOS artifact validator accepts both architectures and rejects malformed 
   await writeFile(info,plist());await writeFile(dmg,'synthetic-dmg')
   for(const file of licenseFiles)await writeFile(join(contents,'Resources/licenses',file),'synthetic license')
   for(const arch of ['aarch64','x86_64']){await writeFile(exe,macho(arch));assert.equal((await checkMacosArtifact({app,dmg,arch})).arch,arch)}
+  assert.deepEqual((await checkMacosArtifact({app,dmg,arch:'x86_64'})).signature,signature)
+  await assert.rejects(validateMacosArtifact({app,dmg,arch:'x86_64'},{verifySignature:()=>{throw Error('codesign verification failed: invalid signature')}}),/codesign verification failed/)
   await assert.rejects(checkMacosArtifact({app,dmg,arch:'aarch64'}),/architecture/)
   await writeFile(exe,macho('aarch64'))
   assert.equal((await checkMacosArtifact({app,dmg,arch:'arm64'})).arch,'aarch64')

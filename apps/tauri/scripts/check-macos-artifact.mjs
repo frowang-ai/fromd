@@ -1,7 +1,7 @@
 import {readFile,stat} from 'node:fs/promises'
 import {resolve,join} from 'node:path'
 import {pathToFileURL} from 'node:url'
-import {execFileSync} from 'node:child_process'
+import {execFileSync,spawnSync} from 'node:child_process'
 
 export const licenseFiles=['LICENSE','THIRD_PARTY_NOTICES.md','TAURI-THIRD-PARTY-NOTICES.md','LICENSE.SOLOMD','dependency-licenses.json','TAURI-LICENSE-MIT','TAURI-LICENSE-APACHE-2.0']
 const fail=message=>{throw Error(message)}
@@ -50,8 +50,16 @@ export function machoArchitecture(bytes){
  const architectures=machoArchitectures(bytes)
  return architectures.length===1?architectures[0]:'universal'
 }
+// Verification never re-signs an app. Gatekeeper/notarization is a separate policy check.
+export function checkMacosSignature(app,{platform=process.platform,run=spawnSync}={}){
+ if(platform!=='darwin')return {status:'not-run',reason:'codesign requires macOS'}
+ const result=run('/usr/bin/codesign',['--verify','--deep','--strict','--all-architectures','--verbose=2',resolve(app)],{encoding:'utf8',timeout:120000})
+ if(result.error)fail(`codesign verification could not run: ${result.error.message}`)
+ if(result.status!==0)fail(`codesign verification failed (exit ${result.status ?? result.signal}): ${(result.stderr||result.stdout||'no diagnostic output').trim()}`)
+ return {status:'verified',details:(result.stderr||result.stdout||'').trim()}
+}
 async function nonempty(path){const s=await stat(path);if(!s.isFile()||!s.size)fail(`Missing or empty artifact: ${path}`);return s.size}
-export async function checkMacosArtifact({app,dmg,arch,version='0.5.2',identifier='com.frowang.frowd.tauri.v1',minimumSystemVersion='11.0'}){
+export async function checkMacosArtifact({app,dmg,arch,version='0.5.2',identifier='com.frowang.frowd.tauri.v1',minimumSystemVersion='11.0'},{verifySignature=checkMacosSignature}={}){
  if(arch==='arm64')arch='aarch64'
  if(!['aarch64','x86_64','universal'].includes(arch))fail('arch must be aarch64, arm64, x86_64 or universal')
  const contents=join(resolve(app),'Contents'),plistPath=join(contents,'Info.plist')
@@ -72,7 +80,8 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.2',identifie
  if(architectures.length!==expected.length||!expected.every((value,index)=>architectures[index]===value))fail(`Mach-O architecture: expected exactly ${expected.join(', ')}, got ${architectures.join(', ')}`)
  for(const file of licenseFiles)await nonempty(join(contents,'Resources','licenses',file))
  const dmgBytes=await nonempty(resolve(dmg))
- return {app:resolve(app),dmg:resolve(dmg),version,identifier,minimumSystemVersion,arch:actualArch,architectures,licenses:licenseFiles.length,dmgBytes}
+ const signature=verifySignature(resolve(app))
+ return {app:resolve(app),dmg:resolve(dmg),version,identifier,minimumSystemVersion,arch:actualArch,architectures,licenses:licenseFiles.length,dmgBytes,signature}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  const args=process.argv.slice(2),options={}
