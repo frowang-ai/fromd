@@ -11,7 +11,7 @@
 
 🌐 **简体中文 · [English](README.en.md)**
 
-[**下载最新版 (v0.5.2)**](https://github.com/frowang-ai/fromd/releases/latest) · [**三大核心体验**](#三大核心体验) · [**定位对比**](#与其他工具的定位对比) · [**安装与更新**](#下载安装与应用内更新) · [**从源码构建**](#从源码构建) · [**常见问题**](docs/faq.md) · [**版本记录**](CHANGELOG.md) · [**提交反馈**](https://github.com/frowang-ai/fromd/issues/new/choose)
+[**下载正式版 · v0.5.3 待发布**](https://github.com/frowang-ai/fromd/releases/latest) · [**三大核心体验**](#三大核心体验) · [**定位对比**](#与其他工具的定位对比) · [**安装与更新**](#下载安装与应用内更新) · [**从源码构建**](#从源码构建) · [**常见问题**](docs/faq.md) · [**版本记录**](CHANGELOG.md) · [**提交反馈**](https://github.com/frowang-ai/fromd/issues/new/choose)
 
 ⭐ **如果 fromd 在你的日常写作、论文草稿或公式推导中帮到了你，欢迎点一颗 [Star](https://github.com/frowang-ai/fromd) —— 免费 MIT 开源，你的支持能让更多需要它的人看到。**
 
@@ -38,7 +38,7 @@
 | **全文搜索与查找替换** | 侧栏跨全部页面（含未落盘草稿与已收起页面）搜索正文与标题；文档内 `Ctrl+F` / `Ctrl+H`（macOS `⌥⌘F`）支持 `Aa` 区分大小写替换。 |
 | **大纲、统计与阅读主题** | 侧栏「页面 / 大纲」一键切换跳转；实时中日韩字词与字符统计；支持字号（14–20 px）、行宽（720–1080 px）、浅色 / 深色 / 跟随系统主题及 50%–200% 页面缩放。 |
 | **原生 A4 PDF 导出与导入** | Windows WebView2 `PrintToPdf` 与 macOS AppKit `NSPrintOperation` 原生分页导出；支持 TXT / HTML 文档连同相对图片安全导入。 |
-| **手动检查与覆盖更新** | 菜单点击「检查更新…」，左下角轻量弹窗提示；Windows 自动校验 SHA-256、保存未完输入后一键覆盖更新并 100% 继承数据库。 |
+| **手动检查与覆盖更新** | 菜单点击「检查更新…」，左下角轻量弹窗提示；Windows 自动校验 SHA-256、保存未完输入后启动覆盖更新，沿用原数据库。 |
 
 ## 与其他工具的定位对比
 
@@ -56,7 +56,7 @@ fromd 专注于把「随手开写、公式推导、干净排版、导出分享�
 
 ## 下载安装与应用内更新
 
-前往 [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/latest) 下载最新正式版（当前 **v0.5.2**）：
+当前源码版本为 **v0.5.3（待发布）**。安装包发布后可在 [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/latest) 下载；发布前该页面仍提供 **v0.5.2**。请按平台和芯片选择：
 
 | 平台与芯片 | 安装包文件名 | 说明 |
 | --- | --- | --- |
@@ -70,15 +70,15 @@ MacBook Air 也分 Apple 芯片和 Intel：在苹果菜单 →「关于本机」
 
 ```powershell
 # Windows PowerShell
-Get-FileHash .\fromd_0.5.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\fromd_0.5.3_x64-setup.exe -Algorithm SHA256
 ```
 
 ```sh
 # macOS Terminal
-shasum -a 256 fromd_0.5.2_aarch64.dmg
+shasum -a 256 fromd_0.5.3_aarch64.dmg
 ```
 
-当前已发布的 **v0.5.2** 包按未签名分发，macOS 未公证。仓库新加入的免费 **ad-hoc 签名尚未发行**；它不等于 Developer ID 或苹果公证，也不保证 Gatekeeper 放行。遇到「无法验证开发者」与「已损坏」时按安装说明分别处理，先核对来源/哈希并重新下载，不要关闭全局 Gatekeeper。
+待发布的 **v0.5.3** 对 macOS **APP 使用免费 ad-hoc 签名**，**DMG 容器未签名**；没有 Developer ID 签名或苹果公证，也不保证 Gatekeeper 放行。旧 **v0.5.2** 仍按未签名、未公证分发；Windows 安装包继续未签名。遇到「无法验证开发者」与「已损坏」时按安装说明分别处理，先核对来源/哈希并重新下载，不要关闭全局 Gatekeeper。
 
 详细安装步骤、首次打开、数据位置与卸载说明：
 
@@ -90,7 +90,7 @@ shasum -a 256 fromd_0.5.2_aarch64.dmg
 
 fromd 默认不会在后台静默联网弹窗打扰你。需要查看新版本时，在 Windows 点击顶栏 **「文件 → 检查更新…」**，在 macOS 点击菜单栏 **「fromd → 检查更新…」**，左下角会弹出轻量状态提示：
 
-- **Windows 一键覆盖升级**：发现新版本后点击 **「立即更新」**，客户端会自动下载安装包并严格核对 `SHA256SUMS.txt` 哈希与可执行头，随后等待当前输入法上屏、把所有未保存草稿正文/标题/阅读位置完整刷入 SQLite 数据库，再拉起安装器直接覆盖升级。原数据库中的所有文档、收起页、图片附件与阅读设置 **100% 自动继承**（从旧版 Tauri `frowd 0.5.2` 升级同样无缝继承）。
+- **Windows 一键覆盖升级**：发现新版本后点击 **「立即更新」**，客户端会自动下载安装包并严格核对 `SHA256SUMS.txt` 哈希与可执行头，随后等待当前输入法上屏、把所有未保存草稿正文/标题/阅读位置完整刷入 SQLite 数据库，再拉起安装器直接覆盖升级。升级到 `fromd 0.5.3` 继续沿用 Tauri 0.5.2（含旧名 `frowd`）的资料目录，保留文稿、收起页、图片附件与阅读设置；安装结果以安装器为准。
 - **macOS 更新指引**：点击 **「前往下载更新」** 打开最新 Release 页面，下载对应芯片 DMG 拖入「应用程序」替换即可，本地文稿数据库完整保留。
 
 ## 本地优先与隐私安全

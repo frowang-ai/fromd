@@ -2,7 +2,7 @@
 
 ## 从旧版本升级，草稿还在吗？
 
-如果使用的是 **frowd Tauri 0.5.2**，升级为 **fromd** 会沿用原数据库、未命名草稿、收起页面、图片附件和阅读设置，无需搬库。产品显示名称变了，应用数据身份 `com.frowang.frowd.tauri.v1`、数据库 `drafts.sqlite` 和资源目录保持不变。
+从 **Tauri 0.5.2（fromd 或旧名 frowd）** 升级到 **fromd 0.5.3** 会沿用原数据库、未命名草稿、收起页面、图片附件和阅读设置，无需搬库。应用数据身份 `com.frowang.frowd.tauri.v1`、数据库 `drafts.sqlite` 和资源目录保持不变。
 
 更早的 **frowd 0.5.0 及以前 Electron 标准版**、**frowd lite 0.4.0-alpha.1 预览版** 使用不同资料目录。fromd 不会自动读取或删除这些旧草稿；请先在旧版将需要的笔记「另存为」`.md`，再在 fromd 打开。旧目录见 [Windows 安装说明](install-windows.md#数据保存在哪里)。
 
@@ -39,7 +39,7 @@
 
 ## macOS 提示「无法验证开发者」或「已损坏」怎么办？
 
-当前已发布的 v0.5.2 包按未签名、未公证分发；仓库新配置中的免费 ad-hoc 签名尚未发行，也不等于 Developer ID 或苹果公证，不能保证 Gatekeeper 放行。
+待发布的 v0.5.3 对 macOS APP 使用免费 ad-hoc 签名，DMG 容器未签名；没有 Developer ID 签名或苹果公证，不能保证 Gatekeeper 放行。旧 v0.5.2 包仍按未签名、未公证分发。
 
 「无法验证开发者」通常需要在核对官方来源和哈希后，通过系统设置允许这次打开。「已损坏」则先重新下载、核对同一 Release 的 `SHA256SUMS.txt` 并重新安装；仍受阻时，安装说明提供了仅对 `/Applications/fromd.app` 移除 quarantine 的手动步骤及其影响。移除标记不能修复真正损坏或无效签名。详见 [macOS 首次打开说明](install-macos.md#第一次打开)，不要关闭全局 Gatekeeper。
 
@@ -50,6 +50,6 @@
 ## 已知限制
 
 - 更新由用户手动检查，不会后台自动检查或静默安装。
-- 已发布的 0.5.2 安装包未签名，macOS 未公证。新的 macOS ad-hoc 打包配置尚未发行，首次打开仍可能需要用户确认。
+- 0.5.3 待发布；Windows 安装包未签名，macOS APP 使用 ad-hoc 签名、DMG 未签名，未做 Developer ID 签名或公证，首次打开仍可能被拦截。旧 0.5.2 包的签名状态不变。
 - 更早的 Electron/lite 预览版草稿不会自动迁移；现有 Tauri 0.5.2 数据直接沿用。
 - 各家中文输入法和 PDF 物理分页尚未在每种机器上逐一实测；反馈时请写明系统及输入法。

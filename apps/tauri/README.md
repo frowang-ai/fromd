@@ -1,6 +1,6 @@
 # fromd — Tauri / ProseMirror client
 
-0.5.2 separates the cross-platform editor/document store/coordinator from the
+0.5.3 (pending release) retains the cross-platform editor/document store/coordinator and the
 Windows and macOS shells. See [macOS packaging, architecture and native acceptance](MACOS_PACKAGING.md)
 and [Windows installer](WINDOWS_INSTALLER.md). macOS uses a decorated system
 window, native menus, Cmd-based commands and AppKit A4 paginated PDF export.
@@ -58,9 +58,11 @@ Windows packaging now has a separate [installer guide and manual checklist](WIND
 It uses the Tauri identity, a separate Start menu folder and an optional desktop
 shortcut that is unchecked by default. Missing WebView2 is handled through the
 official online bootstrapper. Installer execution and the final combined feature
-package remain separate acceptance steps. Published 0.5.2 releases remain unsigned;
-macOS ad-hoc signing is configured for future builds and has not been released.
-It is not Developer ID signing or notarization; see [macOS packaging](MACOS_PACKAGING.md).
+package remain separate acceptance steps. The pending 0.5.3 release uses free
+ad-hoc signing for the macOS APP; its DMG container and the Windows installer
+remain unsigned. There is no Developer ID signing or notarization, and Gatekeeper
+may still block launch. Published 0.5.2 packages are unchanged and remain unsigned;
+see [macOS packaging](MACOS_PACKAGING.md).
 
 ## Preserved workspace and module ownership
 
