@@ -3,6 +3,8 @@ import { test, expect } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
 import MarkdownIt from 'markdown-it'
 import katex from 'katex'
+import { mathPasteMarkdown, mathPasteValues, mathPasteHtml } from './fixtures/writing-math-paste.mjs'
+import { createPaseoMarkdownClipboardContent } from './fixtures/paseo-clipboard.mjs'
 import { displayMathEditingSample } from './fixtures/writing-display-math.mjs'
 import { startWritingPreview } from './browser-harness/start-preview.mjs'
 
@@ -241,6 +243,39 @@ test('加粗兼容不改变同段已有强调、转义星号和公式内容', as
   await expect(body(page).locator('strong')).toHaveText(['有效', '新内容。'])
   await expect(body(page)).toContainText('**字面 **')
   await expect(body(page).locator('.writing-math-inline annotation')).toHaveText('\\text{**星号 **}')
+})
+
+for (const mode of ['source', 'plain', 'markdown-html', 'katex-html', 'paseo-copy']) {
+  test(`数学粘贴保真：标准美元公式、下标和内含公式的粗体 ${mode}`, async ({ page }, testInfo) => {
+    await open(page, mode === 'source' ? mathPasteMarkdown : '')
+    const html = mode === 'paseo-copy' ? createPaseoMarkdownClipboardContent(mathPasteMarkdown).html
+      : mode === 'markdown-html' ? new MarkdownIt().render(mathPasteMarkdown)
+      : mode === 'katex-html' ? mathPasteHtml((value, displayMode = false) => katex.renderToString(value, { displayMode })) : ''
+    if (mode !== 'source') await pasteContent(page, mathPasteMarkdown, html)
+    await page.screenshot({ path: testInfo.outputPath(`math-paste-${mode}.png`), fullPage: true })
+    await expect(body(page).locator('.writing-math-inline annotation')).toHaveText([mathPasteValues.base, mathPasteValues.model, mathPasteValues.noise])
+    await expect(body(page).locator('.writing-math-block annotation')).toHaveText(mathPasteValues.fraction)
+    await expect(body(page).locator('.katex-error,.is-empty,.is-incomplete')).toHaveCount(0)
+    await expect(body(page).locator('strong')).toHaveCount(2)
+    await expect(body(page).locator('em')).toHaveCount(0)
+    const raw = await source(page)
+    for (const value of Object.values(mathPasteValues)) expect(await raw.inputValue()).toContain(value)
+    await raw.fill((await raw.inputValue()) + '\n') // Force a parse, not just cached view restoration.
+    await page.getByRole('button', { name: '返回正文' }).click()
+    await expect(body(page).locator('.writing-math-inline annotation')).toHaveText([mathPasteValues.base, mathPasteValues.model, mathPasteValues.noise])
+    await expect(body(page).locator('.writing-math-block annotation')).toHaveText(mathPasteValues.fraction)
+  })
+}
+
+test('数学粘贴保真：HTML 跨 span 的美元边界与块公式', async ({ page }) => {
+  await open(page, '')
+  await pasteContent(page, '', String.raw`<p><strong>值 <span>$</span><span>q_{base}</span><span>$</span> 保留。</strong> <em>真实强调</em></p><p><span>$$</span><span>\frac{q_{base}}{q_{model}}</span><span>$$</span></p><p><code>$literal$</code>；\$escaped\$；<span>$</span><code>blocked</code><span>$</span>；<span>$</span><span>unpaired</span></p>`)
+  await expect(body(page).locator('.writing-math-inline annotation')).toHaveText('q_{base}')
+  await expect(body(page).locator('.writing-math-block annotation')).toHaveText(String.raw`\frac{q_{base}}{q_{model}}`)
+  await expect(body(page).locator('strong')).toContainText('保留。')
+  await expect(body(page).locator('em')).toHaveText('真实强调')
+  await expect(body(page).locator('code')).toHaveText(['$literal$', 'blocked'])
+  await expect(body(page)).toContainText(String.raw`\$escaped\$`)
 })
 
 const reporterComparison = await readFile(new URL('./fixtures/writing-reporter-comparison.md', import.meta.url), 'utf8')

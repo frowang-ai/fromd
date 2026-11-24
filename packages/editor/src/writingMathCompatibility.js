@@ -1,5 +1,5 @@
-import { normalizeNoteBracketMath, normalizeNotePastedMath } from './compatibility/noteEditorCompatibility.js'
-import { recoverRenderedMath, recoverFragmentedBrackets } from './writingHtmlMath.js'
+import { normalizeNoteBracketMath } from './compatibility/noteEditorCompatibility.js'
+import { recoverRenderedMath, recoverFragmentedMath, isPlainMathContainer } from './writingHtmlMath.js'
 
 // Bracket display fences must be recognized across Markdown block boundaries:
 // an equation's standalone '=' / '-' can already have become a setext heading.
@@ -50,11 +50,11 @@ export function normalizeWritingPastedMath(html, remark, document, onRecovery = 
     clone.querySelectorAll('br').forEach(br => br.replaceWith(document.createTextNode('\n')))
     return clone.textContent
   }
-  const eligible = element => ['P', 'DIV'].includes(element.tagName)
-    && !element.closest(excluded) && !element.closest('td,th,a')
-    && !element.querySelector(`p,div,table,ul,ol,blockquote,${excluded}`)
+  const eligible = element => isPlainMathContainer(element) && !element.closest(excluded)
   function displayValue(text) {
-    if (!/^ {0,3}\\\[[ \t]*\r?\n/.test(text) || !/\n {0,3}\\\][ \t]*$/.test(text)) return null
+    const bracketFence = /^ {0,3}\\\[[ \t]*\r?\n/.test(text) && /\n {0,3}\\\][ \t]*$/.test(text)
+    const dollarFence = /^ {0,3}\$\$[ \t]*\r?\n/.test(text) && /\n {0,3}\$\$[ \t]*$/.test(text)
+    if (!bracketFence && !dollarFence) return null
     const normalized = normalizeWritingMath(text, value => remark.parse(value))
     const tree = remark.parse(normalized)
     return tree.children.length === 1 && tree.children[0].type === 'math' ? tree.children[0].value : null
@@ -72,16 +72,18 @@ export function normalizeWritingPastedMath(html, remark, document, onRecovery = 
     if (value !== null) { replaceBlocks([element], value); continue }
     // Some clipboard producers use one paragraph per equation line. Consume
     // only adjacent simple blocks inside one parent, with both explicit fences.
-    if (!/^ {0,3}\\\[[ \t]*$/.test(text)) continue
+    const opening = /^ {0,3}(\\\[|\$\$)[ \t]*$/.exec(text)
+    if (!opening) continue
+    const closing = opening[1] === '$$' ? '$$' : '\\]'
     const blocks = [element], lines = [text]
     let next = element.nextSibling
     while (next) {
       if (next.nodeType === 3 && !next.textContent.trim()) { next = next.nextSibling; continue }
       if (next.nodeType !== 1 || !eligible(next)) break
       const line = textWithBreaks(next)
-      if (/^ {0,3}\\\[[ \t]*$/.test(line)) break
+      if (opening[1] !== '$$' && /^ {0,3}\\\[[ \t]*$/.test(line)) break
       blocks.push(next); lines.push(line)
-      if (/^ {0,3}\\\][ \t]*$/.test(line)) {
+      if (line.trim() === closing) {
         const combined = displayValue(lines.join('\n'))
         if (combined !== null) replaceBlocks(blocks, combined)
         break
@@ -89,17 +91,9 @@ export function normalizeWritingPastedMath(html, remark, document, onRecovery = 
       next = next.nextSibling
     }
   }
-  const fragments = recoverFragmentedBrackets(template.content, document)
+  const fragments = recoverFragmentedMath(template.content, document, remark)
   recovered.convertedDisplay += fragments.convertedDisplay
   recovered.convertedInline += fragments.convertedInline
   if (recovered.convertedDisplay || recovered.convertedInline) onRecovery(recovered)
-  const walker = document.createTreeWalker(template.content, 4), texts = []
-  while (walker.nextNode()) texts.push(walker.currentNode)
-  for (const text of texts) {
-    if (text.parentElement?.closest(excluded)) continue
-    if (text.nodeValue.includes('\\(') || text.nodeValue.includes('\\[')) {
-      text.nodeValue = normalizeWritingMath(text.nodeValue, value => remark.parse(value))
-    }
-  }
-  return normalizeNotePastedMath(template.innerHTML, remark, document)
+  return template.innerHTML
 }

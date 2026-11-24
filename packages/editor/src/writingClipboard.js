@@ -1,6 +1,7 @@
 import { DOMParser, DOMSerializer, Slice, Fragment } from '@milkdown/kit/prose/model'
 import {Transform} from '@milkdown/kit/prose/transform'
 import {tableEditingKey,TableMap} from '@milkdown/kit/prose/tables'
+import { isRenderedMarkdownClipboard, preservedClipboardContent, mathContent } from './writingClipboardRecovery.js'
 import { logWritingEvent } from './writingDiagnostics.js'
 
 export function describeWritingDocument(doc) {
@@ -124,6 +125,31 @@ function isVscodeLatex(data) {
   catch { return false }
 }
 
+// The rendered image DOM may carry an unavailable-image label while this
+// target document is not yet authorized for a copied resource. Keep the source
+// alt/title in the inert paste candidate; resource qualification happens later.
+function markdownSlice(view, doc) {
+  const serializer = DOMSerializer.fromSchema(view.state.schema)
+  const marks = { ...serializer.marks }
+  // This fragment is detached and parsed straight back into PM, never displayed.
+  // The display serializer neutralizes file: (and unsafe) hrefs; do not read
+  // those empty display values back as source. Real DOM still uses the schema's
+  // original sanitizer, and opening links still goes through the host policy.
+  if (marks.link) marks.link = mark => ['a', { ...mark.attrs }]
+  const fragment = new DOMSerializer(serializer.nodes, marks).serializeFragment(doc.content)
+  const images = []
+  doc.descendants(node => { if (node.type.name === 'image') images.push(node) })
+  fragment.querySelectorAll('img').forEach((image, index) => {
+    const original = images[index]
+    if (original && image.getAttribute('data-editor-image-src') === original.attrs.src) {
+      for (const name of ['alt', 'title']) image.setAttribute(name, original.attrs[name] || '')
+    }
+  })
+  let slice = DOMParser.fromSchema(view.state.schema).parseSlice(fragment)
+  view.someProp('transformPasted', transform => { slice = transform(slice, view, false) })
+  return slice
+}
+
 // HTML is ordinarily authoritative. Only use explicit Markdown math from the
 // same clipboard when HTML lost formulas and doing so preserves rich features.
 export function installWritingClipboard(view, { parse, normalize, editorId, deferPaste, parsePlain = false }) {
@@ -156,9 +182,7 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
           // automatic latex code block (which our schema renders as math).
           const fixed = normalize(text), doc = parse(fixed)
           if (doc) {
-            const fragment = DOMSerializer.fromSchema(editorView.state.schema).serializeFragment(doc.content)
-            let candidate = DOMParser.fromSchema(editorView.state.schema).parseSlice(fragment)
-            editorView.someProp('transformPasted', transform => { candidate = transform(candidate, editorView, false) })
+            const candidate = markdownSlice(editorView, doc)
             route = 'vscode-latex-source'; reason = 'source-language-is-not-math'; normalized = fixed !== text
             logWritingEvent('paste-route', { ...metadata, route, reason, normalized })
             return {slice:candidate,inputSlice,event,recovered:true,literal,result}
@@ -168,19 +192,22 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
         } else if (text) {
           const fixed = normalize(text)
           normalized = fixed !== text
-          if (html && normalized) {
+          if (html) {
             const doc = parse(fixed)
             if (doc) {
-              const fragment = DOMSerializer.fromSchema(editorView.state.schema).serializeFragment(doc.content)
-              let candidate = DOMParser.fromSchema(editorView.state.schema).parseSlice(fragment)
-              editorView.someProp('transformPasted', transform => { candidate = transform(candidate, editorView, false) })
+              let candidate = markdownSlice(editorView, doc)
               const counts = describeWritingDocument(candidate.content)
+              const witnessed = isRenderedMarkdownClipboard(text, html, editorView.dom?.ownerDocument)
               const missingMath = counts.displayMath > htmlCounts.displayMath || counts.inlineMath > htmlCounts.inlineMath
+                || (witnessed && mathContent(candidate.content) !== mathContent(slice.content))
               const before = richFeatures(slice.content), after = richFeatures(candidate.content)
-              const preservesRichContent = Object.entries(before).every(([key, count]) => (after[key] || 0) >= count)
               const missingStrong = (after['mark:strong'] || 0) > (before['mark:strong'] || 0)
-              const preservesMath = counts.inlineMath >= htmlCounts.inlineMath && counts.displayMath >= htmlCounts.displayMath
+              const preserved = witnessed ? candidate.content : (missingMath || missingStrong)
+                ? preservedClipboardContent(slice.content, candidate.content, { parse, normalize, toPaste: doc => markdownSlice(editorView, doc).content }) : null
+              const preservesRichContent = preserved !== null
+              const preservesMath = witnessed || (counts.inlineMath >= htmlCounts.inlineMath && counts.displayMath >= htmlCounts.displayMath)
               if ((missingMath || missingStrong) && preservesRichContent && preservesMath) {
+                if (preserved !== candidate.content) candidate = Slice.maxOpen(preserved)
                 route = missingMath ? 'markdown-math-recovery' : 'markdown-format-recovery'
                 reason = missingMath ? 'html-lost-explicit-math' : 'html-lost-explicit-strong'
                 convertedDisplay = Math.max(0, counts.displayMath - htmlCounts.displayMath)
