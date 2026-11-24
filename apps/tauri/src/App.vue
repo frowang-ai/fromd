@@ -11,7 +11,7 @@
           <button :disabled="!current || state.busy || !state.loaded" @click="executeCommand('exportPdf')">导出 PDF…</button>
           <button :disabled="!current || state.busy" @click="executeCommand('insertImage')">插入图片…</button>
           <button :disabled="!current || state.busy" @click="executeCommand('insertAttachment')">插入附件…</button>
-          <button :disabled="!state.loaded" @click="executeCommand('checkUpdates')">检查更新…</button>
+          <button v-if="updatesEnabled" :disabled="!state.loaded" @click="executeCommand('checkUpdates')">检查更新…</button>
           <button :disabled="!current" @click="executeCommand('remove')">移除当前页面</button>
         </div></details>
         <details><summary>编辑</summary><div class="menu-popup">
@@ -113,7 +113,7 @@
       </main>
     </div>
 
-    <UpdateNotice :state="updateState" :raised="Boolean(state.undoRemoval && !undoDismissed)" :document-busy="state.busy" @update="updater.update()" @retry="updater.retry()" @close="updater.dismiss()" />
+    <UpdateNotice v-if="updatesEnabled" :state="updateState" :raised="Boolean(state.undoRemoval && !undoDismissed)" :document-busy="state.busy" @update="updater.update()" @retry="updater.retry()" @close="updater.dismiss()" />
     <ReadingSettings v-if="readingOpen" ref="readingPanel" :preferences="readingPreferences" :error="readingError" @change="updateReading" @close="closeReading" />
       <div v-if="contextDocument" ref="contextMenu" class="page-context" role="menu" :style="{left:contextPosition.x+'px',top:contextPosition.y+'px'}" :aria-label="'页面操作 ' + contextDocument.title" @keydown="contextKey">
         <span class="context-title">{{ contextDocument.title }}</span>
@@ -142,6 +142,7 @@ import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {initializeCloseHandshake} from './documents/closeHandshake.mjs'
 import {DocumentSearch} from './documents/search.mjs'
 import {documentsApi,updatesApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {updatesEnabled} from './distribution.mjs'
 import UpdateNotice from './updates/UpdateNotice.vue'
 import {UpdateController} from './updates/controller.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
@@ -487,7 +488,7 @@ function executeCommand(command){
  if(state.busy&&['import','exportPdf','insertImage','insertAttachment','remove','source','sourceMode','rendered','reading'].includes(command))return
  const active=Boolean(current.value)
  switch(command){
-  case 'checkUpdates': closeMenus();return updater.check()
+  case 'checkUpdates': closeMenus();if(updatesEnabled)return updater.check();return
   case 'new': return action(()=>coordinator.create())
   case 'open': return action(()=>coordinator.open())
   case 'import': return action(()=>coordinator.importFile())

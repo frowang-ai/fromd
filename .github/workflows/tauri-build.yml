@@ -1,4 +1,4 @@
-name: Tauri desktop builds
+name: Tauri Preview builds (distribution only)
 on:
   workflow_dispatch:
     inputs:
@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   macos:
-    if: ${{ inputs.platform == 'all' || inputs.platform == 'macos' || inputs.platform == '' }}
+    if: ${{ github.ref == 'refs/heads/preview/fromd-0.5.4-preview.1' && (inputs.platform == 'all' || inputs.platform == 'macos' || inputs.platform == '' ) }}
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -49,15 +49,15 @@ jobs:
         env:
           # Run Finder customization in CI; a layout failure must fail the build.
           TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
-        run: npm --prefix apps/tauri run tauri -- build --config src-tauri/tauri.macos.conf.json --bundles app,dmg --target ${{ matrix.target }} -- --locked
+        run: npm --prefix apps/tauri run tauri -- build --config src-tauri/tauri.preview.conf.json --config src-tauri/tauri.preview-macos.conf.json --bundles app,dmg --target ${{ matrix.target }} -- --locked
       - name: Verify signatures, inspect dmg and archive
         shell: bash
         run: |
           bundle="$CARGO_TARGET_DIR/${{ matrix.target }}/release/bundle"
-          app="$bundle/macos/fromd.app"
+          app="$bundle/macos/fromd Preview.app"
           dmgs=("$bundle"/dmg/*.dmg)
           test "${#dmgs[@]}" -eq 1
-          node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.3
+          node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.4 --bundleVersion 0.5.4d1 --identifier com.frowang.fromd.preview --name "fromd Preview" --executable fromd-preview
           # Validate the delivered copy too; never repair/re-sign artifacts here.
           hdiutil verify "${dmgs[0]}"
           (
@@ -83,20 +83,21 @@ jobs:
             hdiutil attach "${dmgs[0]}" -readonly -nobrowse -mountpoint "$mount" <<< 'y'
             test -L "$mount/Applications"
             test "$(readlink "$mount/Applications")" = /Applications
-            node apps/tauri/scripts/check-macos-artifact.mjs --app "$mount/fromd.app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.3
+            node apps/tauri/scripts/check-macos-artifact.mjs --app "$mount/fromd Preview.app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.4 --bundleVersion 0.5.4d1 --identifier com.frowang.fromd.preview --name "fromd Preview" --executable fromd-preview
           )
           # Ad-hoc is not notarization: spctl rejection is not a build failure.
           mkdir -p output/artifacts
-          ditto -c -k --keepParent "$app" 'output/artifacts/fromd-0.5.3-${{ matrix.arch }}.app.zip'
-          cp "${dmgs[0]}" output/artifacts/
+          ditto -c -k --keepParent "$app" 'output/artifacts/fromd-preview-0.5.4-preview.1-${{ matrix.arch }}.app.zip'
+          dmg_arch="${{ matrix.arch }}"; if [ "$dmg_arch" = x86_64 ]; then dmg_arch=x64; fi
+          cp "${dmgs[0]}" "output/artifacts/fromd-preview_0.5.4-preview.1_${dmg_arch}.dmg"
           node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: fromd-macos-${{ matrix.arch }}-0.5.3
+          name: fromd-preview-macos-${{ matrix.arch }}-0.5.4-preview.1
           path: output/artifacts/*
           if-no-files-found: error
   windows:
-    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == '' }}
+    if: ${{ github.ref == 'refs/heads/preview/fromd-0.5.4-preview.1' && (inputs.platform == 'all' || inputs.platform == 'windows' || inputs.platform == '' ) }}
     runs-on: windows-latest
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/output/cargo-target
@@ -113,18 +114,18 @@ jobs:
       - run: npm run test:tauri
       - run: cargo test --manifest-path apps/tauri/crates/document-store/Cargo.toml --locked
       - run: cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
-      - run: npm run tauri:installer:win
+      - run: npm run tauri:preview:win
       - name: Validate GUI executable
-        run: ./apps/tauri/scripts/check-windows-artifact.ps1 -Path "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/frowd-tauri.exe" -ExpectedVersion 0.5.3
+        run: ./apps/tauri/scripts/check-windows-artifact.ps1 -Path "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/fromd-preview.exe" -ExpectedVersion 0.5.4-preview.1 -ExpectedProductName "fromd Preview" -ExpectedBinaryName fromd-preview.exe
       - name: Archive installer and checksums
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force output/artifacts | Out-Null
-          Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/fromd_0.5.3_x64-setup.exe" output/artifacts/
+          Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/fromd Preview_0.5.4-preview.1_x64-setup.exe" output/artifacts/fromd-preview_0.5.4-preview.1_x64-setup.exe
           node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: fromd-windows-x64-0.5.3
+          name: fromd-preview-windows-x64-0.5.4-preview.1
           path: output/artifacts/*
           if-no-files-found: error
   release-assets:
@@ -138,13 +139,13 @@ jobs:
           node-version: '22.19.0'
       - uses: actions/download-artifact@v4
         with:
-          pattern: fromd-*-0.5.3
+          pattern: fromd-preview-*-0.5.4-preview.1
           path: output/artifacts
           merge-multiple: true
       - name: Regenerate a single checksum manifest for all platforms
         run: node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: fromd-release-assets-0.5.3
+          name: fromd-preview-release-assets-0.5.4-preview.1
           path: output/artifacts/*
           if-no-files-found: error

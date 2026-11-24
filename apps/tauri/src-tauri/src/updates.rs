@@ -194,6 +194,8 @@ fn download(source: &Source, candidate: &Candidate, root: &Path, mut progress: i
     Ok(Prepared { directory, path, hash })
 }
 fn main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    // All four IPC endpoints call this before networking, cache access or process launch.
+    crate::release_channel::require_stable_updates(&window.app_handle().config().identifier)?;
     if window.label() == "main" { Ok(()) } else { Err("只能由主窗口请求应用更新。".into()) }
 }
 #[tauri::command]

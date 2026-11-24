@@ -4,11 +4,13 @@ import {readdir,writeFile} from 'node:fs/promises'
 import {resolve,join} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
+const stableAsset=/^fromd(?:_\d+\.\d+\.\d+_(?:x64-setup\.exe|(?:aarch64|x64)\.dmg)|-\d+\.\d+\.\d+-(?:aarch64|x86_64)\.app\.zip)$/
+const previewAsset=/^fromd-preview(?:_\d+\.\d+\.\d+-preview\.[1-9]\d*_(?:x64-setup\.exe|(?:aarch64|x64)\.dmg)|-\d+\.\d+\.\d+-preview\.[1-9]\d*-(?:aarch64|x86_64)\.app\.zip)$/
 // One release manifest for the files in this archive, using the exact asset names.
 export async function releaseChecksums(directory){
  const root=resolve(directory)
  const names=(await readdir(root,{withFileTypes:true}))
-  .filter(entry=>entry.isFile()&&/^fromd(?:_\d+\.\d+\.\d+_(?:x64-setup\.exe|(?:aarch64|x64)\.dmg)|-\d+\.\d+\.\d+-(?:aarch64|x86_64)\.app\.zip)$/.test(entry.name))
+  .filter(entry=>entry.isFile()&&(stableAsset.test(entry.name)||previewAsset.test(entry.name)))
   .map(entry=>entry.name).sort()
  if(!names.length)throw Error('No fromd release assets in '+root)
  const lines=[]

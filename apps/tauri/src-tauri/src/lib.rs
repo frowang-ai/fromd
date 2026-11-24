@@ -2,6 +2,7 @@ use frowd_documents::filename::suggested_name;
 mod document_links;
 mod close_lifecycle;
 mod updates;
+mod release_channel;
 use close_lifecycle::{CloseState, CloseEvent, CloseAction};
 mod protocol_urls;
 mod file_import_host;
