@@ -57,7 +57,7 @@ npx playwright test -c playwright.pm-shared.config.mjs
 - `frowd-tauri` 二进制、`frowd-resource` / `frowd-pdf` 协议、`frowd:*` IPC 事件。
 - `frowd.tauri.reading-preferences.v1` 阅读设置键。
 
-更新源固定为公开仓库 `frowang-ai/fromd`，Windows 优先匹配 `fromd_<版本>_x64-setup.exe`，缺少时才匹配同一 Release 的旧 `frowd_<版本>_x64-setup.exe`。CI 在各平台产物和合并的 `fromd-release-assets-0.5.2` artifact 内生成 `SHA256SUMS.txt`；构建不自动发布 Release。
+更新源固定为公开仓库 `frowang-ai/fromd`，Windows 优先匹配 `fromd_<版本>_x64-setup.exe`，缺少时才匹配同一 Release 的旧 `frowd_<版本>_x64-setup.exe`。CI 在各平台产物和合并的 `fromd-release-assets-0.5.3` artifact 内生成 `SHA256SUMS.txt`；构建不自动发布 Release。
 
 NSIS 改名兼容回归可在 Windows 单独执行，不安装应用，不接触真实安装登记或快捷方式：
 

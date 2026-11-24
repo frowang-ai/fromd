@@ -2,14 +2,14 @@
 
 ## 下载
 
-到 [Releases](https://github.com/frowang-ai/fromd/releases/latest) 下载 `fromd_<版本>_x64-setup.exe`，同一页还有 `SHA256SUMS.txt`。
+**v0.5.3 正在准备发布**。发布后到 [Releases](https://github.com/frowang-ai/fromd/releases/latest) 下载 `fromd_0.5.3_x64-setup.exe` 和同页的 `SHA256SUMS.txt`；发布前该页面仍为 v0.5.2。
 
 ## 校验文件
 
 在下载目录打开 PowerShell：
 
 ```powershell
-Get-FileHash .\fromd_0.5.2_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\fromd_0.5.3_x64-setup.exe -Algorithm SHA256
 ```
 
 输出的 Hash 应该和 `SHA256SUMS.txt` 里对应的一行一致（大小写不影响）。不一致就不要运行，重新下载。
@@ -64,7 +64,7 @@ reg query "HKLM\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A
 
 想备份草稿，关闭程序后复制上面这个文件夹即可。
 
-从 **frowd Tauri 0.5.2** 改名升级到 **fromd**，数据目录不变：数据库仍为 `drafts.sqlite`，图片和附件仍在 `resources/objects`，阅读设置也沿用。文稿、未命名草稿、收起页面与附件无需导出或搬库。
+从 **Tauri 0.5.2（fromd 或旧名 frowd）** 升级到 **fromd 0.5.3**，数据目录不变：数据库仍为 `drafts.sqlite`，图片和附件仍在 `resources/objects`，阅读设置也沿用。文稿、未命名草稿、收起页面与附件无需导出或搬库。
 
 以下更早版本的数据还在原处，不会被读取或删除：
 
