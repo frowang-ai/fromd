@@ -3,7 +3,7 @@
 fromd 的正式产品代码分为三层：
 
 - **跨平台产品内核**：`packages/editor` 维护 Markdown、公式、选区、历史与完整文稿 PDF HTML；`apps/tauri/crates/document-store/src` 维护 SQLite、文档、资源、导入与搜索；`src/documents/coordinator.mjs` 串行协调保存、切页、导出和关闭。Rust 内核拥有自己的 `lib.rs`，不反向引用宿主源码。编辑包仅接收 `linkModifier` / `mathDoneShortcut` 参数，不导入 Tauri。
-- **薄平台壳**：`src/platform.mjs` 提供平台描述、快捷键匹配与显示；`WindowChrome.vue` 提供 Windows 自绘窗口栏和 macOS 紧凑工具栏；`src-tauri` 负责 IPC、对话框、协议、原生菜单、退出与分页打印。Windows 使用 WebView2，macOS 使用 WKWebView/AppKit。
+- **薄平台壳**：`src/platform.mjs` 提供平台描述、快捷键匹配与显示；`WindowChrome.vue` 承载平台窗口栏策略：Windows 使用自绘窗口栏，macOS 保留系统标题栏，文档工具由工作区提供；`src-tauri` 负责 IPC、对话框、协议、原生菜单、退出与分页打印。Windows 使用 WebView2，macOS 使用 WKWebView/AppKit。
 - **打包层**：共享 `tauri.conf.json` 保存身份、版本、安全策略与许可证；`tauri.windows.conf.json` 负责 NSIS、ICO 和无边框窗口；`tauri.macos.conf.json` 负责 APP/DMG、ICNS 和系统标题栏。Tauri 自动合并当前系统的配置，也可显式传 `--config`。平台文件中的完整窗口数组由 Node 测试核对共享字段，避免 JSON Merge Patch 导致尺寸或 label 丢失。
 
 ## 本机构建
