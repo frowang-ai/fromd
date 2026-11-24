@@ -97,6 +97,11 @@
     color: var(--md-text);
     overflow-wrap: break-word;
   }
+  /* Crepe's virtual cursor stores viewport coordinates in an absolutely positioned
+     widget. The app's CSS zoom scales that widget a second time, so let the
+     editable browser draw its native caret instead. */
+  .app-shell[data-theme] .writing-editor .ProseMirror.virtual-cursor-enabled { caret-color: var(--md-link); }
+  .app-shell[data-theme] .writing-editor .ProseMirror.virtual-cursor-enabled .prosemirror-virtual-cursor { display: none; }
   .app-shell[data-theme] .writing-editor .ProseMirror ::selection { background: var(--md-selection); }
   .app-shell[data-theme] .writing-editor .ProseMirror :is(h1,h2,h3,h4,h5,h6) {
     font-family: var(--md-font); font-weight: 600; line-height: 1.3;
