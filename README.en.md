@@ -54,7 +54,7 @@ Built on **Tauri 2 + Vue 3 + Milkdown (ProseMirror) + SQLite + Rust**. ~6.3 MB i
 
 ## Install & in-app update
 
-The source is prepared for **v0.5.3 (pending release)**. Packages will be available from [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/latest); until publication, that page still provides **v0.5.2**. Choose the package for your platform and chip:
+**v0.5.3 is available** from [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/tag/v0.5.3). Choose the package for your platform and chip:
 
 | Platform | Package | Notes |
 | --- | --- | --- |
@@ -64,7 +64,7 @@ The source is prepared for **v0.5.3 (pending release)**. Packages will be availa
 
 For a MacBook Air, check **Apple menu → About This Mac**: **Apple M-series → aarch64 (ARM64)**; **Intel → x64 (x86_64)**. Verify the download against `SHA256SUMS.txt` from the same official Release. Open the DMG, drag `fromd.app` into **Applications**, wait for the copy to finish, eject the DMG, then open `/Applications/fromd.app`.
 
-The pending **v0.5.3** release uses free **ad-hoc signing for the macOS APP**; the **DMG container remains unsigned**. It has no Developer ID signature or Apple notarization, and Gatekeeper may still block launch. Ad-hoc signing checks content integrity after signing. The old **v0.5.2** packages remain unsigned and not notarized; the Windows installer also remains unsigned.
+The **v0.5.3** release uses free **ad-hoc signing for the macOS APP**; the **DMG container remains unsigned**. It has no Developer ID signature or Apple notarization, and Gatekeeper may still block launch. Ad-hoc signing checks content integrity after signing. The old **v0.5.2** packages remain unsigned and not notarized; the Windows installer also remains unsigned.
 
 If macOS cannot verify the developer, verify the source and hash, then use **System Settings → Privacy & Security → Open Anyway** if available. A **“damaged”** message can also indicate a corrupt download or invalid signature: re-download, verify, and reinstall first. If the same message persists and you trust the verified app, the [installation guide](docs/install-macos.md#第一次打开) explains the optional, manual `xattr -dr com.apple.quarantine "/Applications/fromd.app"` command. It removes only this app's quarantine attribute, does not disable Gatekeeper globally, and cannot repair real corruption or an invalid signature. Stop and report a malware warning or persistent failure.
 

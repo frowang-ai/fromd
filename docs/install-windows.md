@@ -2,7 +2,7 @@
 
 ## 下载
 
-**v0.5.3 正在准备发布**。发布后到 [Releases](https://github.com/frowang-ai/fromd/releases/latest) 下载 `fromd_0.5.3_x64-setup.exe` 和同页的 `SHA256SUMS.txt`；发布前该页面仍为 v0.5.2。
+**v0.5.3 已发布**。到 [Releases](https://github.com/frowang-ai/fromd/releases/tag/v0.5.3) 下载 `fromd_0.5.3_x64-setup.exe` 和同页的 `SHA256SUMS.txt`。
 
 ## 校验文件
 

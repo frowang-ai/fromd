@@ -2,7 +2,7 @@
 
 ## 下载
 
-**v0.5.3 正在准备发布**。发布后到 [Releases](https://github.com/frowang-ai/fromd/releases/latest) 下载对应芯片的安装包；发布前该页面仍为 v0.5.2：
+**v0.5.3 已发布**。到 [Releases](https://github.com/frowang-ai/fromd/releases/tag/v0.5.3) 下载对应芯片的安装包：
 
 | Mac | 下载 |
 | --- | --- |
@@ -34,7 +34,7 @@ shasum -a 256 fromd_0.5.3_aarch64.dmg
 
 ## 第一次打开
 
-**待发布的 v0.5.3 对 APP 使用免费 ad-hoc 签名，DMG 容器本身未签名；没有 Developer ID 签名或苹果公证。** ad-hoc 用于校验签名后应用内容是否改变，不提供 Apple 认证的开发者身份，不能保证 Gatekeeper 直接放行。旧 v0.5.2 仍按未签名、未公证分发，新配置不会改变已下载的旧包。
+**v0.5.3 对 APP 使用免费 ad-hoc 签名，DMG 容器本身未签名；没有 Developer ID 签名或苹果公证。** ad-hoc 用于校验签名后应用内容是否改变，不提供 Apple 认证的开发者身份，不能保证 Gatekeeper 直接放行。旧 v0.5.2 仍按未签名、未公证分发，新配置不会改变已下载的旧包。
 
 ### 提示「无法验证开发者」或「Apple 无法检查是否包含恶意软件」
 
