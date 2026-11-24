@@ -11,7 +11,7 @@
 
 🌐 **简体中文 · [English](README.en.md)**
 
-[**下载正式版 · v0.5.3 待发布**](https://github.com/frowang-ai/fromd/releases/latest) · [**三大核心体验**](#三大核心体验) · [**定位对比**](#与其他工具的定位对比) · [**安装与更新**](#下载安装与应用内更新) · [**从源码构建**](#从源码构建) · [**常见问题**](docs/faq.md) · [**版本记录**](CHANGELOG.md) · [**提交反馈**](https://github.com/frowang-ai/fromd/issues/new/choose)
+[**下载正式版 · v0.5.3**](https://github.com/frowang-ai/fromd/releases/latest) · [**三大核心体验**](#三大核心体验) · [**定位对比**](#与其他工具的定位对比) · [**安装与更新**](#下载安装与应用内更新) · [**从源码构建**](#从源码构建) · [**常见问题**](docs/faq.md) · [**版本记录**](CHANGELOG.md) · [**提交反馈**](https://github.com/frowang-ai/fromd/issues/new/choose)
 
 ⭐ **如果 fromd 在你的日常写作、论文草稿或公式推导中帮到了你，欢迎点一颗 [Star](https://github.com/frowang-ai/fromd) —— 免费 MIT 开源，你的支持能让更多需要它的人看到。**
 
@@ -56,7 +56,7 @@ fromd 专注于把「随手开写、公式推导、干净排版、导出分享�
 
 ## 下载安装与应用内更新
 
-当前源码版本为 **v0.5.3（待发布）**。安装包发布后可在 [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/latest) 下载；发布前该页面仍提供 **v0.5.2**。请按平台和芯片选择：
+**v0.5.3 已发布**，可在 [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/tag/v0.5.3) 下载。请按平台和芯片选择：
 
 | 平台与芯片 | 安装包文件名 | 说明 |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ Get-FileHash .\fromd_0.5.3_x64-setup.exe -Algorithm SHA256
 shasum -a 256 fromd_0.5.3_aarch64.dmg
 ```
 
-待发布的 **v0.5.3** 对 macOS **APP 使用免费 ad-hoc 签名**，**DMG 容器未签名**；没有 Developer ID 签名或苹果公证，也不保证 Gatekeeper 放行。旧 **v0.5.2** 仍按未签名、未公证分发；Windows 安装包继续未签名。遇到「无法验证开发者」与「已损坏」时按安装说明分别处理，先核对来源/哈希并重新下载，不要关闭全局 Gatekeeper。
+**v0.5.3** 对 macOS **APP 使用免费 ad-hoc 签名**，**DMG 容器未签名**；没有 Developer ID 签名或苹果公证，也不保证 Gatekeeper 放行。旧 **v0.5.2** 仍按未签名、未公证分发；Windows 安装包继续未签名。遇到「无法验证开发者」与「已损坏」时按安装说明分别处理，先核对来源/哈希并重新下载，不要关闭全局 Gatekeeper。
 
 详细安装步骤、首次打开、数据位置与卸载说明：
 
