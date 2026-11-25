@@ -4,7 +4,18 @@ import {Schema,Slice,Fragment} from '@milkdown/kit/prose/model'
 import {EditorState,Plugin,TextSelection} from '@milkdown/kit/prose/state'
 import {tableNodes,tableEditing,CellSelection,tableEditingKey} from '@milkdown/kit/prose/tables'
 import {sliceResources} from '../../../packages/editor/src/writingResourcePaste.js'
-import {installWritingClipboard,snapshotPasteEvent} from '../../../packages/editor/src/writingClipboard.js'
+import {installWritingClipboard,snapshotPasteEvent,richFeatures} from '../../../packages/editor/src/writingClipboard.js'
+test('review hardbreak clipboard counts literal br outside code and retains explicit break counts',()=>{
+ const s=new Schema({nodes:{doc:{content:'block+'},text:{group:'inline'},paragraph:{content:'inline*',group:'block'},code_block:{content:'text*',group:'block',code:true},hardbreak:{inline:true,group:'inline',attrs:{isInline:{default:false}}}},marks:{strong:{},code:{code:true}}})
+ const p=s.nodes.paragraph.create(null,[s.text('a<br><BR /><br class="x"></br>'),s.text('<br/>',[s.marks.strong.create()]),s.text('<br>',[s.marks.code.create()]),s.nodes.hardbreak.create(),s.nodes.hardbreak.create({isInline:true})])
+ const doc=s.nodes.doc.create(null,[p,s.nodes.code_block.create(null,s.text('<br>'))])
+ const features=richFeatures(doc)
+ assert.equal(features.literalBr,3)
+ assert.equal(features.hardbreak,1)
+ assert.equal(features.code_block,1)
+ assert.equal(features['mark:code'],1)
+})
+
 const schema=new Schema({nodes:{doc:{content:'block+'},text:{group:'inline'},paragraph:{content:'inline*',group:'block'},image:{inline:true,group:'inline',attrs:{src:{}}},...tableNodes({tableGroup:'block',cellContent:'paragraph+'})}})
 const p=t=>schema.nodes.paragraph.create(null,t?schema.text(t):null),cell=t=>schema.nodes.table_cell.create(null,p(t)),row=(...t)=>schema.nodes.table_row.create(null,t.map(cell))
 const source=new Slice(Fragment.from(schema.nodes.table.create(null,[row('P','Q')])),0,0)

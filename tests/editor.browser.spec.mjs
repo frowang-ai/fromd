@@ -7,6 +7,58 @@ import { mathPasteMarkdown, mathPasteValues, mathPasteHtml } from './fixtures/wr
 import { createPaseoMarkdownClipboardContent } from './fixtures/paseo-clipboard.mjs'
 import { displayMathEditingSample } from './fixtures/writing-display-math.mjs'
 import { startWritingPreview } from './browser-harness/start-preview.mjs'
+import { tableBreakMarkdown } from './fixtures/writing-table-breaks.mjs'
+
+for (const mode of ['source', 'plain', 'paseo', 'html']) {
+  test(`表格显式换行保真 ${mode}`, async ({ page }) => {
+    await open(page, mode === 'source' ? tableBreakMarkdown : '')
+    if (mode !== 'source') await pasteContent(page, tableBreakMarkdown, mode === 'paseo'
+      ? createPaseoMarkdownClipboardContent(tableBreakMarkdown).html
+      : mode === 'html' ? new MarkdownIt({ html: true }).render(tableBreakMarkdown) : '')
+    const table = body(page).locator('table.children')
+    await expect(table.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(22)
+    await expect(table.locator('strong')).toHaveText('Stage 1')
+    await expect(table.locator('code').last()).toHaveText('<br>')
+    await expect(table.locator('code').nth(5)).toHaveText('<TEXT> | --body | --body-file <FILE|->')
+    if (mode === 'source') {
+      await expect(await source(page)).toHaveValue(tableBreakMarkdown)
+      await page.getByRole('button', { name: '返回正文' }).click()
+    }
+    await table.locator('td p').last().click()
+    await page.keyboard.press('End'); await page.keyboard.insertText('追加')
+    const raw = await source(page)
+    expect((await raw.inputValue()).match(/<br>/g).length).toBeGreaterThanOrEqual(22)
+    await page.getByRole('button', { name: '返回正文' }).click()
+    await expect(table.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(22)
+  })
+}
+
+test('表格显式换行 Shift+Enter 连续输入与源码往返保持单段落', async ({ page }) => {
+  await open(page, '| Header |\n| --- |\n| ab |')
+  const cell = body(page).locator('td').first()
+  await cell.locator('p').evaluate(el => {
+    el.closest('[contenteditable=true]').focus()
+    const range = document.createRange(); range.setStart(el.firstChild, 1); range.collapse(true)
+    getSelection().removeAllRanges(); getSelection().addRange(range)
+  })
+  await page.keyboard.press('Shift+Enter'); await page.keyboard.press('Shift+Enter')
+  await page.keyboard.insertText('中间')
+  await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(2)
+  await expect(cell.locator('p')).toHaveCount(1)
+  const raw = await source(page)
+  await expect(raw).toHaveValue(/a<br><br>中间b/)
+  await page.getByRole('button', { name: '返回正文' }).click()
+  await cell.locator('p').evaluate(el => {
+    el.closest('[contenteditable=true]').focus()
+    const range = document.createRange(); range.selectNodeContents(el); range.collapse(false)
+    getSelection().removeAllRanges(); getSelection().addRange(range)
+  })
+  await page.keyboard.press('Shift+Enter')
+  await expect(await source(page)).toHaveValue(/中间b<br><br>/)
+  await page.getByRole('button', { name: '返回正文' }).click()
+  await expect(cell.locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(3)
+})
+
 
 const textStyles = await readFile(new URL('./fixtures/writing-text-styles.md', import.meta.url), 'utf8')
 for (const mode of ['source', 'plain', 'html']) {

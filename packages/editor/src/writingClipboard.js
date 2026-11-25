@@ -14,14 +14,20 @@ export function describeWritingDocument(doc) {
   })
   return counts
 }
-function richFeatures(doc) {
+export function richFeatures(doc) {
   const features = {}
-  const add = key => { features[key] = (features[key] || 0) + 1 }
+  const add = (key, count = 1) => { features[key] = (features[key] || 0) + count }
   doc.descendants(node => {
     if (['table', 'table_row', 'table_cell', 'table_header', 'image', 'bullet_list', 'ordered_list', 'list_item', 'blockquote'].includes(node.type.name)) add(node.type.name)
+    if (node.type.name === 'hardbreak' && !node.attrs.isInline) add('hardbreak')
     if (['writing_comment_inline', 'writing_comment_block'].includes(node.type.name)) add('html_comment')
     if (node.type.name === 'code_block' && String(node.attrs.language).toLowerCase() !== 'latex') add('code_block')
+    if (node.isText && !node.marks.some(mark => mark.type.spec.code)) {
+      const count = [...node.text.matchAll(/<br\s*\/?\s*>/gi)].length
+      if (count) add('literalBr', count)
+    }
     for (const mark of node.marks) add(`mark:${mark.type.name}`)
+    return !node.type.spec.code
   })
   return features
 }
@@ -202,20 +208,27 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
                 || (witnessed && mathContent(candidate.content) !== mathContent(slice.content))
               const before = richFeatures(slice.content), after = richFeatures(candidate.content)
               const missingStrong = (after['mark:strong'] || 0) > (before['mark:strong'] || 0)
-              const preserved = witnessed ? candidate.content : (missingMath || missingStrong)
+              // A complete renderer witness also allows recovery of br that
+              // the parser consumes as a trailing terminator/empty placeholder.
+              // Code and escaped literals retain equal counts on both sides;
+              // without the witness, HTML stays authoritative.
+              const missingBreak = witnessed && ((after.hardbreak || 0) > (before.hardbreak || 0)
+                || (before.literalBr || 0) > (after.literalBr || 0))
+              const missingFormat = missingStrong || missingBreak
+              const preserved = witnessed ? candidate.content : (missingMath || missingFormat)
                 ? preservedClipboardContent(slice.content, candidate.content, { parse, normalize, toPaste: doc => markdownSlice(editorView, doc).content }) : null
               const preservesRichContent = preserved !== null
               const preservesMath = witnessed || (counts.inlineMath >= htmlCounts.inlineMath && counts.displayMath >= htmlCounts.displayMath)
-              if ((missingMath || missingStrong) && preservesRichContent && preservesMath) {
+              if ((missingMath || missingFormat) && preservesRichContent && preservesMath) {
                 if (preserved !== candidate.content) candidate = Slice.maxOpen(preserved)
                 route = missingMath ? 'markdown-math-recovery' : 'markdown-format-recovery'
-                reason = missingMath ? 'html-lost-explicit-math' : 'html-lost-explicit-strong'
+                reason = missingMath ? 'html-lost-explicit-math' : missingBreak ? 'html-lost-explicit-break' : 'html-lost-explicit-strong'
                 convertedDisplay = Math.max(0, counts.displayMath - htmlCounts.displayMath)
                 convertedInline = Math.max(0, counts.inlineMath - htmlCounts.inlineMath)
                 logWritingEvent('paste-route', { ...metadata, route, reason, normalized, convertedDisplay, convertedInline })
                 return {slice:candidate,inputSlice,event,recovered:true,literal,result}
               }
-              if (missingMath || missingStrong) reason = preservesMath ? 'html-has-additional-rich-content' : 'html-preserves-math'
+              if (missingMath || missingFormat) reason = preservesMath ? 'html-has-additional-rich-content' : 'html-preserves-math'
               else reason = 'html-format-already-preserved'
             }
           }

@@ -1,8 +1,46 @@
 import { strikethroughSchema } from '@milkdown/kit/preset/gfm'
+import { defaultHandlers } from 'mdast-util-to-markdown'
 
-// Only paired, attribute-free formatting tags are interpreted. Raw HTML is
-// never inserted into the editor; DOM output is built from fixed schema tags.
+// Only paired, attribute-free formatting tags and inline br are interpreted.
+// Raw HTML is never inserted; DOM output is built from fixed schema tags.
 const tags = ['u', 'mark', 'kbd']
+const isBreak = node => node.type === 'html' && /^<br\s*\/?\s*>$/i.test(node.value)
+const phrasingBlocks = new Set(['paragraph', 'heading', 'tableCell'])
+const blockContainers = new Set(['root', 'blockquote', 'listItem', 'footnoteDefinition'])
+
+function transformBreaks(node, parent, explicit = new Set()) {
+  // Leave both placeholder shapes to remarkPreserveEmptyLine, independent of
+  // plugin order. In particular a block child must never become an inline node.
+  if (isBreak(node) && parent && !blockContainers.has(parent.type)
+    && !(['paragraph', 'tableCell'].includes(parent.type) && parent.children.length === 1)) {
+    const linebreak = { type: 'break' }
+    explicit.add(linebreak)
+    return linebreak
+  }
+  if (!node.children) return node
+  node.children = node.children.map(child => transformBreaks(child, node, explicit))
+  if (phrasingBlocks.has(node.type)) {
+    // A final HTML br terminates the current line without starting a visible
+    // empty line. PM adds a caret-only trailingBreak, so omit that last br from
+    // its content (also through marks). The serializer restores a fixed br when
+    // an actual trailing empty line needs one; two source br then mean one PM br.
+    const removeLast = container => {
+      for (let index = container.children.length - 1; index >= 0; index--) {
+        const last = container.children[index]
+        if (last.type === 'writing_comment_inline') continue
+        if (explicit.has(last)) { container.children.splice(index, 1); return true }
+        if (last.children && removeLast(last)) {
+          if (!last.children.length) container.children.splice(index, 1)
+          return true
+        }
+        return false
+      }
+      return false
+    }
+    removeLast(node)
+  }
+  return node
+}
 const isComment = value => typeof value === 'string' && value.startsWith('<!--') && value.endsWith('-->') && !value.slice(4, -3).includes('-->')
 
 function splitHtmlComments(node) {
@@ -94,10 +132,24 @@ export function writingHtmlFormattingPlugins({ $mark, $remark, $nodeSchema }) {
     value += tracker.move(state.containerPhrasing(node, { ...tracker.current(), before: '>', after: '<' }))
     return value + `</${tag}>`
   }]))
+  handlers.break = (node, parent, state, info) => {
+    const next = parent?.children?.[parent.children.indexOf(node) + 1]
+    // A backslash/newline at an inline mark boundary can be escaped as text.
+    // Before HTML (notably comments), containerPhrasing can turn that newline
+    // into a space to avoid opening an HTML block, leaving a literal backslash.
+    // Fixed br is safe in both cases; ordinary unmarked prose keeps its syntax.
+    // Keep potential block openers (and indentation) on the same source line:
+    // extra line-start escapes can also change PDF typographer substitutions.
+    const startsBlock = next?.type === 'text' && /^(?:[ \t]|[#>*+`~=-]|\d{1,9}[.)](?:[ \t]|$))/.test(next.value)
+    const needsHtml = (parent && !phrasingBlocks.has(parent.type))
+      || state.stack.includes('tableCell') || state.stack.includes('headingAtx')
+      || next?.type === 'html' || info.after.startsWith('<') || startsBlock
+    return needsHtml ? state.createTracker(info).move('<br>') : defaultHandlers.break(node, parent, state, info)
+  }
   const remark = $remark('writingHtmlFormatting', () => function () {
     const data = this.data()
     data.toMarkdownExtensions = [...(data.toMarkdownExtensions || []), { handlers }]
-    return tree => { transformFormatting(tree); flattenRepeatedMarks(tree) }
+    return tree => { transformFormatting(tree); flattenRepeatedMarks(tree); transformBreaks(tree) }
   })
   const marks = tags.map(tag => $mark(`writing_${tag}`, () => ({
     // Like strong/emphasis, replacing the whole marked range keeps the style.
