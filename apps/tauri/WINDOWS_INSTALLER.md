@@ -1,7 +1,7 @@
 # Windows 安装包
 
 Tauri 客户端使用官方 NSIS 流程生成 Windows x64 Setup.exe，产品名为 `fromd`，
-当前源码版本 `0.5.3`（待发布），应用身份为 `com.frowang.frowd.tauri.v1`。
+当前源码版本 `0.5.4`，应用身份为 `com.frowang.frowd.tauri.v1`。
 这是 Tauri 安装入口，不迁移旧 Electron 文档库。安装包未签名，支持用户手动检查更新，
 不会公开发布或注册 `.md` 默认打开方式。
 
@@ -29,12 +29,12 @@ $env:CARGO_BUILD_JOBS = '2'
 npm ci --ignore-scripts
 npx --yes pnpm@10.11.0 --dir apps/tauri install --frozen-lockfile --store-dir "$taskRoot/output/pnpm-store"
 npm run tauri:installer
-& ./apps/tauri/scripts/check-windows-artifact.ps1 -Path output/cargo-target/x86_64-pc-windows-msvc/release/frowd-tauri.exe -ExpectedVersion 0.5.3
+& ./apps/tauri/scripts/check-windows-artifact.ps1 -Path output/cargo-target/x86_64-pc-windows-msvc/release/frowd-tauri.exe -ExpectedVersion 0.5.4
 ```
 
 `tauri:installer` 向后兼容转到 `tauri:installer:win`，执行 Tauri CLI 的 `build --config src-tauri/tauri.windows.conf.json --bundles nsis --target x86_64-pc-windows-msvc -- --locked`，
 包含前端类型检查、Vite 构建和原生 release 编译。
-默认产物在 `apps/tauri/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/fromd_0.5.3_x64-setup.exe`；
+默认产物在 `apps/tauri/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/fromd_0.5.4_x64-setup.exe`；
 若自定义 `CARGO_TARGET_DIR`，则从该目录查找相同的 target/release 子路径。
 `bundle.useLocalToolsDir=true` 将 NSIS 下载缓存留在本项目 target 下，
 不要求安装全局 NSIS。首次构建需要下载依赖及 Tauri 官方 NSIS 工具。

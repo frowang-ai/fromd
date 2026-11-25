@@ -1,6 +1,6 @@
 # frowd 工作约定
 
-- 唯一桌面客户端为 Tauri 0.5.3（Windows + macOS，待发布）。旧 `apps/desktop` Electron 宿主、构建与更新链路已退役；历史只从 Git 和 `VALIDATION.md` 追溯，不恢复为当前入口。
+- 唯一桌面客户端为 Tauri 0.5.4（Windows + macOS）。旧 `apps/desktop` Electron 宿主、构建与更新链路已退役；历史只从 Git 和 `VALIDATION.md` 追溯，不恢复为当前入口。
 - 三层边界：共享 `packages/editor` + Rust `crates/document-store` + `coordinator.mjs` 产品逻辑；薄前端/原生平台壳；分平台打包与 CI。编辑包不得反向依赖 Tauri，平台手势由 props/参数传入。
 - 先读根 README 与 `apps/tauri/README.md`；现行桌面行为见 `DESKTOP_FEEDBACK.md`，打包/人工验收见 `WINDOWS_INSTALLER.md` 和 `MACOS_PACKAGING.md`。带归档说明的阶段记录不是当前契约。
 - 新功能保持单一职责。原有 Markdown 未编辑时保留原文；编辑后的序列化、重读、屏幕和 PDF 语义须一致。资源访问保持 docId 归属与受限协议，不增加任意路径/网络权限。
