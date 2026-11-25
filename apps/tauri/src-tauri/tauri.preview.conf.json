@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "fromd Preview",
+  "version": "0.5.4-preview.1",
+  "identifier": "com.frowang.fromd.preview",
+  "mainBinaryName": "fromd-preview",
+  "build": {
+    "beforeBuildCommand": "npm run build:preview"
+  },
+  "bundle": {
+    "shortDescription": "fromd Preview Markdown editor",
+    "createUpdaterArtifacts": false,
+    "windows": {
+      "nsis": {
+        "startMenuFolder": "fromd Preview",
+        "installerHooks": "nsis/preview-hooks.nsh"
+      }
+    },
+    "macOS": {
+      "bundleVersion": "0.5.4d1",
+      "infoPlist": "Info.preview.plist",
+      "dmg": { "background": "dmg/preview-background.png" }
+    }
+  }
+}

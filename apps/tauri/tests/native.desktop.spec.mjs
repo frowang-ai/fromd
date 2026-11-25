@@ -152,6 +152,82 @@ function seedFile(profile, id, file, markdown) {
   } finally { db.close() }
 }
 
+test('native preview blocks every stable-update IPC and persists synthetic pasted math through restart',async()=>{
+ test.skip(process.env.FROWD_DISTRIBUTION!=='preview','Requires the isolated preview debug executable')
+ const {profile,directory}=await fixture()
+ await mkdir(profile,{recursive:true});await writeFile(join(profile,'.frowd-update-test'),'synthetic preview')
+ let requests=0,app
+ const server=createHttpServer((_req,res)=>{requests++;res.end('{}')})
+ server.listen(0,'127.0.0.1');await once(server,'listening')
+ const feed=`http://127.0.0.1:${server.address().port}/latest`
+ try{
+  app=await launch(profile,{updateFeed:feed})
+  const page=app.page
+  await expect(page.locator('.brand span')).toHaveText('fromd Preview')
+  await expect(page.locator('.brand small')).toHaveText('0.5.4-preview.1')
+  const identity=await page.evaluate(async()=>({
+   identifier:await window.__TAURI_INTERNALS__.invoke('plugin:app|identifier'),
+   version:await window.__TAURI_INTERNALS__.invoke('plugin:app|version'),
+   name:await window.__TAURI_INTERNALS__.invoke('plugin:app|name'),
+  }))
+  expect(identity).toEqual({identifier:'com.frowang.fromd.preview',version:'0.5.4-preview.1',name:'fromd Preview'})
+  const nativePaths=await page.evaluate(async()=>{
+   const paths=[]
+   for(const directory of [14,15,16])paths.push(await window.__TAURI_INTERNALS__.invoke('plugin:path|resolve_directory',{directory}))
+   return paths
+  })
+  for(const path of nativePaths){expect(path).toContain('com.frowang.fromd.preview');expect(path).not.toContain('com.frowang.frowd.tauri.v1')}
+  expect(await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|title',{label:'main'}))).toBe('fromd Preview')
+  const errors={}
+  for(const command of ['check_updates','download_update','install_update','open_update_page']){
+   errors[command]=await page.evaluate(async command=>{
+    try{await window.__TAURI_INTERNALS__.invoke(command);return 'unexpected success'}catch(error){return String(error)}
+   },command)
+   expect(errors[command]).toContain('预览版不支持')
+  }
+  expect(requests).toBe(0)
+  expect(app.child.exitCode).toBeNull()
+  expect((await readdir(profile)).some(name=>name==='updates')).toBe(false)
+  await page.locator('.app-menu summary').filter({hasText:'文件'}).click()
+  await expect(page.getByRole('button',{name:'检查更新…',exact:true})).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const markdown=await readFile(join(root,'docs/preview-sample.md'),'utf8')
+  await body(page).click();await page.keyboard.press('Control+a')
+  await body(page).evaluate((element,text)=>{
+   const transfer=new DataTransfer();transfer.setData('text/plain',text)
+   element.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:transfer}))
+  },markdown)
+  await expect(body(page).locator('blockquote')).toHaveCount(1)
+  await expect(body(page).locator('.writing-math-block')).toHaveCount(1)
+  for(const zoom of [100,120]){
+   await page.keyboard.press('Control+0')
+   if(zoom===120){await page.keyboard.press('Control+=');await page.keyboard.press('Control+=')}
+   await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom',String(zoom))
+   const paragraph=body(page).locator('blockquote p').first()
+   await paragraph.click();await page.keyboard.insertText(`合成输入${zoom}`)
+   await expect(paragraph).toContainText(`合成输入${zoom}`)
+  }
+  await nameInput(page).fill('预览重启样本');await nameInput(page).press('Enter')
+  await page.getByRole('button',{name:'阅读设置',exact:true}).click()
+  await page.getByRole('combobox',{name:'主题',exact:true}).selectOption('dark')
+  await page.getByRole('button',{name:'关闭阅读设置',exact:true}).click()
+  await setMode(page,'source')
+  const saved=await source(page).inputValue()
+  expect(saved).toContain('\\frac');expect(saved).toContain('\\citep{synthetic2026}')
+  expect(saved).toContain('合成输入100');expect(saved).toContain('合成输入120')
+  await closeNormally(app);app=null
+  app=await launch(profile,{updateFeed:feed})
+  await setMode(app.page,'source');await expect(source(app.page)).toHaveValue(saved)
+  await expect(nameInput(app.page)).toHaveValue('预览重启样本')
+  // Page zoom is intentionally session-local in the existing app; reading preferences persist.
+  await expect(app.page.locator('.app-shell')).toHaveAttribute('data-zoom','100')
+  await expect(app.page.locator('.app-shell')).toHaveAttribute('data-theme','dark')
+  expect(requests).toBe(0)
+  await writeFile(join(directory,'preview-native-evidence.json'),JSON.stringify({native:true,mock:false,identity,nativePaths,errors,requests,profile,version:'0.5.4-preview.1',markdown:saved},null,2))
+  await closeNormally(app);app=null
+ }finally{await cleanup(app);await new Promise(resolve=>server.close(resolve))}
+})
+
 test('native update verifies download, refuses bad hash and spawn, preserves IME draft and resources on restart',async()=>{
  const {profile,directory}=await fixture()
  const installer=process.env.FROWD_TEST_INSTALLER

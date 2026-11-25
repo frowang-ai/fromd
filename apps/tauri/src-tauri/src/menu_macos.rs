@@ -2,18 +2,19 @@ use tauri::{menu::{Menu, MenuItem, PredefinedMenuItem, Submenu}, Emitter, Manage
 
 pub fn install(app: &tauri::App) -> tauri::Result<()> {
     let command = |id: &str, text: &str, accelerator: Option<&str>| MenuItem::with_id(app, id, text, true, accelerator);
-    let application = Submenu::with_items(app, "fromd", true, &[
-        &PredefinedMenuItem::about(app, Some("关于 fromd"), None)?,
-        &command("checkUpdates", "检查更新…", None)?,
+    let name = app.config().product_name.as_deref().unwrap_or("fromd");
+    let application = Submenu::with_items(app, name, true, &[
+        &PredefinedMenuItem::about(app, Some(&format!("关于 {name}")), None)?,
+        &MenuItem::with_id(app, "checkUpdates", "检查更新…", crate::release_channel::require_stable_updates(&app.config().identifier).is_ok(), None::<&str>)?,
         &PredefinedMenuItem::separator(app)?,
         &command("reading", "阅读设置…", Some("Cmd+,"))?,
         &PredefinedMenuItem::separator(app)?,
-        &PredefinedMenuItem::hide(app, Some("隐藏 fromd"))?,
+        &PredefinedMenuItem::hide(app, Some(&format!("隐藏 {name}")))?,
         &PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?,
         &PredefinedMenuItem::show_all(app, Some("显示全部"))?,
         &PredefinedMenuItem::separator(app)?,
         // Native Quit reaches RunEvent::ExitRequested, including Cmd+Q and Dock.
-        &PredefinedMenuItem::quit(app, Some("退出 fromd"))?,
+        &PredefinedMenuItem::quit(app, Some(&format!("退出 {name}")))?,
     ])?;
     let file = Submenu::with_items(app, "文件", true, &[
         &command("new", "新建页面", Some("Cmd+N"))?,

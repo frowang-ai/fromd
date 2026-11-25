@@ -59,7 +59,7 @@ export function checkMacosSignature(app,{platform=process.platform,run=spawnSync
  return {status:'verified',details:(result.stderr||result.stdout||'').trim()}
 }
 async function nonempty(path){const s=await stat(path);if(!s.isFile()||!s.size)fail(`Missing or empty artifact: ${path}`);return s.size}
-export async function checkMacosArtifact({app,dmg,arch,version='0.5.3',identifier='com.frowang.frowd.tauri.v1',minimumSystemVersion='11.0'},{verifySignature=checkMacosSignature}={}){
+export async function checkMacosArtifact({app,dmg,arch,version='0.5.3',identifier='com.frowang.frowd.tauri.v1',name='fromd',executable='frowd-tauri',bundleVersion,minimumSystemVersion='11.0'},{verifySignature=checkMacosSignature}={}){
  if(arch==='arm64')arch='aarch64'
  if(!['aarch64','x86_64','universal'].includes(arch))fail('arch must be aarch64, arm64, x86_64 or universal')
  const contents=join(resolve(app),'Contents'),plistPath=join(contents,'Info.plist')
@@ -70,11 +70,11 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.3',identifie
   if(process.platform!=='darwin')fail('Binary Info.plist requires macOS plutil; use XML plist for portable validation')
   xml=execFileSync('/usr/bin/plutil',['-convert','xml1','-o','-',plistPath],{encoding:'utf8'})
  }
- for(const [key,expected]of Object.entries({CFBundleName:'fromd',CFBundleExecutable:'frowd-tauri',CFBundleShortVersionString:version,CFBundleIdentifier:identifier,LSMinimumSystemVersion:minimumSystemVersion})){
+ for(const [key,expected]of Object.entries({CFBundleName:name,CFBundleExecutable:executable,CFBundleShortVersionString:version,CFBundleIdentifier:identifier,LSMinimumSystemVersion:minimumSystemVersion,...(bundleVersion?{CFBundleVersion:bundleVersion}:{})})){
   const actual=plistString(xml,key);if(actual!==expected)fail(`${key}: expected ${expected}, got ${actual}`)
  }
- const executable=join(contents,'MacOS','frowd-tauri')
- const architectures=machoArchitectures(await readFile(executable))
+ const executablePath=join(contents,'MacOS',executable)
+ const architectures=machoArchitectures(await readFile(executablePath))
  const actualArch=architectures.length===1?architectures[0]:'universal'
  const expected=arch==='universal'?['aarch64','x86_64']:[arch]
  if(architectures.length!==expected.length||!expected.every((value,index)=>architectures[index]===value))fail(`Mach-O architecture: expected exactly ${expected.join(', ')}, got ${architectures.join(', ')}`)
@@ -86,7 +86,7 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.3',identifie
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  const args=process.argv.slice(2),options={}
  try{
-  for(let i=0;i<args.length;i+=2){if(!['--app','--dmg','--arch','--version'].includes(args[i])||!args[i+1])fail('Usage: --app path.app --dmg path.dmg --arch aarch64|arm64|x86_64|universal [--version 0.5.3]');options[args[i].slice(2)]=args[i+1]}
+  for(let i=0;i<args.length;i+=2){if(!['--app','--dmg','--arch','--version','--identifier','--name','--executable','--bundleVersion'].includes(args[i])||!args[i+1])fail('Usage: --app path.app --dmg path.dmg --arch aarch64|arm64|x86_64|universal [--version 0.5.3] [--identifier id --name name --executable binary --bundleVersion value]');options[args[i].slice(2)]=args[i+1]}
   if(!options.app||!options.dmg||!options.arch)fail('Required: --app, --dmg, --arch')
   console.log(JSON.stringify(await checkMacosArtifact(options),null,2))
  }catch(error){console.error(error.message);process.exitCode=1}

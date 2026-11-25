@@ -1,7 +1,9 @@
 param(
     [Parameter(Mandatory = $true)][string]$Path,
     [ValidateSet(2, 3)][int]$ExpectedSubsystem = 2,
-    [string]$ExpectedVersion
+    [string]$ExpectedVersion,
+    [string]$ExpectedProductName,
+    [string]$ExpectedBinaryName
 )
 
 $ErrorActionPreference = 'Stop'
@@ -23,5 +25,11 @@ if ($machine -ne 0x8664 -or $optionalMagic -ne 0x20b) { throw 'Expected a Window
 if ($subsystem -ne $ExpectedSubsystem) { throw "Expected Subsystem=$ExpectedSubsystem, found $subsystem" }
 if ($ExpectedVersion -and ($version -ne $ExpectedVersion -or $artifact.VersionInfo.FileVersion -ne $ExpectedVersion)) {
     throw "Expected product/file version $ExpectedVersion, found $version / $($artifact.VersionInfo.FileVersion)"
+}
+if ($ExpectedProductName -and $artifact.VersionInfo.ProductName -ne $ExpectedProductName) {
+    throw "Expected product $ExpectedProductName, found $($artifact.VersionInfo.ProductName)"
+}
+if ($ExpectedBinaryName -and $artifact.Name -ne $ExpectedBinaryName) {
+    throw "Expected executable $ExpectedBinaryName, found $($artifact.Name)"
 }
 Write-Output 'PASS: Windows artifact matches the expected architecture, subsystem and requested version'

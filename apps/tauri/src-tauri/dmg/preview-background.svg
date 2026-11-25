@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="660" height="420" viewBox="0 0 660 420">
+  <rect width="660" height="420" fill="#f7f8f5"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif" text-anchor="middle">
+    <text x="330" y="58" font-size="28" font-weight="600" fill="#28382d">fromd Preview</text>
+    <text x="330" y="91" font-size="16" fill="#526356">独立预览版 · 与正式版并存</text>
+    <!-- Finder places the real app and Applications icons at (180, 200) and (480, 200). -->
+    <path d="M294 200 H366 M352 186 L366 200 L352 214" fill="none" stroke="#65836a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="330" y="324" font-size="18" fill="#28382d">拖入「应用程序」，再从那里打开</text>
+    <text x="330" y="353" font-size="14" fill="#526356">Drag fromd Preview to Applications, then open it there.</text>
+  </g>
+</svg>
