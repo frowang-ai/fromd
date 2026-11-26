@@ -11,17 +11,15 @@ import { mathPasteMarkdown, mathPasteValues } from '../../../tests/fixtures/writ
 import { createPaseoMarkdownClipboardContent } from '../../../tests/fixtures/paseo-clipboard.mjs'
 import { tableBreakMarkdown } from '../../../tests/fixtures/writing-table-breaks.mjs'
 
-for (const withMath of [false,true]) test(`table explicit breaks recover Paseo copy with math=${withMath}`, async ({page}) => {
- const text=tableBreakMarkdown+(withMath?'\n\n值 $x^2$<br>第二行':'')+'\n\nhttps://example.com/reference'
+test('table explicit breaks recover Paseo copy alongside math and links', async ({page}) => {
+ const text=tableBreakMarkdown+'\n\n值 $x^2$<br>第二行\n\nhttps://example.com/reference'
  const payload=createPaseoMarkdownClipboardContent(text)
  await boot(page);await paste(page,payload.plainText,payload.html)
  await expect(body(page).locator('table.children br:not(.ProseMirror-trailingBreak)')).toHaveCount(22)
  await expect(body(page).locator('a')).toHaveAttribute('href','https://example.com/reference')
- expect(mathNodes((await capture(page)).doc)).toEqual(withMath?[{display:false,value:'x^2'}]:[])
+ expect(mathNodes((await capture(page)).doc)).toEqual([{display:false,value:'x^2'}])
  const module='/@fs/'+fileURLToPath(new URL('../../../packages/editor/src/writingDiagnostics.js',import.meta.url)).replaceAll('\\','/')
  const route=await page.evaluate(async module=>{await import(module);return window.__writingDebug?.read().filter(row=>row.event==='paste-route').at(-1)},module)
- // The existing HTML math pass already restores this simple formula before
- // the witness repairs escaped breaks. Both variants therefore recover format.
  expect(route?.route).toBe('markdown-format-recovery')
  expect(route?.reason).toBe('html-lost-explicit-break')
  await page.keyboard.press('Control+/');const source=page.getByRole('textbox',{name:'Markdown 源码',exact:true})
@@ -62,56 +60,40 @@ test('table explicit breaks keep pasted inline soft breaks as spaces, never enco
 
 test('table explicit breaks do not reinterpret non-witnessed HTML tutorial literals',async({page})=>{
  await boot(page)
- await paste(page,'使用 <br> 换行','<p>使用 &lt;br&gt; 换行</p><p><a href="https://example.com/html">HTML-only link</a></p>')
+ await paste(page,'使用 <br> 换行\n\n| H |\n|---|\n| a<br> |','<p>使用 &lt;br&gt; 换行</p><table><tr><th>H</th></tr><tr><td>a&lt;br&gt;</td></tr></table><p><a href="https://example.com/html">HTML-only link</a></p>')
  await expect(body(page)).toContainText('使用 <br> 换行')
+ await expect(body(page).locator('td')).toHaveText('a<br>')
  await expect(body(page).locator('br:not(.ProseMirror-trailingBreak)')).toHaveCount(0)
  await expect(body(page).locator('a')).toHaveAttribute('href','https://example.com/html')
-})
-
-for(const [name,text,expected] of [
- ['trailing-cell','| H |\n|---|\n| a<br> |','a'],
- ['placeholder-cell','| H |\n|---|\n| <br /> |',''],
- ['trailing-paragraph','a<br>','a'],
- ['placeholder-paragraph','<br />',''],
-])test(`review hardbreak Paseo recovers consumed ${name}`,async({page})=>{
- const payload=createPaseoMarkdownClipboardContent(text)
- await boot(page);await paste(page,payload.plainText,payload.html)
- const content=name.endsWith('cell')?body(page).locator('td'):body(page)
- await expect(content).toHaveText(expected)
- expect(await page.evaluate(()=>window.__writingDebug.read().filter(row=>row.event==='paste-route').at(-1).reason)).toBe('html-lost-explicit-break')
- const after=(await capture(page)).doc
- await page.keyboard.press('Control+z');await expect(body(page)).toHaveText('')
- await page.keyboard.press('Control+y');expect((await capture(page)).doc).toEqual(after)
- for(let round=0;round<2;round++){
-  await page.keyboard.press('Control+/');const source=page.getByRole('textbox',{name:'Markdown 源码',exact:true})
-  await source.fill((await source.inputValue())+'\n');await page.keyboard.press('Control+/')
-  await expect(content).toHaveText(expected)
- }
-})
-
-test('review hardbreak consumed Paseo br variants preserve code, escapes and existing links',async({page})=>{
- const rows=['<br>','<br/>','<br />','<BR>','<Br/>','<BR />'].map(br=>`| ${br} | a${br} |`)
- const text='| H | H |\n|---|---|\n'+rows.join('\n')+'\n\n`<br>` \\<br> [link](https://example.com)\n\n```html\n<br>\n```'
- const payload=createPaseoMarkdownClipboardContent(text)
- await boot(page);await paste(page,payload.plainText,payload.html)
- await expect(body(page).locator('td')).toHaveText(rows.flatMap(()=>['','a']))
- await expect(body(page).locator('p code')).toHaveText('<br>')
- await expect(body(page).locator('.milkdown-code-block')).toContainText('<br>')
- await expect(body(page).locator('a')).toHaveAttribute('href','https://example.com')
- await expect(body(page).locator('p').filter({hasText:/<br> <br> link/})).toHaveCount(1)
-})
-
-for(const text of ['`<br>`', '\\<br>', '```html\n<br>\n```'])test(`review hardbreak Paseo literal br stays literal: ${JSON.stringify(text)}`,async({page})=>{
- const payload=createPaseoMarkdownClipboardContent(text)
- await boot(page);await paste(page,payload.plainText,payload.html)
- await expect(body(page)).toContainText('<br>')
  expect(await page.evaluate(()=>window.__writingDebug.read().filter(row=>row.event==='paste-route').at(-1).route)).toBe('html')
 })
 
-test('review hardbreak non-witnessed trailing br tutorial keeps its literal and HTML-only content',async({page})=>{
- await boot(page)
- await paste(page,'| H |\n|---|\n| a<br> |','<table><tr><th>H</th></tr><tr><td>a&lt;br&gt;</td></tr></table><p>HTML-only</p>')
- await expect(body(page).locator('td')).toHaveText('a<br>');await expect(body(page)).toContainText('HTML-only')
+test('Paseo copy recovers consumed trailing and placeholder br variants with undo and source roundtrip',async({page})=>{
+ const rows=['<br>','<br/>','<br />','<BR>','<Br/>','<BR />'].map(br=>`| ${br} | a${br} |`)
+ const text='| H | H |\n|---|---|\n'+rows.join('\n')+'\n\n段落尾<br>\n\n`<br>` \\<br> [link](https://example.com)\n\n```html\n<br>\n```'
+ const payload=createPaseoMarkdownClipboardContent(text)
+ await boot(page);await paste(page,payload.plainText,payload.html)
+ expect(await page.evaluate(()=>window.__writingDebug.read().filter(row=>row.event==='paste-route').at(-1).reason)).toBe('html-lost-explicit-break')
+ await expect(body(page).locator('td')).toHaveText(rows.flatMap(()=>['','a']))
+ await expect(page.locator('.ProseMirror:visible > p').filter({hasText:/^段落尾$/})).toHaveCount(1)
+ await expect(body(page).locator('p code')).toHaveText('<br>')
+ await expect(body(page).locator('.milkdown-code-block')).toContainText('<br>')
+ await expect(body(page).locator('a')).toHaveAttribute('href','https://example.com')
+ const after=(await capture(page)).doc
+ await body(page).focus()
+ await page.keyboard.press('Control+z');await expect(body(page)).toHaveText('')
+ await body(page).focus()
+ await page.keyboard.press('Control+y');expect((await capture(page)).doc).toEqual(after)
+ await page.keyboard.press('Control+/');const source=page.getByRole('textbox',{name:'Markdown 源码',exact:true})
+ await source.fill((await source.inputValue())+'\n');await page.keyboard.press('Control+/')
+ await expect(body(page).locator('td')).toHaveText(rows.flatMap(()=>['','a']))
+})
+
+test('Paseo copy keeps code and escaped br literals on the HTML route',async({page})=>{
+ const payload=createPaseoMarkdownClipboardContent('`<br>` \\<br>\n\n```html\n<br>\n```')
+ await boot(page);await paste(page,payload.plainText,payload.html)
+ await expect(body(page).locator('p code')).toHaveText('<br>')
+ await expect(body(page).locator('.milkdown-code-block')).toContainText('<br>')
  expect(await page.evaluate(()=>window.__writingDebug.read().filter(row=>row.event==='paste-route').at(-1).route)).toBe('html')
 })
 

@@ -21,4 +21,3 @@ export const flowBreakBoundaries = [
 ].map((next,index) => ({name:`next-${index}`,markdown:'a<br>'+next})).concat([
   {name:'trailing-comment',markdown:'a<br><br><!--hidden-->'},
 ])
-

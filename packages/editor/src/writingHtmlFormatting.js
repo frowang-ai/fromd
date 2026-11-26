@@ -1,5 +1,4 @@
 import { strikethroughSchema } from '@milkdown/kit/preset/gfm'
-import { defaultHandlers } from 'mdast-util-to-markdown'
 
 // Only paired, attribute-free formatting tags and inline br are interpreted.
 // Raw HTML is never inserted; DOM output is built from fixed schema tags.
@@ -144,7 +143,7 @@ export function writingHtmlFormattingPlugins({ $mark, $remark, $nodeSchema }) {
     const needsHtml = (parent && !phrasingBlocks.has(parent.type))
       || state.stack.includes('tableCell') || state.stack.includes('headingAtx')
       || next?.type === 'html' || info.after.startsWith('<') || startsBlock
-    return needsHtml ? state.createTracker(info).move('<br>') : defaultHandlers.break(node, parent, state, info)
+    return state.createTracker(info).move(needsHtml ? '<br>' : '\\\n')
   }
   const remark = $remark('writingHtmlFormatting', () => function () {
     const data = this.data()

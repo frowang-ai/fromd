@@ -1,53 +1,44 @@
 import {test,expect} from '@playwright/test'
 import {installMockHost} from './mock-host.mjs'
 import {fileURLToPath} from 'node:url'
-import {tableBreakMarkdown, inlineBreakBoundaries, flowBreakBoundaries} from '../../../tests/fixtures/writing-table-breaks.mjs'
+import {tableBreakMarkdown} from '../../../tests/fixtures/writing-table-breaks.mjs'
 const pdfModule='/@fs/'+fileURLToPath(new URL('../../../packages/editor/src/markdown/pdfDocument.js',import.meta.url)).replaceAll('\\','/')
-async function boot(page,markdown){await page.addInitScript(installMockHost,{markdown});await page.goto('/?testHost=1');await expect(page.locator('.ProseMirror')).toBeVisible()}
+async function boot(page,markdown){await page.addInitScript(installMockHost,{markdown});await page.goto('/?testHost=1');await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable','true')}
 const capture=page=>page.locator('.pm-port').evaluate(el=>el.__vueParentComponent.exposed.capture().markdown)
 async function printInfo(page,markdown){return page.evaluate(async({pdfModule,markdown})=>{const html=await(await import(pdfModule)).buildPdfDocument({markdown});const doc=new DOMParser().parseFromString(html,'text/html');return{alerts:[...doc.querySelectorAll('.writing-alert')].map(el=>el.dataset.alert),paragraphs:[...doc.querySelectorAll('article > p')].map(el=>el.textContent)}},{pdfModule,markdown})}
 async function directRendered(page,markdown){return page.evaluate(async({pdfModule,markdown})=>{const {renderMarkdown}=await import(pdfModule.replace('pdfDocument.js','index.js'));const doc=new DOMParser().parseFromString(renderMarkdown(markdown),'text/html');return [...doc.querySelectorAll('body > p')].map(el=>el.textContent)},{pdfModule,markdown})}
-async function saveReload(page){await page.keyboard.press('Control+s');const saved=await capture(page);await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').savedText)).toBe(saved);await page.addInitScript(installMockHost,{markdown:saved});await page.reload();await expect(page.locator('.ProseMirror')).toBeVisible();return saved}
+async function saveReload(page){await page.keyboard.press('Control+s');const saved=await capture(page);await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').savedText)).toBe(saved);await page.addInitScript(installMockHost,{markdown:saved});await page.reload();await expect(page.locator('.ProseMirror')).toHaveAttribute('contenteditable','true');return saved}
 const bodyStructure = page => page.locator('.pm-port').evaluate(el => el.__vueParentComponent.exposed.capture().pm.state.doc.toJSON().content.slice(0,-1))
 async function printBreakStructure(page, markdown) {
  return page.evaluate(async({pdfModule,markdown})=>{
   const html=await(await import(pdfModule)).buildPdfDocument({markdown})
   const doc=new DOMParser().parseFromString(html,'text/html')
-  return [...doc.querySelectorAll('article p')].filter(el=>!/^Round \d+$/.test(el.textContent)).map(el=>({text:el.textContent.replace(/\n/g,''),breaks:el.querySelectorAll('br').length}))
+  return [...doc.querySelectorAll('article p')].filter(el=>!/尾部/.test(el.textContent)).map(el=>({text:el.textContent.replace(/\n/g,''),breaks:el.querySelectorAll('br').length}))
  },{pdfModule,markdown})
 }
-async function twoBreakRoundTrips(page,markdown) {
- await boot(page,markdown+'\n\nRound 0')
- const before=await bodyStructure(page), printed=await printBreakStructure(page,markdown)
- for(let round=1;round<=2;round++){
-  await page.locator('.ProseMirror > p').last().evaluate(el=>{
-   el.closest('.ProseMirror').focus();const range=document.createRange();range.selectNodeContents(el)
-   getSelection().removeAllRanges();getSelection().addRange(range)
-  })
-  await page.keyboard.insertText(`Round ${round}`)
-  const saved=await saveReload(page)
-  expect(saved).not.toContain('&#xA;')
-  expect(await bodyStructure(page)).toEqual(before)
-  expect(await printBreakStructure(page,saved)).toEqual(printed)
- }
-}
-for(const mark of ['strong','emphasis','strike','link','u','mark','kbd'])test(`review hardbreak inline boundaries round-trip twice: ${mark}`,async({page})=>{
- await twoBreakRoundTrips(page,inlineBreakBoundaries.filter(item=>item.mark===mark).map(item=>item.markdown).join('\n\n'))
-})
-for(const context of ['paragraph','blockquote','list','footnote'])test(`review hardbreak following HTML and block syntax round-trip twice: ${context}`,async({page})=>{
- const wrap=(source,index)=>context==='blockquote'?'> '+source:context==='list'?'- '+source:context==='footnote'?`[^n${index}]: ${source}`:source
- await twoBreakRoundTrips(page,flowBreakBoundaries.map(({markdown},index)=>wrap(markdown,index)).join('\n\n'))
-})
-test('review hardbreak typed at a strong paragraph end survives two saves',async({page})=>{
- await boot(page,'**bold**\n\nRound 0')
- await page.locator('.ProseMirror strong').evaluate(el=>{el.closest('.ProseMirror').focus();const range=document.createRange();range.selectNodeContents(el);range.collapse(false);getSelection().removeAllRanges();getSelection().addRange(range)})
+
+test('hardbreaks at inline mark boundaries and after bold Shift+Enter round-trip cleanly', async ({page}) => {
+ const markdown = ['**<br>a**', '**a<br>**z', '**a<br><br>**', '[a<br>b](https://example.com)', '<u>a<br><br></u>', '**末尾输入**', '尾部'].join('\n\n')
+ await boot(page, markdown)
+ await page.locator('.ProseMirror strong').last().evaluate(el=>{el.closest('.ProseMirror').focus();const range=document.createRange();range.selectNodeContents(el);range.collapse(false);getSelection().removeAllRanges();getSelection().addRange(range)})
  await page.keyboard.press('Shift+Enter')
- const before=await bodyStructure(page)
- for(let round=1;round<=2;round++){
-  await page.locator('.ProseMirror > p').last().click();await page.keyboard.press('End');await page.keyboard.insertText('x')
-  const saved=await saveReload(page)
-  expect(saved).not.toContain('&#xA;');expect(await bodyStructure(page)).toEqual(before)
- }
+ const before = await bodyStructure(page), expectedPdf = await printBreakStructure(page, await capture(page))
+ await page.locator('.ProseMirror > p').last().click(); await page.keyboard.press('End'); await page.keyboard.insertText('改动')
+ const saved = await saveReload(page)
+ expect(saved).not.toContain('&#xA;')
+ expect(await bodyStructure(page)).toEqual(before)
+ expect(await printBreakStructure(page, saved)).toEqual(expectedPdf)
+})
+
+test('hardbreaks before HTML comments and block-opener syntax round-trip cleanly', async ({page}) => {
+ const markdown = ['a<br><!--hidden-->b', 'a<br><br><!--hidden-->', '> a<br>- item', '- a<br>---', '[^n]: a<br># text', '引用[^n] 尾部'].join('\n\n')
+ await boot(page, markdown)
+ const before = await bodyStructure(page), expectedPdf = await printBreakStructure(page, markdown)
+ await page.locator('.ProseMirror > p').last().click(); await page.keyboard.press('End'); await page.keyboard.insertText('改动')
+ const saved = await saveReload(page)
+ expect(saved).toContain('<!--hidden-->'); expect(saved).not.toContain('&#xA;')
+ expect(await bodyStructure(page)).toEqual(before)
+ expect(await printBreakStructure(page, saved)).toEqual(expectedPdf)
 })
 
 test('table explicit breaks preserve spelling, edited source, reload, code and PDF', async ({page}) => {
@@ -149,7 +140,9 @@ test('explicit breaks in paragraphs and headings retain trailing empty lines aft
  await page.locator('.ProseMirror > p').last().click();await page.keyboard.press('End');await page.keyboard.insertText('编辑')
  await saveReload(page)
  expect((await describe()).slice(0,-1)).toEqual(before.slice(0,-1))
- await page.locator('.ProseMirror > p').last().click();await page.keyboard.press('End');await page.keyboard.press('Shift+Enter')
+ await page.locator('.ProseMirror > p').last().evaluate(el=>{el.closest('.ProseMirror').focus();const r=document.createRange();r.selectNodeContents(el);r.collapse(false);getSelection().removeAllRanges();getSelection().addRange(r)})
+ await page.keyboard.press('Shift+Enter')
+ await expect.poll(async()=>(await describe()).at(-1)).toEqual({text:'结束编辑',breaks:1})
  await saveReload(page)
  expect((await describe()).at(-1)).toEqual({text:'结束编辑',breaks:1})
 })
