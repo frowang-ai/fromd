@@ -25,7 +25,13 @@ const theme = CodeView.theme({
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--md-selection, #cbdcf1)' },
 })
 
+// PM history retains the immutable node versions. Attach only their CM ranges,
+// not another undo stack; entries disappear with the corresponding history nodes.
+const historySelections = new WeakMap()
+
 export function frontMatterView(initial, view, getPos, onBlocked) {
+  let selections = historySelections.get(view)
+  if (!selections) historySelections.set(view, selections = new WeakMap())
   let node = initial, syncing = false, destroyed = false, composing = false, active = false, restoreFocus = false
   const dom = document.createElement('div'); dom.className = 'writing-frontmatter-block'; dom.contentEditable = 'false'
   const surface = document.createElement('div'); surface.className = 'writing-frontmatter'
@@ -44,6 +50,7 @@ export function frontMatterView(initial, view, getPos, onBlocked) {
 
   function travel(action) {
     if (!view.editable || composing || code.composing) return true
+    selections.set(node, code.state.selection.main)
     action(view.state, view.dispatch.bind(view)); return true
   }
   function leave(direction) {
@@ -115,6 +122,7 @@ export function frontMatterView(initial, view, getPos, onBlocked) {
       if (!update.docChanged || syncing || destroyed || !view.editable) return
       const pos = getPos()
       if (typeof pos !== 'number' || view.state.doc.nodeAt(pos)?.type !== node.type) return
+      selections.set(node, update.startState.selection.main)
       const value = parts(node.attrs.source), text = update.state.doc.toString()
       const source = value.opening + (text ? text + '\n' : '') + value.closing
       let tr = view.state.tr
@@ -124,6 +132,7 @@ export function frontMatterView(initial, view, getPos, onBlocked) {
       tr.setNodeMarkup(pos, undefined, { ...node.attrs, source })
       tr.setSelection(NodeSelection.create(tr.doc, pos))
       view.dispatch(tr)
+      selections.set(node, update.state.selection.main)
     }),
   ] }) })
   function enter(at = 'end') {
@@ -164,7 +173,7 @@ export function frontMatterView(initial, view, getPos, onBlocked) {
       node = next
       const value = parts(node.attrs.source); renderFences(value)
       if (code.state.doc.toString() !== value.content) {
-        const selection = code.state.selection.main
+        const selection = selections.get(node) || code.state.selection.main
         syncing = true
         try { code.dispatch({ changes: { from: 0, to: code.state.doc.length, insert: value.content }, selection: { anchor: Math.min(selection.anchor, value.content.length), head: Math.min(selection.head, value.content.length) } }) }
         finally { syncing = false }

@@ -33,6 +33,49 @@ async function clickYamlText(page, text, atEnd = false) {
   await page.mouse.click(point.x, point.y)
 }
 
+test('focusing metadata-only YAML at EOF keeps its bytes until continuing into the body', async ({ page }) => {
+  const original = '---\nname: original\n---'
+  await boot(page, original)
+  expect(await capture(page)).toBe(original)
+  await clickYamlText(page, 'original', true)
+  expect(await capture(page)).toBe(original)
+  await page.keyboard.press('Control+z'); expect(await capture(page)).toBe(original)
+  await page.keyboard.press('Control+s')
+  await expect.poll(() => page.evaluate(() => window.__FROWD_TEST_HOST__.rows.get('a').savedText)).toBe(original)
+  await page.locator('.tab-title').filter({ hasText: '公式推导' }).click()
+  await page.locator('.tab-title').filter({ hasText: '方案讨论' }).click()
+  expect(await capture(page)).toBe(original)
+  await expect(page.locator('.ProseMirror > p')).toHaveCount(0)
+  await clickYamlText(page, 'original', true); await page.keyboard.press('ArrowDown')
+  await page.keyboard.insertText('New body')
+  expect(await capture(page)).toBe(original + '\n\nNew body\n')
+})
+
+for (const location of ['end', 'middle']) test(`YAML redo restores the editing caret (${location})`, async ({ page }) => {
+  await boot(page, '---\nname: original\n---\n\nBody\n')
+  await clickYamlText(page, location === 'end' ? 'original' : 'orig', true)
+  const caret = () => page.locator('.pm-port').evaluate(el => {
+    const { anchor, head } = el.__vueParentComponent.exposed.capture().pm.embedded.find(view => view.kind === 'frontmatter')
+    return { anchor, head }
+  })
+  const before = await caret()
+  await page.keyboard.insertText('abc')
+  const edited = await capture(page), after = await caret()
+  if (location === 'middle') {
+    await page.locator('.tab-title').filter({ hasText: '公式推导' }).click()
+    await page.locator('.tab-title').filter({ hasText: '方案讨论' }).click()
+    await expect(page.getByRole('textbox', { name: 'YAML 元数据', exact: true })).toBeFocused()
+  }
+  await page.keyboard.press('Control+z')
+  expect(await capture(page)).toContain('name: original\n')
+  expect(await caret()).toEqual(before)
+  await page.keyboard.press('Control+y')
+  expect(await capture(page)).toBe(edited)
+  expect(await caret()).toEqual(after)
+  await page.keyboard.insertText('Z')
+  expect(await capture(page)).toContain(location === 'end' ? 'name: originalabcZ\n' : 'name: origabcZinal\n')
+})
+
 test('YAML text is directly editable without opening full source', async ({ page }) => {
   const original = '\uFEFF---  \r\nname: original\r\nnotes: >-\r\n  first line\r\n---\t\r\n\r\n\r\nBody\n'
   await boot(page, original)
