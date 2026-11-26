@@ -5,14 +5,14 @@
       <span class="save-status" role="status">{{ saveStatus }}</span>
     </div>
     <textarea v-show="sourceMode" ref="sourceInput" v-model="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" @input="emit('change', { markdown: source })" />
-    <ProbeWritingEditor v-show="!sourceMode" ref="editor" :model-value="document.markdown" @update:model-value="onMarkdown" @ready="emit('ready', $event)" />
+    <ProbeWritingEditor v-show="!sourceMode" ref="editor" :model-value="document.markdown" @update:model-value="onMarkdown" @ready="emit('ready', $event)" @edit-source="emit('edit-source')" />
   </section>
 </template>
 <script setup>
 import { nextTick, ref } from 'vue'
 import ProbeWritingEditor from '@frowang/editor'
 const props = defineProps({ document: { type: Object, required: true }, active: Boolean, saveStatus: String })
-const emit = defineEmits(['change', 'ready'])
+const emit = defineEmits(['change', 'ready', 'edit-source'])
 const editor = ref(null), sourceInput = ref(null), source = ref(''), sourceMode = ref(false)
 function onMarkdown(markdown) {
   // A delayed editor event must not overwrite newer text entered in source mode.

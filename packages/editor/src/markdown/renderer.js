@@ -7,6 +7,7 @@ import texmath from 'markdown-it-texmath'
 import katex from 'katex'
 import footnote from 'markdown-it-footnote'
 import { markdownAlerts } from './extensions.js'
+import { leadingFrontMatter, maskFrontMatter } from './frontmatter.js'
 import { fixAutolinkCjkBoundary } from './autolinkCjk.js'
 
 /**
@@ -24,6 +25,17 @@ export function createMarkdownRenderer() {
       return `<pre class="language-${lang}"><code>${escapeHtml(str)}</code></pre>`
     }
   })
+
+  // Before block parsing, protect literal YAML from Markdown/HTML/math rules.
+  md.core.ruler.before('block', 'frowd-frontmatter', state => {
+    if (state.inlineMode) return
+    const front = leadingFrontMatter(state.src)
+    if (!front) return
+    const token = new state.Token('frowd_frontmatter', 'pre', 0)
+    token.block = true; token.content = front.raw.replace(/^\uFEFF/, '')
+    state.tokens.push(token); state.src = maskFrontMatter(state.src)
+  })
+  md.renderer.rules.frowd_frontmatter = (tokens, index) => `<pre class="writing-frontmatter"><code>${escapeHtml(tokens[index].content)}</code></pre>\n`
 
   // 添加数学公式支持
   md.use(texmath, {

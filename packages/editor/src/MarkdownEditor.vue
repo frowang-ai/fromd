@@ -23,6 +23,7 @@ import { serializeNoteNestedMath, replaceNoteMathInputRules } from './compatibil
 import { normalizeWritingPastedMath } from './writingMathCompatibility.js'
 import { normalizeWritingMarkdown } from './writingMarkdownCompatibility.js'
 import { serializeAlertMarkers } from './writingAlertSerialization.js'
+import { writingFrontMatter, serializeFrontMatter, installFrontMatterView, frontMatterSelection } from './writingFrontMatter.js'
 import { isAllowedResourceUrl } from './markdown/sanitize.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
 import { installWritingMarkdownViews, writingMarkdownExtensions, mermaidCodeLanguage } from './writingMarkdownExtensions.js'
@@ -49,7 +50,7 @@ import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste', 'edit-source'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -133,6 +134,11 @@ function setEditable(value) {
 function revealMarkdown(offset, needle = '') {
   if (!created || !activeSession) return false
   const v = view(), markdown = getMarkdown()
+  const metadata = frontMatterSelection(v.state.doc, offset)
+  if (metadata) {
+    v.dispatch(v.state.tr.setSelection(metadata).scrollIntoView())
+    return false // Metadata is literal source; the host retains its exact source range.
+  }
   const range = markdownRange(v.state.doc, editor.editor.ctx.get(core.remarkCtx).parse(markdown), markdown, offset, needle)
   if (!range) return false
   v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, range.from, range.to)).scrollIntoView())
@@ -285,7 +291,7 @@ onMounted(async () => {
     await configureWritingTables(editor.editor)
     configureWritingLineBreaks(editor.editor)
     if (disposed) return
-    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils)).use(writingMarkdownExtensions)
+    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils)).use(writingMarkdownExtensions).use(writingFrontMatter)
     editor.editor.use(imageSchema.extendSchema(previous => ctx => {
       const schema = previous(ctx)
       return { ...schema, parseDOM: schema.parseDOM.map(rule => rule.tag === 'img[src]' ? {
@@ -312,7 +318,7 @@ onMounted(async () => {
           logWritingEvent('markdown-parsed', { editorId, textLength: markdown.length, normalized: normalized !== markdown, ...(doc ? describeWritingDocument(doc) : {}) })
           return doc
         })
-        ctx.set(core.serializerCtx, doc => serializeAlertMarkers(serializeNoteNestedMath(serializer(doc), remark), text => remark.parse(text)))
+        ctx.set(core.serializerCtx, doc => serializeFrontMatter(doc, body => serializeAlertMarkers(serializeNoteNestedMath(serializer(body), remark), text => remark.parse(text))))
         // Reuse the website's tested dollar-delimiter rules; this demo owns the
         // math UI and intentionally does not load Crepe's tooltip feature.
         const seed = new InputRule(/(?:\$)([^$]+)(?:\$)$/, () => null)
@@ -348,6 +354,7 @@ onMounted(async () => {
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view(), { doneShortcut: props.mathDoneShortcut })
     installWritingMarkdownViews(view())
+    installFrontMatterView(view(), () => emit('edit-source', { ...activeSession, offset: 0 }))
     installWritingListViews(view())
     installWritingListKeys(view())
     installWritingSelectionWrap(view(), () => props.isComposing?.() || false)

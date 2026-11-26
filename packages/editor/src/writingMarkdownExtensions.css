@@ -21,4 +21,11 @@
 .writing-editor .writing-alert > p:first-child { margin-top: .4em; }
 .writing-editor .writing-alert-marker { color: var(--alert-color); font-weight: 650; }
 .writing-editor .milkdown .ProseMirror blockquote.writing-alert::before { display: none; }
+.writing-editor .milkdown .ProseMirror .writing-frontmatter-block { margin: 1em 0; padding: 14px 18px 10px; border-radius: 6px; background: var(--md-elev, #f3f3f1); color: var(--md-text, #34383b); }
+.writing-editor .milkdown .ProseMirror .writing-frontmatter { margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: 1em/1.65 var(--editor-font-mono); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.writing-editor .writing-frontmatter-edit { display: block; margin-top: 8px; padding: 2px 0; border: 0; background: transparent; color: var(--md-muted, #65706a); font: inherit; font-size: 12px; cursor: pointer; }
+.writing-editor .writing-frontmatter-edit:hover { text-decoration: underline; }
+.writing-editor .writing-frontmatter-edit:focus-visible { outline: 2px solid var(--md-link, #32567b); outline-offset: 3px; }
+@media print { .writing-frontmatter-edit { display: none; } }
+
 .writing-editor .writing-mermaid-svg { display: block; max-width: 100%; height: auto; margin: .7em auto; background: #fff; color: #222; }

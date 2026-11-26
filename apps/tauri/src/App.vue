@@ -106,7 +106,7 @@
           <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
         <div class="editor-panel" :class="{ empty: !current }">
-          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" @request-source="editMetadataSource" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
         </div>
@@ -421,7 +421,18 @@ function insertResource(event,kind='auto'){
 function selectPage(id){return action(async()=>{await coordinator.activate(id);if(narrow.value)sidebarOpen.value=false})}
 function collapse(id){contextPage.value=null;return action(()=>coordinator.layout('shelve',id))}
 function contextLayout(name){const id=contextPage.value;return action(()=>coordinator.layout(name,id))}
-async function setMode(value){await action(()=>coordinator.run(async()=>{await editor.value.setMode(value);mode.value=value;await coordinator.flush()}))}
+async function setMode(value,expectedOwner=null){await action(()=>coordinator.run(async()=>{
+ const current=editor.value.currentOwner()
+ if(expectedOwner&&(current?.id!==expectedOwner.id||current.generation!==expectedOwner.generation))return
+ await editor.value.setMode(value);mode.value=value;await coordinator.flush()
+}))}
+async function editMetadataSource(event){
+ const owner=editor.value?.currentOwner()
+ if(!owner||owner.id!==event.id||owner.generation!==event.generation)return
+ await setMode('source',owner)
+ const current=editor.value?.currentOwner()
+ if(current?.id===owner.id&&current.generation===owner.generation&&current.viewState.mode==='source')editor.value.focus()
+}
 function scheduleView(){clearTimeout(viewTimer);viewTimer=setTimeout(()=>{if(!state.busy)coordinator.flush().catch(e=>coordinator.report(e))},250)}
 watch(()=>[current.value?.id,current.value?.title],([id,title],previous)=>{
  if(id!==previous?.[0]){nameEditingId.value=null;nameDraft.value=title||''}

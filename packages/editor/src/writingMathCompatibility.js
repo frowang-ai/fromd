@@ -1,3 +1,4 @@
+import { mapMarkdownBody } from './markdown/frontmatter.js'
 import { normalizeNoteBracketMath } from './compatibility/noteEditorCompatibility.js'
 import { recoverRenderedMath, recoverFragmentedMath, isPlainMathContainer } from './writingHtmlMath.js'
 
@@ -5,6 +6,9 @@ import { recoverRenderedMath, recoverFragmentedMath, isPlainMathContainer } from
 // an equation's standalone '=' / '-' can already have become a setext heading.
 // The initial AST is used only to protect literal code, HTML and existing math.
 export function normalizeWritingMath(markdown, parseMarkdown) {
+  return mapMarkdownBody(markdown, body => normalizeBodyMath(body, parseMarkdown))
+}
+function normalizeBodyMath(markdown, parseMarkdown) {
   const protectedRanges = []
   function protect(node) {
     if (['code', 'inlineCode', 'html', 'math', 'inlineMath', 'image', 'definition', 'link'].includes(node.type)) {

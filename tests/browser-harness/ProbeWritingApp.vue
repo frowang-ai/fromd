@@ -18,7 +18,7 @@
     </header>
     <div v-if="message" class="notice" role="status">{{ message }}</div>
     <template v-for="doc in documents" :key="doc.id">
-      <ProbeWritingDocument v-if="visited.has(doc.id)" :ref="instance => setSession(doc.id, instance)" :document="doc" :active="doc.id === activeId" :save-status="saveStatus" @change="patchDocument(doc.id, $event)" @ready="ready[doc.id] = $event" />
+      <ProbeWritingDocument v-if="visited.has(doc.id)" :ref="instance => setSession(doc.id, instance)" :document="doc" :active="doc.id === activeId" :save-status="saveStatus" @change="patchDocument(doc.id, $event)" @ready="ready[doc.id] = $event" @edit-source="toggleSource" />
     </template>
   </div>
 </template>

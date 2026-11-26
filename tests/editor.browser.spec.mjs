@@ -8,7 +8,50 @@ import { mathPasteMarkdown, mathPasteValues, mathPasteHtml } from './fixtures/wr
 import { createPaseoMarkdownClipboardContent } from './fixtures/paseo-clipboard.mjs'
 import { displayMathEditingSample } from './fixtures/writing-display-math.mjs'
 import { startWritingPreview } from './browser-harness/start-preview.mjs'
+import { yamlMarkdown } from './fixtures/writing-frontmatter.mjs'
 import { inlineCodeWrapMarkdown, measureInlineCodeWrap, expectInlineCodeWrap } from './fixtures/writing-inline-code-wrap.mjs'
+
+for (const route of ['load', 'paste']) test(`YAML metadata stays literal through shared editor body edits (${route})`, async ({ page }) => {
+  const markdown = yamlMarkdown.replaceAll('\r\n', '\n')
+  await open(page, route === 'load' ? markdown : '')
+  if (route === 'paste') await pasteContent(page, markdown)
+  await expect(body(page).locator('.writing-frontmatter')).toContainText('description: >-\n  开始重要任务')
+  await expect(body(page).locator('h1')).toHaveText('Agent Memory')
+  await expect(body(page).locator('h2,hr,.writing-math-inline')).toHaveCount(0)
+  await body(page).locator('p').filter({ hasText: '正文结尾' }).click()
+  await page.keyboard.press('End'); await page.keyboard.insertText('追加')
+  const raw = await source(page)
+  expect((await raw.inputValue()).split('# Agent Memory')[0]).toBe(markdown.split('# Agent Memory')[0])
+  await page.getByRole('button', { name: '返回正文' }).click()
+  await expect(body(page).locator('.writing-frontmatter')).toContainText('name: "agent-memory"')
+  await page.getByRole('button', { name: '编辑 YAML 源码', exact: true }).click()
+  await expect(raw).toBeFocused()
+  await raw.fill((await raw.inputValue()).replace('agent-memory', 'edited-yaml'))
+  await page.getByRole('button', { name: '返回正文' }).click()
+  await expect(body(page).locator('.writing-frontmatter')).toContainText('edited-yaml')
+})
+
+test('a YAML metadata-only document can grow a body without losing its closing fence', async ({ page }) => {
+  await open(page, '---\nname: empty-body\n...')
+  await expect(body(page).locator('.writing-frontmatter')).toBeVisible()
+  await body(page).focus(); await page.keyboard.press('Control+End'); await page.keyboard.press('Enter')
+  await page.keyboard.insertText('New body')
+  await expect(body(page).locator('p')).toContainText(['New body'])
+  const raw = await source(page)
+  await expect(raw).toHaveValue('---\nname: empty-body\n...\n\nNew body\n')
+})
+
+test('YAML pasted after prose follows ordinary Markdown semantics on screen and reopening', async ({ page }) => {
+  await open(page, 'Existing body\n\n')
+  await body(page).locator('p').first().click(); await page.keyboard.press('Control+End'); await page.keyboard.press('Enter')
+  await pasteContent(page, '---\nname: metadata\n---\n\nAfter paste')
+  await expect(body(page).locator('.writing-frontmatter')).toHaveCount(0)
+  const raw = await source(page), saved = await raw.inputValue()
+  expect(saved).toContain('name: metadata')
+  await page.getByRole('button', { name: '返回正文' }).click()
+  await expect(body(page).locator('.writing-frontmatter')).toHaveCount(0)
+  await expect(body(page)).toContainText('After paste')
+})
 
 test('inline code wraps within standalone table cells and prose', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 560, height: 950 })
