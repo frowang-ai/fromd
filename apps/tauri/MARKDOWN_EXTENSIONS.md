@@ -20,8 +20,13 @@
 
 共享 PDF 使用同一边界，以转义后的原文块打印 YAML，不套标题、不执行其中的 HTML 或公式。
 纯文本粘贴到文首可形成元数据，粘贴或移动到其他位置后按普通 Markdown 处理。
+粘贴到正文或表格时，其中的 Markdown 图片/附件按普通资源规则检查：已登记资源绑定到目标页，
+未知引用使整次粘贴取消；文首 YAML 中的引用仍是字面文本，不登记、不加载。
+正文模式下，若拖放或在 YAML 前新增块会激活其中的受管资源引用，本次操作会被阻止，
+并提示改用复制或剪切后粘贴，让资源检查先完成。
 回归入口为根 `tests/frontmatter.test.mjs`、共享 `tests/editor.browser.spec.mjs` 的 YAML 用例，
-以及 Tauri `tests/frontmatter.browser.spec.mjs`；真实安装和原生 PDF 物理分页需另行验收。
+以及 Tauri `tests/frontmatter.browser.spec.mjs`、`tests/frontmatter-resources.browser.spec.mjs`；
+真实安装和原生 PDF 物理分页需另行验收。
 
 ## Mermaid、脚注与提示块
 

@@ -3,6 +3,8 @@ import {Transform} from '@milkdown/kit/prose/transform'
 import {tableEditingKey,TableMap} from '@milkdown/kit/prose/tables'
 import { isRenderedMarkdownClipboard, preservedClipboardContent, mathContent } from './writingClipboardRecovery.js'
 import { logWritingEvent } from './writingDiagnostics.js'
+import { leadingFrontMatter } from './markdown/frontmatter.js'
+import { plainFrontMatterSlice, prepareFrontMatterInsertion } from './writingFrontMatter.js'
 
 export function describeWritingDocument(doc) {
   const counts = { displayMath: 0, inlineMath: 0, headings: 0, tables: 0 }
@@ -246,10 +248,29 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
   }
   function prepare(editorView,event,slice,options){
     const plan=prepareRaw(editorView,event,slice,options)
-    if(!plan.literal)plan.slice=compatibleTableSlice(editorView,plan.slice,plan.event)
+    if(!plan.literal){
+      const data=event.clipboardData,text=data?.getData('text/plain')
+      // Milkdown normally parses plain Markdown only at commit. YAML needs its
+      // actual nodes earlier, including when a paste displaces existing metadata.
+      if(text&&!data.getData('text/html')&&!data.getData('vscode-editor-data')&&
+        (leadingFrontMatter(text)||editorView.state.doc.firstChild?.type.name==='yaml_frontmatter')){
+        const doc=parse(text)
+        if(doc){plan.slice=markdownSlice(editorView,doc);plan.recovered=true}
+      }
+      const {$from}=editorView.state.selection
+      let inTable=false
+      for(let depth=$from.depth;depth>0;depth--)if($from.node(depth).type.spec.tableRole==='table')inTable=true
+      if(inTable){
+        const ordinary=plainFrontMatterSlice(plan.slice,parse)
+        if(ordinary!==plan.slice){plan.slice=ordinary;plan.recovered=true}
+      }
+      plan.slice=compatibleTableSlice(editorView,plan.slice,plan.event)
+    }
     // A parsed LaTeX source selection uses the normal table paste path too.
     plan.table=plan.literal||(!plan.recovered&&event.clipboardData?.getData('vscode-editor-data'))?null:prepareTablePaste(editorView,event,plan.slice)
-    plan.resourceSlice=plan.table?.resourceSlice??plan.slice
+    if(!plan.literal&&!plan.table?.handled&&(!event.clipboardData?.getData('vscode-editor-data')||plan.recovered))
+      plan.insertion=prepareFrontMatterInsertion(editorView.state,plan.slice,parse)
+    plan.resourceSlice=plan.table?.resourceSlice??plan.insertion?.resourceSlice??plan.slice
     return plan
   }
   function commit(editorView,plan,{authorized=false}={}){
@@ -258,6 +279,11 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
     if(table?.handled){
       if(editorView.state!==table.state)throw Error('正文或选区已变化，请重新粘贴。')
       editorView.dispatch(table.transaction)
+      plan.result?.();return true
+    }
+    if(plan.insertion){
+      if(editorView.state!==plan.insertion.state)throw Error('粘贴准备后正文已变化，请重新粘贴。')
+      editorView.dispatch(plan.insertion.transaction)
       plan.result?.();return true
     }
     if(plan.recovered){
