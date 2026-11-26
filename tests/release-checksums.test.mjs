@@ -9,7 +9,7 @@ const output=fileURLToPath(new URL('../output/native-temp/',import.meta.url))
 test('release checksums cover exact renamed Windows/macOS archive names with no stale manifest entries',async()=>{
  await mkdir(output,{recursive:true});const dir=await mkdtemp(join(output,'release-sums-'))
  try{
-  const files=['fromd_0.5.5_x64-setup.exe','fromd_0.5.5_aarch64.dmg','fromd_0.5.5_x64.dmg','fromd-0.5.5-aarch64.app.zip','fromd-0.5.5-x86_64.app.zip']
+  const files=['fromd_0.5.6_x64-setup.exe','fromd_0.5.6_aarch64.dmg','fromd_0.5.6_x64.dmg','fromd-0.5.6-aarch64.app.zip','fromd-0.5.6-x86_64.app.zip']
   for(const file of files)await writeFile(join(dir,file),'synthetic-'+file)
   await writeFile(join(dir,'SHA256SUMS.txt'),'stale checksum')
   await writeFile(join(dir,'installer.part'),'partial file')

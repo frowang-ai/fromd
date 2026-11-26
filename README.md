@@ -11,7 +11,7 @@
 
 🌐 **简体中文 · [English](README.en.md)**
 
-[**下载正式版 · v0.5.5**](https://github.com/frowang-ai/fromd/releases/latest) · [**三大核心体验**](#三大核心体验) · [**定位对比**](#与其他工具的定位对比) · [**安装与更新**](#下载安装与应用内更新) · [**从源码构建**](#从源码构建) · [**常见问题**](docs/faq.md) · [**版本记录**](CHANGELOG.md) · [**提交反馈**](https://github.com/frowang-ai/fromd/issues/new/choose)
+[**下载正式版 · v0.5.6**](https://github.com/frowang-ai/fromd/releases/latest) · [**三大核心体验**](#三大核心体验) · [**定位对比**](#与其他工具的定位对比) · [**安装与更新**](#下载安装与应用内更新) · [**从源码构建**](#从源码构建) · [**常见问题**](docs/faq.md) · [**版本记录**](CHANGELOG.md) · [**提交反馈**](https://github.com/frowang-ai/fromd/issues/new/choose)
 
 ⭐ **如果 fromd 在你的日常写作、论文草稿或公式推导中帮到了你，欢迎点一颗 [Star](https://github.com/frowang-ai/fromd) —— 免费 MIT 开源，你的支持能让更多需要它的人看到。**
 
@@ -56,7 +56,7 @@ fromd 专注于把「随手开写、公式推导、干净排版、导出分享�
 
 ## 下载安装与应用内更新
 
-**版本 v0.5.5**，下载见 [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/tag/v0.5.5)。请按平台和芯片选择：
+**版本 v0.5.6**，下载见 [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/tag/v0.5.6)。请按平台和芯片选择：
 
 | 平台与芯片 | 安装包文件名 | 说明 |
 | --- | --- | --- |
@@ -70,15 +70,15 @@ MacBook Air 也分 Apple 芯片和 Intel：在苹果菜单 →「关于本机」
 
 ```powershell
 # Windows PowerShell
-Get-FileHash .\fromd_0.5.5_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\fromd_0.5.6_x64-setup.exe -Algorithm SHA256
 ```
 
 ```sh
 # macOS Terminal
-shasum -a 256 fromd_0.5.5_aarch64.dmg
+shasum -a 256 fromd_0.5.6_aarch64.dmg
 ```
 
-**v0.5.5** 对 macOS **APP 使用免费 ad-hoc 签名**，**DMG 容器未签名**；没有 Developer ID 签名或苹果公证，也不保证 Gatekeeper 放行。旧 **v0.5.2** 仍按未签名、未公证分发；Windows 安装包继续未签名。遇到「无法验证开发者」与「已损坏」时按安装说明分别处理，先核对来源/哈希并重新下载，不要关闭全局 Gatekeeper。
+**v0.5.6** 对 macOS **APP 使用免费 ad-hoc 签名**，**DMG 容器未签名**；没有 Developer ID 签名或苹果公证，也不保证 Gatekeeper 放行。旧 **v0.5.2** 仍按未签名、未公证分发；Windows 安装包继续未签名。遇到「无法验证开发者」与「已损坏」时按安装说明分别处理，先核对来源/哈希并重新下载，不要关闭全局 Gatekeeper。
 
 详细安装步骤、首次打开、数据位置与卸载说明：
 
@@ -90,7 +90,7 @@ shasum -a 256 fromd_0.5.5_aarch64.dmg
 
 fromd 默认不会在后台静默联网弹窗打扰你。需要查看新版本时，在 Windows 点击顶栏 **「文件 → 检查更新…」**，在 macOS 点击菜单栏 **「fromd → 检查更新…」**，左下角会弹出轻量状态提示：
 
-- **Windows 一键覆盖升级**：发现新版本后点击 **「立即更新」**，客户端会自动下载安装包并严格核对 `SHA256SUMS.txt` 哈希与可执行头，随后等待当前输入法上屏、把所有未保存草稿正文/标题/阅读位置完整刷入 SQLite 数据库，再拉起安装器直接覆盖升级。升级到 `fromd 0.5.5` 继续沿用正式版 Tauri 0.5.2 / 0.5.3 / 0.5.4（含旧名 `frowd`）的资料目录，保留文稿、收起页、图片附件与阅读设置；安装结果以安装器为准。
+- **Windows 一键覆盖升级**：发现新版本后点击 **「立即更新」**，客户端会自动下载安装包并严格核对 `SHA256SUMS.txt` 哈希与可执行头，随后等待当前输入法上屏、把所有未保存草稿正文/标题/阅读位置完整刷入 SQLite 数据库，再拉起安装器直接覆盖升级。升级到 `fromd 0.5.6` 继续沿用正式版 Tauri 0.5.2 / 0.5.3 / 0.5.4（含旧名 `frowd`）的资料目录，保留文稿、收起页、图片附件与阅读设置；安装结果以安装器为准。
 - **macOS 更新指引**：点击 **「前往下载更新」** 打开最新 Release 页面，下载对应芯片 DMG 拖入「应用程序」替换即可，本地文稿数据库完整保留。
 
 `0.5.4-preview.1` 使用独立的预览资料目录，不会自动迁入正式版；需要的文稿可先在预览版另存为 `.md`，再由正式版打开。

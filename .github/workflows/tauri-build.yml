@@ -57,7 +57,7 @@ jobs:
           app="$bundle/macos/fromd.app"
           dmgs=("$bundle"/dmg/*.dmg)
           test "${#dmgs[@]}" -eq 1
-          node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.5
+          node apps/tauri/scripts/check-macos-artifact.mjs --app "$app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.6
           # Validate the delivered copy too; never repair/re-sign artifacts here.
           hdiutil verify "${dmgs[0]}"
           (
@@ -83,16 +83,16 @@ jobs:
             hdiutil attach "${dmgs[0]}" -readonly -nobrowse -mountpoint "$mount" <<< 'y'
             test -L "$mount/Applications"
             test "$(readlink "$mount/Applications")" = /Applications
-            node apps/tauri/scripts/check-macos-artifact.mjs --app "$mount/fromd.app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.5
+            node apps/tauri/scripts/check-macos-artifact.mjs --app "$mount/fromd.app" --dmg "${dmgs[0]}" --arch '${{ matrix.arch }}' --version 0.5.6
           )
           # Ad-hoc is not notarization: spctl rejection is not a build failure.
           mkdir -p output/artifacts
-          ditto -c -k --keepParent "$app" 'output/artifacts/fromd-0.5.5-${{ matrix.arch }}.app.zip'
+          ditto -c -k --keepParent "$app" 'output/artifacts/fromd-0.5.6-${{ matrix.arch }}.app.zip'
           cp "${dmgs[0]}" output/artifacts/
           node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: fromd-macos-${{ matrix.arch }}-0.5.5
+          name: fromd-macos-${{ matrix.arch }}-0.5.6
           path: output/artifacts/*
           if-no-files-found: error
   windows:
@@ -115,16 +115,16 @@ jobs:
       - run: cargo test --manifest-path apps/tauri/src-tauri/Cargo.toml --locked
       - run: npm run tauri:installer:win
       - name: Validate GUI executable
-        run: ./apps/tauri/scripts/check-windows-artifact.ps1 -Path "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/frowd-tauri.exe" -ExpectedVersion 0.5.5
+        run: ./apps/tauri/scripts/check-windows-artifact.ps1 -Path "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/frowd-tauri.exe" -ExpectedVersion 0.5.6
       - name: Archive installer and checksums
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force output/artifacts | Out-Null
-          Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/fromd_0.5.5_x64-setup.exe" output/artifacts/
+          Copy-Item "$env:CARGO_TARGET_DIR/x86_64-pc-windows-msvc/release/bundle/nsis/fromd_0.5.6_x64-setup.exe" output/artifacts/
           node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: fromd-windows-x64-0.5.5
+          name: fromd-windows-x64-0.5.6
           path: output/artifacts/*
           if-no-files-found: error
   release-assets:
@@ -138,13 +138,13 @@ jobs:
           node-version: '22.19.0'
       - uses: actions/download-artifact@v4
         with:
-          pattern: fromd-*-0.5.5
+          pattern: fromd-*-0.5.6
           path: output/artifacts
           merge-multiple: true
       - name: Regenerate a single checksum manifest for all platforms
         run: node scripts/release-checksums.mjs output/artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: fromd-release-assets-0.5.5
+          name: fromd-release-assets-0.5.6
           path: output/artifacts/*
           if-no-files-found: error
