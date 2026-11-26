@@ -7,6 +7,42 @@ import { mathPasteMarkdown, mathPasteValues, mathPasteHtml } from './fixtures/wr
 import { createPaseoMarkdownClipboardContent } from './fixtures/paseo-clipboard.mjs'
 import { displayMathEditingSample } from './fixtures/writing-display-math.mjs'
 import { startWritingPreview } from './browser-harness/start-preview.mjs'
+import { inlineCodeWrapMarkdown, measureInlineCodeWrap, expectInlineCodeWrap } from './fixtures/writing-inline-code-wrap.mjs'
+
+test('inline code wraps within standalone table cells and prose', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 560, height: 950 })
+  await open(page, inlineCodeWrapMarkdown)
+  await expect(body(page).locator('td code')).toHaveCount(2)
+  await page.evaluate(() => document.fonts.ready)
+  const layout = await body(page).evaluate(measureInlineCodeWrap)
+  await testInfo.attach('inline-code-layout', { body: JSON.stringify(layout, null, 2), contentType: 'application/json' })
+  expectInlineCodeWrap(expect, layout)
+  await expect(await source(page)).toHaveValue(inlineCodeWrapMarkdown)
+})
+
+test('inline code wraps in the real PDF document without starving adjacent columns', async ({ page }, testInfo) => {
+  await open(page, inlineCodeWrapMarkdown)
+  const html = await page.evaluate(async markdown => {
+    const { buildPdfDocument } = await import('/packages/editor/src/markdown/pdfDocument.js')
+    return buildPdfDocument({ markdown })
+  }, inlineCodeWrapMarkdown)
+  // A separate document uses only the generated PDF CSS, with no editor/host styles.
+  const pdf = await page.context().newPage()
+  await pdf.setViewportSize({ width: 1000, height: 1100 })
+  await pdf.setContent(html)
+  await pdf.evaluate(() => document.fonts.ready)
+  const article = pdf.locator('.markdown-body')
+  const layout = await article.evaluate(measureInlineCodeWrap)
+  await testInfo.attach('pdf-inline-code-layout', { body: JSON.stringify(layout, null, 2), contentType: 'application/json' })
+  expectInlineCodeWrap(expect, layout)
+  const contentRight = await article.evaluate(el => el.getBoundingClientRect().right - parseFloat(getComputedStyle(el).paddingRight))
+  expect(layout.table.right).toBeLessThanOrEqual(contentRight + .5)
+  for (const cell of layout.cells) for (const fragment of cell.fragments) expect(fragment.right).toBeLessThanOrEqual(contentRight + .5)
+  for (const column of layout.columns) expect(column.width).toBeGreaterThan(column.fontSize * 3)
+  await expect(article.locator('pre')).toHaveCSS('white-space', 'pre-wrap')
+  await expect(article.locator('pre > code')).toHaveCSS('box-decoration-break', 'slice')
+  await pdf.close()
+})
 
 const textStyles = await readFile(new URL('./fixtures/writing-text-styles.md', import.meta.url), 'utf8')
 for (const mode of ['source', 'plain', 'html']) {

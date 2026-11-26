@@ -16,12 +16,12 @@ const pdfCss = `
   blockquote { margin: 1em 0; padding: .15em 1em; border-left: 3px solid #b89451; color: #555; }
   table { width: 100%; table-layout: auto; border-collapse: collapse; margin: 1em 0; font-size: 10pt; }
   th, td { border: 1px solid #ccc; padding: 6px 9px; vertical-align: top; overflow-wrap: anywhere; }
-  th { background: #f3f1ec; font-weight: bold; word-break: keep-all; overflow-wrap: normal; }
+  th { background: #f3f1ec; font-weight: bold; word-break: keep-all; }
   thead { display: table-header-group; } tr, img { break-inside: avoid; }
   img { display: block; max-width: 100%; height: auto; margin: .8em auto; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f5f4f1; border: 1px solid #e1ded8; border-radius: 4px; }
   code { font-family: var(--editor-font-mono); font-size: .9em; }
-  :not(pre) > code { background: #f5f4f1; padding: .1em .25em; }
+  :not(pre) > code { display: inline; overflow-wrap: anywhere; background: #f5f4f1; padding: .1em .25em; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
   a { color: #32567b; text-decoration: underline; }
   u { text-decoration: underline; text-underline-offset: .15em; }
   mark { color: inherit; background: #fff0a8; padding: .03em .12em; border-radius: 2px; }

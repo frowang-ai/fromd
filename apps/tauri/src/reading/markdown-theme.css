@@ -122,7 +122,7 @@
     text-decoration-color: color-mix(in srgb, var(--md-link) 35%, transparent); text-underline-offset: 3px;
   }
   .app-shell[data-theme] .writing-editor .ProseMirror a:hover { text-decoration-color: currentColor; }
-  .app-shell[data-theme] .writing-editor .ProseMirror code {
+  .app-shell[data-theme] .writing-editor .ProseMirror :not(pre) > code {
     font-family: var(--md-mono); font-size: .875em; color: var(--md-text);
     background: var(--md-fill); padding: .12em .35em; border-radius: 4px;
   }
@@ -147,7 +147,7 @@
   .app-shell[data-theme] .writing-editor .label.checked::before { background: var(--md-accent); border-color: var(--md-accent); color: #fff; }
   .app-shell[data-theme] .writing-editor .milkdown-table-block { margin: 1em 0; }
   .app-shell[data-theme] .writing-editor table.children { border-collapse: collapse; width: 100%; max-width: 100%; line-height: 1.6; }
-  .app-shell[data-theme] .writing-editor table.children :is(th,td) { border: 1px solid var(--md-border); padding: 6px 12px; min-width: 48px; }
+  .app-shell[data-theme] .writing-editor table.children :is(th,td) { border: 1px solid var(--md-border); padding: 6px 12px; min-width: 48px; overflow-wrap: anywhere; }
   .app-shell[data-theme] .writing-editor table.children th { background: var(--md-elev); font-weight: 600; }
   .app-shell[data-theme] .writing-editor table.children tr:nth-child(even) { background: color-mix(in srgb, var(--md-elev) 55%, transparent); }
   .app-shell[data-theme] .writing-editor table.children :is(th,td) p { margin: 0; padding: 0; line-height: 1.6; }
