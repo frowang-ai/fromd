@@ -1,7 +1,7 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
-   <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" @edit-source="editSource" />
+   <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
@@ -16,7 +16,7 @@ import {resourceMarkdown} from '../documents/resources.mjs'
 import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
 import {preserveFrontMatterSource} from '../../../../packages/editor/src/markdown/frontmatter.js'
 defineProps({linkModifier:{type:String,default:'ctrl'},mathDoneShortcut:{type:String,default:'Ctrl+Enter'}})
-const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste','request-source'])
+const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
 let lastActivation=null,engineDetached=false,engineRecovery=Promise.resolve()
@@ -166,11 +166,6 @@ async function setMode(value){
   mode.value='rendered';await nextTick()
  }
  editable();emit('view-change')
-}
-function editSource(event){
- if(!owns(event)||frozen.value||mode.value!=='rendered')return
- sourceRange={start:0,end:0};sourceScroll=0
- emit('request-source',event)
 }
 async function reveal(offset){
  await ready()

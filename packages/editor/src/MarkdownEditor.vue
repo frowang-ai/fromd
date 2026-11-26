@@ -14,6 +14,7 @@ import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
 import { Fragment, Slice } from '@milkdown/kit/prose/model'
 import { closeHistory } from '@milkdown/kit/prose/history'
+import { trailingConfig } from '@milkdown/kit/plugin/trailing'
 import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView, updateEmbeddedViewEditability } from './writingViewState.js'
 import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import * as utils from '@milkdown/kit/utils'
@@ -50,7 +51,7 @@ import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste', 'edit-source'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -286,6 +287,12 @@ onMounted(async () => {
         [Crepe.Feature.CodeMirror]: { copyText: '复制', searchPlaceholder: '代码语言', noResultText: '无匹配语言', theme: writingCodeTheme, languages: [mermaidCodeLanguage] },
       },
     })
+    // YAML owns the transition into a new body paragraph. Focus/selection alone
+    // must not append a paragraph to a metadata-only document.
+    editor.editor.config(ctx => ctx.update(trailingConfig.key, previous => ({
+      ...previous,
+      shouldAppend: (last, state) => !(state.doc.childCount === 1 && last?.type.name === 'yaml_frontmatter') && previous.shouldAppend(last, state),
+    })))
     // Replace the generic-transaction-only synchronizer; input rules carry
     // metadata and must still receive correct labels before the DOM renders.
     await editor.editor.remove(syncListOrderPlugin)
@@ -356,7 +363,7 @@ onMounted(async () => {
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view(), { doneShortcut: props.mathDoneShortcut })
     installWritingMarkdownViews(view())
-    installFrontMatterView(view(), () => emit('edit-source', { ...activeSession, offset: 0 }))
+    installFrontMatterView(view(), message => { error.value = message })
     installWritingListViews(view())
     installWritingListKeys(view())
     installWritingSelectionWrap(view(), () => props.isComposing?.() || false)

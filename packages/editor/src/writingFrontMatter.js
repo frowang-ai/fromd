@@ -4,6 +4,7 @@ import { Plugin, NodeSelection } from '@milkdown/kit/prose/state'
 import { Fragment, Slice } from '@milkdown/kit/prose/model'
 import { sliceResources } from './writingResourcePaste.js'
 import { leadingFrontMatter, remarkFrontMatter } from './markdown/frontmatter.js'
+import { frontMatterView } from './writingFrontMatterView.js'
 
 const name = 'yaml_frontmatter'
 const syntax = $remark('writingFrontMatter', () => remarkFrontMatter)
@@ -105,21 +106,25 @@ export function serializeFrontMatter(doc, serialize) {
   return source + separator + serialize(body)
 }
 
-export function installFrontMatterView(view, onEdit) {
-  const previous = view.props.nodeViews || {}
-  view.setProps({ nodeViews: { ...previous, [name](node, editor, getPos) {
-    const dom = document.createElement('div'); dom.className = 'writing-frontmatter-block'; dom.contentEditable = 'false'
-    const pre = document.createElement('pre'); pre.className = 'writing-frontmatter'
-    pre.textContent = leadingFrontMatter(node.attrs.source)?.raw.replace(/^\uFEFF/, '') ?? node.attrs.source
-    const button = document.createElement('button'); button.type = 'button'; button.className = 'writing-frontmatter-edit'
-    button.textContent = '编辑 YAML 源码'
-    button.addEventListener('click', () => {
-      if (!editor.editable || getPos() !== 0) return
-      onEdit()
-    })
-    dom.append(pre, button)
-    return { dom, stopEvent: event => button.contains(event.target), ignoreMutation: () => true }
-  } } })
+export function installFrontMatterView(view, onBlocked) {
+  const previous = view.props.nodeViews || {}, previousKeydown = view.props.handleKeyDown
+  view.setProps({
+    handleKeyDown(editor, event) {
+      const { selection, doc } = editor.state
+      if (editor.editable && !event.isComposing && !editor.composing && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const selected = selection instanceof NodeSelection && selection.node.type.name === name
+        const beforeBody = selection.empty && selection.$from.depth > 0 && doc.firstChild?.type.name === name && selection.$from.before(1) === doc.firstChild.nodeSize
+        if ((selected && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) ||
+            (beforeBody && ((event.key === 'ArrowUp' && editor.endOfTextblock('up')) || (event.key === 'ArrowLeft' && selection.$from.parentOffset === 0)))) {
+          const pos = selected ? selection.from : 0
+          editor.nodeDOM(pos)?.dispatchEvent(new CustomEvent('writing-frontmatter-enter', { detail: selected && ['ArrowRight', 'ArrowDown'].includes(event.key) ? 'start' : 'end' }))
+          return true
+        }
+      }
+      return previousKeydown?.(editor, event) || false
+    },
+    nodeViews: { ...previous, [name]: (node, editor, getPos) => frontMatterView(node, editor, getPos, onBlocked) },
+  })
 }
 
 export function frontMatterSelection(doc, offset) {
