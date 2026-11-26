@@ -44,7 +44,7 @@ async function copyKnownYaml(page) {
   await expect(body(page).locator('img[data-editor-image-src]')).toHaveJSProperty('naturalWidth', 240)
   const ref = await page.evaluate(() => [...window.__FROWD_TEST_HOST__.bindings.get('a')][0])
   const source = await mode(page, true); await source.fill(yaml(ref) + '\nA body\n'); await mode(page, false)
-  await body(page).locator('.writing-frontmatter').click()
+  await body(page).locator('.writing-frontmatter-fence').first().click()
   const copied = await body(page).evaluate(el => {
     const clipboardData = new DataTransfer()
     el.dispatchEvent(new ClipboardEvent('copy', { clipboardData, bubbles: true, cancelable: true }))
@@ -132,8 +132,8 @@ for (const operation of ['drag', 'paragraph-before']) test(`moving resource-bear
   const source = await mode(page, true); await source.fill(yaml(missing) + '\nA body\n\nTarget paragraph\n'); await mode(page, false)
   const before = (await capture(page)).markdown
   const block = body(page).locator('.writing-frontmatter-block')
-  await block.locator('pre').click()
-  if (operation === 'drag') await block.dragTo(body(page).locator('p').filter({ hasText: 'Target paragraph' }))
+  await block.locator('.writing-frontmatter-fence').first().click()
+  if (operation === 'drag') await block.locator('.writing-frontmatter-fence').first().dragTo(body(page).locator('p').filter({ hasText: 'Target paragraph' }))
   else await page.keyboard.press('Enter')
   await expect(page.getByRole('alert')).toContainText('复制或剪切')
   expect((await capture(page)).markdown).toBe(before)

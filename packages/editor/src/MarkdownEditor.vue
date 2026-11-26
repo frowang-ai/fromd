@@ -50,7 +50,7 @@ import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste', 'edit-source'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -356,7 +356,7 @@ onMounted(async () => {
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view(), { doneShortcut: props.mathDoneShortcut })
     installWritingMarkdownViews(view())
-    installFrontMatterView(view(), () => emit('edit-source', { ...activeSession, offset: 0 }))
+    installFrontMatterView(view(), message => { error.value = message })
     installWritingListViews(view())
     installWritingListKeys(view())
     installWritingSelectionWrap(view(), () => props.isComposing?.() || false)
