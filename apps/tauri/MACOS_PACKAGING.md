@@ -1,4 +1,4 @@
-# macOS 构建与验收（0.5.4）
+# macOS 构建与验收（0.5.5）
 
 fromd 的正式产品代码分为三层：
 
@@ -12,7 +12,7 @@ fromd 的正式产品代码分为三层：
 
 锁文件固定 `@tauri-apps/cli 2.12.1`；该版本随包的 `config.schema.json` 支持 `bundle.macOS.signingIdentity` 和 `bundle.macOS.dmg` 背景、窗口尺寸及图标位置。当前配置设置 `signingIdentity: "-"`，按 [Tauri 官方说明](https://v2.tauri.app/distribute/sign/macos/#ad-hoc-signing) 对 **APP** 使用免费 ad-hoc 签名，不需要付费开发者会员或证书。锁定的 Tauri 版本对 `"-"` 跳过 **DMG 容器自身**的签名，DMG 内的 APP 仍需通过签名验证。不要设置 `APPLE_SIGNING_IDENTITY` 覆盖它，也不要注入 Apple 证书/公证凭据；保留默认 hardened runtime，不添加额外 entitlements。
 
-**版本 v0.5.4：APP 使用免费 ad-hoc 签名，DMG 容器未签名，没有 Developer ID 签名或公证。** 旧 v0.5.2 包仍按未签名、未公证分发。ad-hoc 不提供 Apple 认证的开发者身份，不能保证 Gatekeeper 放行；CI 产物校验也不替代 Mac 真机验收。
+**版本 v0.5.5：APP 使用免费 ad-hoc 签名，DMG 容器未签名，没有 Developer ID 签名或公证。** 旧 v0.5.2 包仍按未签名、未公证分发。ad-hoc 不提供 Apple 认证的开发者身份，不能保证 Gatekeeper 放行；CI 产物校验也不替代 Mac 真机验收。
 
 ```sh
 npm ci --ignore-scripts
@@ -30,8 +30,8 @@ npm --prefix apps/tauri run tauri -- build --config src-tauri/tauri.macos.conf.j
 默认产物在 `apps/tauri/src-tauri/target/[目标架构/]release/bundle/macos/fromd.app` 和 `bundle/dmg/*.dmg`。设置 `CARGO_TARGET_DIR` 后以该目录为准。产物检查示例：
 
 ```sh
-node apps/tauri/scripts/check-macos-artifact.mjs --app path/to/fromd.app --dmg path/to/fromd_0.5.4_aarch64.dmg --arch aarch64 --version 0.5.4
-ditto -c -k --keepParent path/to/fromd.app fromd-0.5.4-aarch64.app.zip
+node apps/tauri/scripts/check-macos-artifact.mjs --app path/to/fromd.app --dmg path/to/fromd_0.5.5_aarch64.dmg --arch aarch64 --version 0.5.5
+ditto -c -k --keepParent path/to/fromd.app fromd-0.5.5-aarch64.app.zip
 ```
 
 脚本检查 Info.plist 版本/身份/最低 macOS 11.0、64 位 Mach-O 架构、7 份非空许可证及非空 DMG。支持 thin ARM64/x86_64 及大小端标准 FAT/Universal（FAT 头使用 32 位偏移，不含 FAT64；内部 slice 是 64 位 Mach-O），逐 slice 校验 CPU/subtype、可执行头、偏移、长度、对齐和重叠。架构参数严格匹配 slice 集合：`--arch universal` 要求恰好两个 slice，分别为 ARM64 和 x86_64；单一架构参数要求恰好一个匹配 slice，拒绝 Universal；`arm64` 是 `aarch64` 的别名。
@@ -58,7 +58,7 @@ codesign --verify --deep --strict --all-architectures --verbose=2 path/to/fromd.
 
 macOS 构建步骤设置 `TAURI_BUNDLER_DMG_IGNORE_CI: 'true'`：Tauri 在 `CI=true` 下默认传入 `--skip-jenkins` 跳过 Finder 布局，此变量让 CI 也执行背景及 APP / Applications 图标位置的定制。定制失败直接使构建失败，不回退为未定制的 DMG；实际 Finder 效果仍需 Mac 验收。
 
-在公开仓库 `frowang-ai/fromd` 的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `fromd-macos-aarch64-0.5.4` 或 `fromd-macos-x86_64-0.5.4`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。各平台产物带有 SHA256SUMS.txt；最终 `fromd-release-assets-0.5.4` artifact 合并全平台资产并重新生成统一校验表。流水线仅上传 Actions Artifacts，不创建 GitHub Release；macOS 构建使用上述 ad-hoc 配置，不配置 Developer ID、公证或静默自替换，也不启用 Tauri updater。客户端已有的手动检查公开 Release 保持不变。真实 Mac 编译和手动运行 Actions 需按当前任务授权执行，不把 Windows 单测结果标成 Mac 验收。
+在公开仓库 `frowang-ai/fromd` 的 Actions → Tauri desktop builds → 对应运行 → Artifacts 下载 `fromd-macos-aarch64-0.5.5` 或 `fromd-macos-x86_64-0.5.5`。APP 由 `ditto --keepParent` 压缩，保留 bundle 结构。各平台产物带有 SHA256SUMS.txt；最终 `fromd-release-assets-0.5.5` artifact 合并全平台资产并重新生成统一校验表。流水线仅上传 Actions Artifacts，不创建 GitHub Release；macOS 构建使用上述 ad-hoc 配置，不配置 Developer ID、公证或静默自替换，也不启用 Tauri updater。客户端已有的手动检查公开 Release 保持不变。真实 Mac 编译和手动运行 Actions 需按当前任务授权执行，不把 Windows 单测结果标成 Mac 验收。
 
 ## 首次打开与数据位置
 
@@ -72,7 +72,7 @@ macOS 使用 Tauri 应用身份 `com.frowang.frowd.tauri.v1` 的应用数据目�
 `https://api.github.com/repos/frowang-ai/fromd/releases/latest`；左下角轻量弹窗
 适配浅色/深色主题，显示检查中、最新版本、可用版本和错误重试。点击「前往下载更新」
 只通过受控 opener 打开固定的 `https://github.com/frowang-ai/fromd/releases/latest`。
-下载对应架构 DMG，正常退出应用后拖入 Applications 覆盖。0.5.4 的 APP 使用 ad-hoc
+下载对应架构 DMG，正常退出应用后拖入 Applications 覆盖。0.5.5 的 APP 使用 ad-hoc
 签名，DMG 容器未签名，未做 Developer ID 签名或公证；旧 0.5.2 包仍未签名/公证。
 不进行应用内静默替换。资料仍使用 `~/Library/Application Support/com.frowang.frowd.tauri.v1`
 中的 `drafts.sqlite` 和 `resources/objects`，覆盖应用不搬动或重建文稿资料。
