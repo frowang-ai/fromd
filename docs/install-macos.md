@@ -2,7 +2,7 @@
 
 ## 下载
 
-**版本 v0.5.5**。下载页：[Releases](https://github.com/frowang-ai/fromd/releases/tag/v0.5.5)，按芯片选择安装包：
+**版本 v0.5.6**。下载页：[Releases](https://github.com/frowang-ai/fromd/releases/tag/v0.5.6)，按芯片选择安装包：
 
 | Mac | 下载 |
 | --- | --- |
@@ -20,7 +20,7 @@
 先确认下载页是本项目的 [GitHub Releases](https://github.com/frowang-ai/fromd/releases)，安装包和 `SHA256SUMS.txt` 来自**同一版本**。在下载目录打开「终端」，用实际下载的文件名替换下例：
 
 ```sh
-shasum -a 256 fromd_0.5.5_aarch64.dmg
+shasum -a 256 fromd_0.5.6_aarch64.dmg
 ```
 
 输出的 SHA-256 应和 `SHA256SUMS.txt` 中**相同文件名**那一行一致。哈希能确认下载文件是否与该发布物一致，不能代替来源判断。不一致就不要打开，删除这份下载后重新下载；仍不一致请反馈。
@@ -34,7 +34,7 @@ shasum -a 256 fromd_0.5.5_aarch64.dmg
 
 ## 第一次打开
 
-**v0.5.5 对 APP 使用免费 ad-hoc 签名，DMG 容器本身未签名；没有 Developer ID 签名或苹果公证。** ad-hoc 用于校验签名后应用内容是否改变，不提供 Apple 认证的开发者身份，不能保证 Gatekeeper 直接放行。旧 v0.5.2 仍按未签名、未公证分发，新配置不会改变已下载的旧包。
+**v0.5.6 对 APP 使用免费 ad-hoc 签名，DMG 容器本身未签名；没有 Developer ID 签名或苹果公证。** ad-hoc 用于校验签名后应用内容是否改变，不提供 Apple 认证的开发者身份，不能保证 Gatekeeper 直接放行。旧 v0.5.2 仍按未签名、未公证分发，新配置不会改变已下载的旧包。
 
 ### 提示「无法验证开发者」或「Apple 无法检查是否包含恶意软件」
 
@@ -73,7 +73,7 @@ shasum -a 256 fromd_0.5.5_aarch64.dmg
 | 草稿、页面、图片和附件 | `~/Library/Application Support/com.frowang.frowd.tauri.v1` |
 | 你保存的 `.md` 文件 | 你自己选择的位置 |
 
-从正式版 Tauri 0.5.2 / 0.5.3 / 0.5.4（fromd 或旧名 frowd）升级到 fromd 0.5.5，仍沿用此目录中的 `drafts.sqlite`、`resources/objects` 和阅读设置；替换应用不会重建文稿数据库。
+从正式版 Tauri 0.5.2 / 0.5.3 / 0.5.4（fromd 或旧名 frowd）升级到 fromd 0.5.6，仍沿用此目录中的 `drafts.sqlite`、`resources/objects` 和阅读设置；替换应用不会重建文稿数据库。
 
 `0.5.4-preview.1` 的资料目录独立，不会自动迁入正式版。需要保留的预览文稿请先另存为 `.md`，再在正式版打开。
 

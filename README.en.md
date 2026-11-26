@@ -11,7 +11,7 @@
 
 🌐 **[简体中文](README.md) · English**
 
-[**Download Release · v0.5.5**](https://github.com/frowang-ai/fromd/releases/latest) · [**Three Pillars**](#three-pillars) · [**Comparison**](#compared) · [**Install & Update**](#install--in-app-update) · [**Build from Source**](#build-from-source) · [**FAQ (ZH)**](docs/faq.md) · [**Changelog (ZH)**](CHANGELOG.md) · [**Issues**](https://github.com/frowang-ai/fromd/issues/new/choose)
+[**Download Release · v0.5.6**](https://github.com/frowang-ai/fromd/releases/latest) · [**Three Pillars**](#three-pillars) · [**Comparison**](#compared) · [**Install & Update**](#install--in-app-update) · [**Build from Source**](#build-from-source) · [**FAQ (ZH)**](docs/faq.md) · [**Changelog (ZH)**](CHANGELOG.md) · [**Issues**](https://github.com/frowang-ai/fromd/issues/new/choose)
 
 ⭐ **If `fromd` earns a place on your desktop, please [star it on GitHub](https://github.com/frowang-ai/fromd) — it is free, MIT-licensed, and stars help other writers and researchers find it.**
 
@@ -54,7 +54,7 @@ Built on **Tauri 2 + Vue 3 + Milkdown (ProseMirror) + SQLite + Rust**. ~6.3 MB i
 
 ## Install & in-app update
 
-**Version v0.5.5** — download page: [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/tag/v0.5.5). Choose the package for your platform and chip:
+**Version v0.5.6** — download page: [**GitHub Releases**](https://github.com/frowang-ai/fromd/releases/tag/v0.5.6). Choose the package for your platform and chip:
 
 | Platform | Package | Notes |
 | --- | --- | --- |
@@ -64,13 +64,13 @@ Built on **Tauri 2 + Vue 3 + Milkdown (ProseMirror) + SQLite + Rust**. ~6.3 MB i
 
 For a MacBook Air, check **Apple menu → About This Mac**: **Apple M-series → aarch64 (ARM64)**; **Intel → x64 (x86_64)**. Verify the download against `SHA256SUMS.txt` from the same official Release. Open the DMG, drag `fromd.app` into **Applications**, wait for the copy to finish, eject the DMG, then open `/Applications/fromd.app`.
 
-The **v0.5.5** release uses free **ad-hoc signing for the macOS APP**; the **DMG container remains unsigned**. It has no Developer ID signature or Apple notarization, and Gatekeeper may still block launch. Ad-hoc signing checks content integrity after signing. The old **v0.5.2** packages remain unsigned and not notarized; the Windows installer also remains unsigned.
+The **v0.5.6** release uses free **ad-hoc signing for the macOS APP**; the **DMG container remains unsigned**. It has no Developer ID signature or Apple notarization, and Gatekeeper may still block launch. Ad-hoc signing checks content integrity after signing. The old **v0.5.2** packages remain unsigned and not notarized; the Windows installer also remains unsigned.
 
 If macOS cannot verify the developer, verify the source and hash, then use **System Settings → Privacy & Security → Open Anyway** if available. A **“damaged”** message can also indicate a corrupt download or invalid signature: re-download, verify, and reinstall first. If the same message persists and you trust the verified app, the [installation guide](docs/install-macos.md#第一次打开) explains the optional, manual `xattr -dr com.apple.quarantine "/Applications/fromd.app"` command. It removes only this app's quarantine attribute, does not disable Gatekeeper globally, and cannot repair real corruption or an invalid signature. Stop and report a malware warning or persistent failure.
 
 Guides: [Windows Install (ZH)](docs/install-windows.md) · [macOS Install (ZH)](docs/install-macos.md) · [FAQ (ZH)](docs/faq.md).
 
-**Manual In-App Updates:** `fromd` never checks for updates silently in the background. Use **File → 检查更新…** (Windows) or **fromd → 检查更新…** (macOS) to check on demand. On Windows, clicking **立即更新** verifies the SHA-256 checksum, waits for active IME input and flushes all SQLite drafts (`wal_checkpoint(FULL)`), then launches the NSIS installer in place. Upgrading to 0.5.5 keeps the same stable Tauri 0.5.2 / 0.5.3 / 0.5.4 data directory (including old-name frowd installations), notes, shelved pages, images, and preferences; completion depends on the installer result.
+**Manual In-App Updates:** `fromd` never checks for updates silently in the background. Use **File → 检查更新…** (Windows) or **fromd → 检查更新…** (macOS) to check on demand. On Windows, clicking **立即更新** verifies the SHA-256 checksum, waits for active IME input and flushes all SQLite drafts (`wal_checkpoint(FULL)`), then launches the NSIS installer in place. Upgrading to 0.5.6 keeps the same stable Tauri 0.5.2 / 0.5.3 / 0.5.4 data directory (including old-name frowd installations), notes, shelved pages, images, and preferences; completion depends on the installer result.
 
 `0.5.4-preview.1` uses a separate preview data directory. Preview notes are not migrated automatically; save any needed notes as `.md` in the preview app, then open them in the stable app.
 
