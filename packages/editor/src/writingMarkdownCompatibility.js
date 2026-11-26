@@ -1,10 +1,14 @@
 import { isEscaped } from './markdown/normalize/pipeline.js'
 import { normalizeWritingMath } from './writingMathCompatibility.js'
+import { mapMarkdownBody } from './markdown/frontmatter.js'
 
 // Narrow AI-output compatibility: **text. ** -> **text.** . Move trailing
 // spaces outside an explicit pair; leave already-valid emphasis, code, math,
 // HTML, link targets, escaped stars and unmatched/triple delimiters untouched.
 export function normalizeWritingMarkdown(markdown, parseMarkdown) {
+  return mapMarkdownBody(markdown, body => normalizeBody(body, parseMarkdown))
+}
+function normalizeBody(markdown, parseMarkdown) {
   const source = normalizeWritingMath(markdown, parseMarkdown)
   const protectedRanges = [], containers = []
   function visit(node) {

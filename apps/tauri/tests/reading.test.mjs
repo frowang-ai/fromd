@@ -14,7 +14,7 @@ test('outline adds Setext and quoted headings while preserving offsets and metad
     {start: markdown.indexOf('> ###'), title: '引用', level: 3},
   ])
   assert.equal(withoutFrontMatter(markdown).length, markdown.length)
-  assert.equal(analyzeReading('---\n# unfinished metadata').headings.length, 0)
+  assert.equal(analyzeReading('---\n# unfinished metadata').headings[0].title, 'unfinished metadata')
   assert.equal(analyzeReading('---\n# metadata\n...\n# body').headings[0].start, 19)
   assert.equal(analyzeReading('first\r\r## second').headings[0].start, 7)
 })

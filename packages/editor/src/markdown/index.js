@@ -19,6 +19,7 @@ import { sanitizeHtml } from './sanitize.js'
 import { normalizeBlockMath } from './normalize/blockMath.js'
 import { normalizeInlineMath } from './normalize/inlineMath.js'
 import { fixCjkEmphasis } from './normalize/cjkEmphasis.js'
+import { mapMarkdownBody } from './frontmatter.js'
 import { extractTOC, scrollToHeading } from './toc.js'
 import { downloadMarkdown, downloadHTML } from './download.js'
 
@@ -35,7 +36,7 @@ export function renderMarkdown(markdown) {
   if (!markdown) return ''
 
   // 归一化顺序固定：块公式 → 行内公式 → CJK 标点 emphasis 修复
-  const fixed = fixCjkEmphasis(normalizeInlineMath(normalizeBlockMath(markdown)))
+  const fixed = mapMarkdownBody(markdown, body => fixCjkEmphasis(normalizeInlineMath(normalizeBlockMath(body))))
 
   const md = getMarkdownRenderer()
   return sanitizeHtml(md.render(fixed))

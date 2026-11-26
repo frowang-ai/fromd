@@ -21,6 +21,8 @@ const pdfCss = `
   img { display: block; max-width: 100%; height: auto; margin: .8em auto; }
   pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f5f4f1; border: 1px solid #e1ded8; border-radius: 4px; }
   code { font-family: var(--editor-font-mono); font-size: .9em; }
+  .writing-frontmatter { font: inherit; font-family: var(--editor-font-mono); tab-size: 4; }
+  .writing-frontmatter code { font: inherit; }
   :not(pre) > code { display: inline; overflow-wrap: anywhere; background: #f5f4f1; padding: .1em .25em; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
   a { color: #32567b; text-decoration: underline; }
   u { text-decoration: underline; text-underline-offset: .15em; }

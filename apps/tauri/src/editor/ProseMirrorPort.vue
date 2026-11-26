@@ -1,7 +1,7 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
-   <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
+   <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" @edit-source="editSource" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
@@ -14,8 +14,9 @@ import {sourceOffset} from '@frowang/editor/location'
 import {resourceImageUrl} from '../documents/host.mjs'
 import {resourceMarkdown} from '../documents/resources.mjs'
 import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
+import {preserveFrontMatterSource} from '../../../../packages/editor/src/markdown/frontmatter.js'
 defineProps({linkModifier:{type:String,default:'ctrl'},mathDoneShortcut:{type:String,default:'Ctrl+Enter'}})
-const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste'])
+const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste','request-source'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
 let lastActivation=null,engineDetached=false,engineRecovery=Promise.resolve()
@@ -75,8 +76,9 @@ async function waitComposition(){
  await nextTick()
 }
 function sourceSelection(){return source.value?{start:source.value.selectionStart,end:source.value.selectionEnd}:sourceRange}
+function sourceMarkdown(){return preserveFrontMatterSource(source.value?.value??sourceText.value,sourceText.value)}
 function markdown(){
- if(mode.value==='source')return source.value?.value??sourceText.value
+ if(mode.value==='source')return sourceMarkdown()
  if(engineDetached||!engine.value?.captureSession())throw Error('编辑器正在恢复，请稍后重试。')
  return engine.value.getMarkdown()
 }
@@ -86,7 +88,7 @@ function capture(){
  // An unready/remounted child is not an empty document. Never read its Markdown
  // into the coordinator's buffer until it owns an active rendered session.
  if(mode.value==='rendered'&&(engineDetached||!pm))return null
- const text=mode.value==='source'?(source.value?.value??sourceText.value):engine.value.getMarkdown()
+ const text=mode.value==='source'?sourceMarkdown():engine.value.getMarkdown()
  sourceText.value=text
  if(mode.value==='source'){sourceRange=sourceSelection();sourceScroll=source.value?.scrollTop??sourceScroll}
  const viewState={mode:mode.value,scrollTop:scroller.value?.scrollTop??0,selection:engine.value?.selection(),
@@ -123,7 +125,7 @@ function beforeInput(event){
 }
 function sourceChanged(event){
  if(disposed||!owner||mode.value!=='source'||frozen.value||event.target!==source.value)return
- sourceText.value=event.target.value
+ sourceText.value=preserveFrontMatterSource(event.target.value,sourceText.value)
  if(event.isComposing||composing)return
  history=recordSource(history,sourceText.value,beforeRange);sourceRange=sourceSelection()
  emit('change',{...owner,markdown:sourceText.value})
@@ -145,7 +147,7 @@ function sourceKey(event){
  const range=sourceSelection()
  if(range.start>=range.end)return
  event.preventDefault()
- const text=input.value,next=text.slice(0,range.start)+event.key+text.slice(range.start,range.end)+closing+text.slice(range.end)
+ const text=input.value,next=preserveFrontMatterSource(text.slice(0,range.start)+event.key+text.slice(range.start,range.end)+closing+text.slice(range.end),sourceText.value)
  history=recordSource(history,next,range);sourceText.value=next;input.value=next
  sourceRange={start:range.start+1,end:range.end+1}
  input.setSelectionRange(sourceRange.start,sourceRange.end)
@@ -165,11 +167,16 @@ async function setMode(value){
  }
  editable();emit('view-change')
 }
+function editSource(event){
+ if(!owns(event)||frozen.value||mode.value!=='rendered')return
+ sourceRange={start:0,end:0};sourceScroll=0
+ emit('request-source',event)
+}
 async function reveal(offset){
  await ready()
  const sourcePosition=markdown().slice(0,offset).replace(/\r\n?/g,'\n').length
  sourceRange={start:sourcePosition,end:sourcePosition}
- if(mode.value==='source'){source.value.setSelectionRange(offset,offset);source.value.focus();source.value.scrollTop=Math.max(0,source.value.scrollHeight*offset/Math.max(1,markdown().length)-40)}
+ if(mode.value==='source'){source.value.setSelectionRange(sourcePosition,sourcePosition);source.value.focus();source.value.scrollTop=Math.max(0,source.value.scrollHeight*sourcePosition/Math.max(1,source.value.value.length)-40)}
  else if(!engine.value.revealMarkdown(offset))emit('navigation-hint','已定位文稿；可从视图菜单打开源码查看精确位置。')
 }
 async function revealHeading(heading,expectedOwner){
@@ -192,7 +199,7 @@ async function revealMatch(location){
  const text=markdown(),offset=sourceOffset(text,location),sourcePosition=text.slice(0,offset).replace(/\r\n?/g,'\n').length
  sourceRange={start:sourcePosition,end:sourcePosition+location.needle.replace(/\r\n?/g,'\n').length}
  source.value.setSelectionRange(sourceRange.start,sourceRange.end)
- if(mode.value==='source'){await reveal(offset);source.value.setSelectionRange(sourceRange.start,offset+location.needle.length)}
+ if(mode.value==='source'){await reveal(offset);source.value.setSelectionRange(sourcePosition,sourcePosition+location.needle.replace(/\r\n?/g,'\n').length)}
  else if(!engine.value.revealMarkdown(offset,location.needle))emit('navigation-hint','命中 Markdown 源文；可从视图菜单打开源码查看精确范围。')
 }
 function openLink(detail){
@@ -239,7 +246,7 @@ function resourcePaste(event){
 function prepareResourcePaste(payload){
  if(!owner||!frozen.value||payload.mode!==mode.value)throw Error('粘贴页面或模式已变化，请重试。')
  if(mode.value==='rendered'){const prepared=engine.value.prepareResourcePaste(payload);return {owner:{...owner},mode:mode.value,prepared,references:prepared.references}}
- const before=markdown(),range=sourceSelection(),text=payload.text
+ const before=source.value.value,range=sourceSelection(),text=payload.text
  const next=before.slice(0,range.start)+text+before.slice(range.end)
  const references=engine.value.resourceMarkdownReferences(next,{from:range.start,to:range.start+text.length},before)
  return {owner:{...owner},mode:mode.value,before,range,text,next,references}
@@ -249,11 +256,12 @@ async function commitResourcePaste(prepared){
  if(mode.value==='rendered')engine.value.commitResourcePaste(prepared.prepared)
  else {
   const range=sourceSelection()
-  if(markdown()!==prepared.before||range.start!==prepared.range.start||range.end!==prepared.range.end)throw Error('正文或选区已变化，请重新粘贴。')
-  history=recordSource(history,prepared.next,range);sourceText.value=prepared.next;source.value.value=prepared.next
+  if(source.value.value!==prepared.before||range.start!==prepared.range.start||range.end!==prepared.range.end)throw Error('正文或选区已变化，请重新粘贴。')
+  const next=preserveFrontMatterSource(prepared.next,sourceText.value)
+  history=recordSource(history,next,range);sourceText.value=next;source.value.value=next
   sourceRange={start:range.start+prepared.text.length,end:range.start+prepared.text.length}
   source.value.setSelectionRange(sourceRange.start,sourceRange.end)
-  emit('change',{...owner,markdown:prepared.next})
+  emit('change',{...owner,markdown:next})
  }
 }
 async function insertResources(items,position=null,dropState=null,dropMode=null){
@@ -262,8 +270,8 @@ async function insertResources(items,position=null,dropState=null,dropMode=null)
  const markup=resourceMarkdown(items)
  if(mode.value==='rendered')engine.value.insertResources(items,position,dropState)
  else {
-  const range=sourceSelection(),text=markdown()
-  const next=text.slice(0,range.start)+markup+text.slice(range.end)
+  const range=sourceSelection(),text=source.value.value
+  const next=preserveFrontMatterSource(text.slice(0,range.start)+markup+text.slice(range.end),sourceText.value)
   history=recordSource(history,next,range)
   sourceText.value=next;source.value.value=next
   sourceRange={start:range.start+markup.length,end:range.start+markup.length}
@@ -285,9 +293,9 @@ function selectSourceMatch(from,to){
  mirror.textContent=input.value.slice(0,from);marker.textContent=input.value.slice(from,to)||'\u200b';mirror.append(marker);document.body.append(mirror)
  try{input.scrollTop=Math.max(0,marker.offsetTop-input.clientHeight/2)}finally{mirror.remove()}
 }
-function findReplace(query,index=0,reveal=true,matchCase=false){if(!owner||!query)return {count:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const found=literalMatches(markdown(),query,matchCase),matches=found.matches,selected=matches.length?matches[((index%matches.length)+matches.length)%matches.length]:null;if(selected&&reveal)selectSourceMatch(selected.from,selected.to);return {count:matches.length,limited:found.limited,index:selected?matches.indexOf(selected):-1,mode:mode.value}}return {...engine.value.findMatch(query,index,reveal,matchCase),mode:mode.value}}
+function findReplace(query,index=0,reveal=true,matchCase=false){if(!owner||!query)return {count:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const found=literalMatches(source.value.value,query,matchCase),matches=found.matches,selected=matches.length?matches[((index%matches.length)+matches.length)%matches.length]:null;if(selected&&reveal)selectSourceMatch(selected.from,selected.to);return {count:matches.length,limited:found.limited,index:selected?matches.indexOf(selected):-1,mode:mode.value}}return {...engine.value.findMatch(query,index,reveal,matchCase),mode:mode.value}}
 function utf8Bytes(text){return new TextEncoder().encode(text).byteLength}
-function replaceFind(query,replacement,index=0,all=false,matchCase=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=markdown(),found=literalMatches(text,query,matchCase),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query,matchCase);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}if(utf8Bytes(next)>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query,matchCase).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all,matchCase);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
+function replaceFind(query,replacement,index=0,all=false,matchCase=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=source.value.value,found=literalMatches(text,query,matchCase),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query,matchCase);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}next=preserveFrontMatterSource(next,sourceText.value);if(utf8Bytes(next)>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query,matchCase).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all,matchCase);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
 function prepareFileImport(source){return engine.value.prepareFileImport(source)}
 function currentOwner(){return owner?{...owner,viewState:{mode:mode.value}}:null}
 function clear(){cancelEndClick();owner=null;lastActivation=null;engineDetached=false;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}

@@ -1,7 +1,34 @@
 # Markdown 渲染扩展
 
-现用 Milkdown/ProseMirror 正文与共享 PDF 文档支持 Mermaid、脚注和 GitHub 提示块。
+现用 Milkdown/ProseMirror 正文与共享 PDF 文档支持 YAML front matter、Mermaid、脚注和 GitHub 提示块。
 仍通过「视图 → 源码」编辑完整 Markdown，不增加编辑模式或常驻工具栏。
+
+## YAML front matter
+
+文件最前面的 `---` 围栏块显示为浅灰色原文元数据块，深色主题使用对应深色背景。
+等宽文字按正文正常字号显示，保留换行、缩进、注释、引号和 `>-` 等字面写法。
+点击「编辑 YAML 源码」进入现有完整源码编辑器，修改后切回正文即可；源码撤销、正文撤销、
+切页和保存沿用原有文档会话。只编辑正文时，YAML 前缀（包括 BOM、CRLF、围栏尾部空格及
+其后空行）原样保留。打开源码但不输入也不改变原文；实际编辑 YAML 时沿用 textarea 的 LF 换行。
+
+识别只依赖围栏，不解析或执行 YAML：第一行可带 BOM，必须为无缩进的 `---`（可跟空格或 Tab）；
+第一个无缩进的 `---` 或 `...` 行结束该块。支持 LF、CRLF 和 CR，结束行可以直接到文件末尾。
+空块、语法暂时无效的 YAML 都按原文展示，不生成属性表、加载资源或请求网络。
+未闭合前缀、开头空行/缩进、正文后面的分隔线、Setext 标题及代码围栏里的 `---` 按普通 Markdown 处理。
+在文首以完整围栏包围的文字，即使不像键值表，也视作元数据；这是语法边界，不做内容猜测。
+大纲与字数统计排除同一完整块；未闭合前缀中的正文继续参与大纲和统计。
+
+共享 PDF 使用同一边界，以转义后的原文块打印 YAML，不套标题、不执行其中的 HTML 或公式。
+纯文本粘贴到文首可形成元数据，粘贴或移动到其他位置后按普通 Markdown 处理。
+粘贴到正文或表格时，其中的 Markdown 图片/附件按普通资源规则检查：已登记资源绑定到目标页，
+未知引用使整次粘贴取消；文首 YAML 中的引用仍是字面文本，不登记、不加载。
+正文模式下，若拖放或在 YAML 前新增块会激活其中的受管资源引用，本次操作会被阻止，
+并提示改用复制或剪切后粘贴，让资源检查先完成。
+回归入口为根 `tests/frontmatter.test.mjs`、共享 `tests/editor.browser.spec.mjs` 的 YAML 用例，
+以及 Tauri `tests/frontmatter.browser.spec.mjs`、`tests/frontmatter-resources.browser.spec.mjs`；
+真实安装和原生 PDF 物理分页需另行验收。
+
+## Mermaid、脚注与提示块
 
 ````markdown
 ```mermaid

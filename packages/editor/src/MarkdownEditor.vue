@@ -23,6 +23,7 @@ import { serializeNoteNestedMath, replaceNoteMathInputRules } from './compatibil
 import { normalizeWritingPastedMath } from './writingMathCompatibility.js'
 import { normalizeWritingMarkdown } from './writingMarkdownCompatibility.js'
 import { serializeAlertMarkers } from './writingAlertSerialization.js'
+import { writingFrontMatter, serializeFrontMatter, installFrontMatterView, frontMatterSelection } from './writingFrontMatter.js'
 import { isAllowedResourceUrl } from './markdown/sanitize.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
 import { installWritingMarkdownViews, writingMarkdownExtensions, mermaidCodeLanguage } from './writingMarkdownExtensions.js'
@@ -49,7 +50,7 @@ import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
 const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste', 'edit-source'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -84,7 +85,7 @@ function captureSession() {
   return { original, initialDoc, initialSerialized, state: v.state.reconfigure({ plugins: allPlugins.filter(plugin => plugin.key === 'history$') }), embedded }
 }
 function selection() { if (!created || disposed || !activeSession) return undefined; const s = view().state.selection; return { anchor: s.anchor, head: s.head } }
-function setState(state) { editor.editor.ctx.set(core.editorStateCtx, state); view().updateState(state) }
+function setState(state) { editor.editor.ctx.set(core.editorStateCtx, state); view().updateState(state); error.value = '' }
 function activateSession({ id, generation, snapshot, markdown = '', viewState, resolveImage }) {
   if (!created || disposed) throw new Error('编辑器尚未就绪。')
   if (view().composing) throw new Error('请先完成输入法组合输入。')
@@ -133,6 +134,11 @@ function setEditable(value) {
 function revealMarkdown(offset, needle = '') {
   if (!created || !activeSession) return false
   const v = view(), markdown = getMarkdown()
+  const metadata = frontMatterSelection(v.state.doc, offset)
+  if (metadata) {
+    v.dispatch(v.state.tr.setSelection(metadata).scrollIntoView())
+    return false // Metadata is literal source; the host retains its exact source range.
+  }
   const range = markdownRange(v.state.doc, editor.editor.ctx.get(core.remarkCtx).parse(markdown), markdown, offset, needle)
   if (!range) return false
   v.dispatch(v.state.tr.setSelection(TextSelection.create(v.state.doc, range.from, range.to)).scrollIntoView())
@@ -245,9 +251,10 @@ function prepareResourcePaste(payload) {
 function commitResourcePaste(prepared) {
   const v=view()
   if(v.state!==prepared.state)throw Error('正文或选区已变化，请重新粘贴。')
-  // The planned table transaction is tied to this exact state. Mark its history
-  // boundary without dispatching a separate transaction that would stale it.
+  // Prepared paste transactions are tied to this exact state. Mark their history
+  // boundary without dispatching a separate transaction that would stale them.
   if(prepared.plan.table?.handled)closeHistory(prepared.plan.table.transaction)
+  else if(prepared.plan.insertion)closeHistory(prepared.plan.insertion.transaction)
   else v.dispatch(closeHistory(v.state.tr))
   if(prepared.plan.literal)v.dispatch(v.state.tr.insertText(prepared.plan.event.clipboardData.getData('text/plain')).scrollIntoView())
   else clipboard.commit(v,prepared.plan,{authorized:true})
@@ -285,7 +292,7 @@ onMounted(async () => {
     await configureWritingTables(editor.editor)
     configureWritingLineBreaks(editor.editor)
     if (disposed) return
-    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils)).use(writingMarkdownExtensions)
+    editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils)).use(writingMarkdownExtensions).use(writingFrontMatter(message => { error.value = message }))
     editor.editor.use(imageSchema.extendSchema(previous => ctx => {
       const schema = previous(ctx)
       return { ...schema, parseDOM: schema.parseDOM.map(rule => rule.tag === 'img[src]' ? {
@@ -312,7 +319,7 @@ onMounted(async () => {
           logWritingEvent('markdown-parsed', { editorId, textLength: markdown.length, normalized: normalized !== markdown, ...(doc ? describeWritingDocument(doc) : {}) })
           return doc
         })
-        ctx.set(core.serializerCtx, doc => serializeAlertMarkers(serializeNoteNestedMath(serializer(doc), remark), text => remark.parse(text)))
+        ctx.set(core.serializerCtx, doc => serializeFrontMatter(doc, body => serializeAlertMarkers(serializeNoteNestedMath(serializer(body), remark), text => remark.parse(text))))
         // Reuse the website's tested dollar-delimiter rules; this demo owns the
         // math UI and intentionally does not load Crepe's tooltip feature.
         const seed = new InputRule(/(?:\$)([^$]+)(?:\$)$/, () => null)
@@ -334,6 +341,7 @@ onMounted(async () => {
     v.setProps({ dispatchTransaction(transaction) {
       const owner = activeSession, next = v.state.apply(transaction)
       v.updateState(next)
+      if (next.doc !== transaction.before) error.value = ''
       if (owner && !switching && (transaction.selectionSet || transaction.docChanged)) emit('view-change', { ...owner })
       if (!owner || switching || !transaction.docChanged) return
       rememberedViews = null
@@ -348,6 +356,7 @@ onMounted(async () => {
     v.dom.addEventListener('pointerdown', () => { rememberedViews = null })
     installWritingMathViews(view(), { doneShortcut: props.mathDoneShortcut })
     installWritingMarkdownViews(view())
+    installFrontMatterView(view(), () => emit('edit-source', { ...activeSession, offset: 0 }))
     installWritingListViews(view())
     installWritingListKeys(view())
     installWritingSelectionWrap(view(), () => props.isComposing?.() || false)
