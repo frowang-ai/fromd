@@ -34,6 +34,7 @@ import { logWritingEvent } from './writingDiagnostics.js'
 import './editorFonts.css'
 import { installWritingLinks } from './writingLinks.js'
 import { configureWritingTables } from './writingTableSelection.js'
+import { configureWritingLineBreaks, installWritingLineBreakCommand } from './writingLineBreaks.js'
 import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
 import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
 import { markdownRange } from './writingMarkdownLocation.js'
@@ -282,6 +283,7 @@ onMounted(async () => {
     // metadata and must still receive correct labels before the DOM renders.
     await editor.editor.remove(syncListOrderPlugin)
     await configureWritingTables(editor.editor)
+    configureWritingLineBreaks(editor.editor)
     if (disposed) return
     editor.editor.use(writingMathPlugins).use(noteScriptPlugins(utils)).use(writingHtmlFormattingPlugins(utils)).use(writingListLabels(utils)).use(writingMarkdownExtensions)
     editor.editor.use(imageSchema.extendSchema(previous => ctx => {
@@ -328,6 +330,7 @@ onMounted(async () => {
     if (disposed) { await editor.destroy(); return }
     created = true; initialDoc = view().state.doc; initialSerialized = editor.getMarkdown(); allPlugins = view().state.plugins
     const v = view()
+    installWritingLineBreakCommand(editor.editor.ctx)
     v.setProps({ dispatchTransaction(transaction) {
       const owner = activeSession, next = v.state.apply(transaction)
       v.updateState(next)

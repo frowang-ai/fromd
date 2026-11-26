@@ -2,6 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { analyzeMarkdown, countWritingText } from '../packages/editor/src/markdown/analysis.js'
 import { getMarkdownRenderer } from '../packages/editor/src/markdown/renderer.js'
+test('explicit br separates counted English words without counting markup characters', () => {
+  for (const br of ['<br>', '<br/>', '<br />', '<BR>', '<Br/>', '<BR />']) {
+    assert.deepEqual(analyzeMarkdown(`Stage1${br}Memory`), { headings: [], wordCount: 2, characterCount: 12 })
+    assert.equal(analyzeMarkdown(`| Header |\n| --- |\n| Stage1${br}Memory |`).wordCount, 3)
+  }
+  assert.deepEqual(analyzeMarkdown('`Stage1<br>Memory`'), { headings: [], ...countWritingText('Stage1<br>Memory') })
+})
+
 test('outline recognizes ATX, Setext and quoted headings while ignoring code and comments', () => {
   const markdown = '# 标题 **加粗**\n\n```md\n# 代码里的标题\n```\n\n第二节\n---\n\n> ### 引用标题\n\n<!-- # 隐藏 -->\n'
   const result = analyzeMarkdown(markdown)

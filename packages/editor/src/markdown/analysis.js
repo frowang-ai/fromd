@@ -15,7 +15,7 @@ const wordSegments = new Intl.Segmenter('en', { granularity: 'word' })
 function inlineText(tokens = []) {
   return tokens.map(token => {
     if (token.type === 'softbreak' || token.type === 'hardbreak') return '\n'
-    if (token.type === 'html_inline') return ''
+    if (token.type === 'html_inline') return /^<br\s*\/?\s*>$/i.test(token.content) ? '\n' : ''
     if (token.children) return inlineText(token.children)
     return token.content || ''
   }).join('')
