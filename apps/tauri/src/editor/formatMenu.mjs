@@ -3,7 +3,7 @@ export const formatMenu = [
   [
     ...Array.from({length: 7}, (_, level) => ({
       id: 'formatHeading' + level,
-      label: level ? '标题 ' + level : '正文',
+      label: level ? '标题 ' + level : '段落',
       accelerator: 'Cmd+' + level,
       macos: '⌘' + level,
       windows: 'Ctrl+' + level,

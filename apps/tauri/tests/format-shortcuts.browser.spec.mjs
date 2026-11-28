@@ -221,6 +221,10 @@ test('Windows format menu restores focus and keeps rendered and source selection
   await menu.getByRole('button',{name}).click()
  }
  await selectBodyText(page)
+ await choose('标题 2 Ctrl+2')
+ await expect(body(page).locator('h2')).toHaveText('正文')
+ await choose('段落 Ctrl+0')
+ await expect(body(page).locator('p')).toHaveText('正文')
  await choose('加粗 Ctrl+B')
  await expect(body(page).locator('strong')).toHaveText('正文')
  await expect(body(page)).toBeFocused()
