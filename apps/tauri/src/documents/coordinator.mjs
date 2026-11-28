@@ -45,7 +45,11 @@ export class DocumentCoordinator {
   async initialize() {
     await this.port.ready();
     let snapshot = await this.api.list();
-    if (!snapshot.documents.length) snapshot = await this.api.create();
+    // A cold start with native paths opens those files without adding a draft.
+    if (!snapshot.documents.length) {
+      const opening = await this.api.hasPendingOpen?.().catch(() => false);
+      if (!opening) snapshot = await this.api.create();
+    }
     this.metadata(snapshot, true);
     this.state.pageLoading = Boolean(snapshot.activeId);
     this.state.loaded = true;
@@ -417,6 +421,18 @@ export class DocumentCoordinator {
     return this.run(async () => {
       await this.flushAndSync([this.state.activeId]); const result = await this.api.open();
       if (!result.cancelled) { this.metadata(result.snapshot, true); await this.loadActive(); }
+    });
+  }
+  // Paths queued natively (Open With, Dock, second instance, window drop) are
+  // opened in the same serial/flush order as File > Open. The renderer supplies
+  // no path; the host drains its own queue and activates the last opened file.
+  openPending() {
+    return this.run(async () => {
+      await this.flushAndSync([this.state.activeId]);
+      const result = await this.api.openPending();
+      if (result.snapshot) { this.metadata(result.snapshot, true); await this.loadActive(); }
+      if (result.errors?.length) this.state.error = result.errors.join(' ');
+      return result;
     });
   }
   remove(id, ask) {

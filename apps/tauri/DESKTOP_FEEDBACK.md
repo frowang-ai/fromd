@@ -70,6 +70,44 @@ html2canvas 包与许可本轮暂留，未将删除依赖扩成安装或升级�
 源码模式使用同一组符号直接在选区两端插入字符，保持中间选中，连按两次 `*`
 或 `~` 自然得到双符号；撤销和重做同时恢复源码与选区。
 
+## 系统打开方式与拖入打开
+
+`.md`、`.markdown`、`.txt`（扩展名不区分大小写）可从系统打开：macOS 在 Finder
+「打开方式」中列出 fromd（`LSHandlerRank=Alternate`，不抢默认；需要时由用户在
+「显示简介 → 打开方式 → 全部更改」自行设为默认），拖到 Dock 或 Finder 中的应用图标
+同样打开。macOS 只按扩展名登记这三种（不写 UTI）：若按 `public.plain-text` 类型登记，
+LaunchServices 会按类型继承把 fromd 列入 `.py`、`.js` 等所有纯文本源码文件的「打开方式」
+并接受其拖入，打开时又被白名单拒绝。Windows 安装包把 fromd 加入 `.md` / `.markdown` /
+`.txt` 的资源管理器「打开方式」列表（只登记这三个扩展名本身），拖到 exe 或快捷方式
+上同样打开，不改扩展名默认值或 UserChoice。已运行时 Windows 第二个进程把参数交给原窗口后退出，原窗口恢复、
+聚焦并打开；macOS 由系统投递给同一进程，红叉隐藏或意外销毁的窗口会重新显示。
+冷启动时文件先在 Rust 排队，等页面恢复完成后才由前端领取打开；资料库为空时直接
+打开该文件，不再额外新建一页空白笔记。
+
+窗口内拖入打开只在固定区域生效：macOS 为侧栏（含窄窗抽屉）；Windows 为侧栏、
+网页标题栏和标签栏。悬停时该区域描出虚线框，光标旁浮出「松开以打开」（浮层不占
+布局，侧栏行不会移动）。没有任何页面时拖到编辑区也视为打开。macOS 原生标题栏在
+WebView 之外，不接收拖放；macOS 标签栏保持拒绝，侧栏收起时可拖到 Dock 图标。
+被拒绝的位置（dropEffect 为 none）浏览器不会派发 drop，所以拒绝原因在悬停时就
+显示在光标旁：macOS 标签栏提示改拖到侧栏，源码模式提示切换到正文，正忙时提示稍候，
+其他非正文区域提示拖到正文编辑区。其他区域保持附件行为：正文拖入
+`.md` 仍插入附件链接，正文两侧留白视为正文并插入到最近的行位置，源码模式继续
+提示切换到正文。标签拖动排序不响应外部文件，也不显示插入竖线。
+
+放下后只打开 `.md` / `.markdown` / `.txt`：混合拖入时打开可打开的文件并提示跳过
+的数量，只有图片/附件时提示改拖到正文，文件夹被拒绝。多个文件全部打开并切到
+最后一个，新标签追加在末尾（不支持拖到两个标签之间插入）；已打开的文件直接切过去。
+正忙、源码模式或输入法组合时，打开排在当前操作之后，并先保存当前页正文、名称与
+阅读位置。
+
+渲染进程从不提交文件路径。Rust 只打开自己从系统取得的路径（Windows 启动参数与
+第二实例参数、macOS `Opened` 事件、macOS 拖放剪贴板、WebView2 `File` 对象），沿用
+`open_file` 的规范路径、普通文件、10 MB 与 UTF-8 规则，并要求原路径和真实目标的
+扩展名都在白名单内。窗口拖入时前端只报告每个文件的名称与大小，Rust 逐一核对一致
+才打开；拿不到或核对不一致（平台不支持、WebView2 运行时低于 1.0.1774.30 等）时
+不建草稿，只提示「无法获取文件位置，请使用 文件 → 打开…（⌘O / Ctrl+O）」。没有
+新增文件系统 capability。
+
 大纲点击直接滚到对应标题，正文和源码各自定位，同名标题按实例区分。
 标题结构变化让旧项无法确定时会刷新大纲并请重新选择，不会误报“已定位”。
 
@@ -114,6 +152,18 @@ Mac 布局与 Windows 保留路径使用合成文稿及模拟 IPC，可在 Windo
 $env:FROWD_BROWSER_PORT='15741'
 npm run test:tauri:browser -- platform.browser.spec.mjs desktop-feedback.browser.spec.mjs reading.browser.spec.mjs rename.browser.spec.mjs workspace.browser.spec.mjs
 ```
+
+系统打开与拖入打开的分区、提示、边距插入、空状态与冷启动领取使用合成
+`File`/`DataTransfer` 和模拟原生队列，分别以 Mac/Windows 平台策略运行：
+
+```powershell
+$env:FROWD_BROWSER_PORT='14521'
+npm run test:tauri:browser -- open-drop.browser.spec.mjs resource-drop.browser.spec.mjs
+```
+
+真实拖放剪贴板、WebView2 `File.Path`、Finder/Dock/资源管理器打开方式与单实例转交
+不在浏览器用例证明范围内，按 `MACOS_PACKAGING.md` 与 `WINDOWS_INSTALLER.md` 的
+清单真机验收。
 
 `platform.browser.spec.mjs` 覆盖 Mac 1280×820、1440×900、560×720、360×640，
 保留对应截图和深色截图；另保留 Windows 1280×820 截图。证据位于忽略提交的

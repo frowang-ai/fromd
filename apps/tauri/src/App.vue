@@ -1,6 +1,6 @@
 <template>
-  <div class="app-shell" :data-platform="platform.os" :data-native-menu="platform.nativeMenu" :data-theme="readingTheme" :data-zoom="zoom" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop">
-    <WindowChrome :platform="platform" :title="current?.title" @error="coordinator.report($event)">
+  <div class="app-shell" :data-platform="platform.os" :data-native-menu="platform.nativeMenu" :data-theme="readingTheme" :data-zoom="zoom" :style="readingStyle(readingPreferences)" @dragover.capture="guardExternalFileDrag" @drop.capture="guardExternalFileDrop" @dragleave.capture="externalDragLeave">
+    <WindowChrome :platform="platform" :title="current?.title" :open-drop-target="openHover==='top'" @error="coordinator.report($event)">
       <template #menu><nav class="app-menu" aria-label="应用菜单">
         <details ref="fileMenu"><summary>文件</summary><div class="menu-popup">
           <button @click="executeCommand('new')">新建页面 <kbd>{{ shortcutLabel('new') }}</kbd></button>
@@ -32,7 +32,7 @@
 
     <div class="workspace">
       <button v-if="sidebarOpen && narrow" class="drawer-dismiss" aria-label="关闭工作栏遮罩" @click="sidebarOpen = false"></button>
-      <aside v-show="sidebarOpen" class="sidebar" :class="{ drawer: narrow }" aria-label="页面工作栏">
+      <aside v-show="sidebarOpen" class="sidebar" :class="{ drawer: narrow, 'open-drop-target': openHover === 'sidebar' }" aria-label="页面工作栏">
         <div class="sidebar-top"><div class="sidebar-switch">
           <button :aria-pressed="sidebarMode === 'pages'" @click="sidebarMode = 'pages'">页面</button>
           <button :aria-pressed="sidebarMode === 'outline'" @click="sidebarMode = 'outline'">大纲</button>
@@ -73,10 +73,10 @@
       </aside>
 
       <main class="main-area">
-        <div class="tabbar">
+        <div class="tabbar" :class="{ 'open-drop-target': openHover === 'top' }">
           <button class="workbar-toggle" aria-label="显示页面工作栏" @click="sidebarOpen = !sidebarOpen">◫</button>
           <div class="tabs" aria-label="已展开标签">
-            <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover.prevent="overTab($event,doc.id)" @drop.prevent="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
+            <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover="overTab($event,doc.id)" @drop="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
               <button :disabled="state.busy || !state.loaded" class="tab-title" :title="doc.path || doc.title" @click="selectPage(doc.id)">{{ doc.title }}</button>
               <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
             </div>
@@ -106,7 +106,7 @@
           <span v-if="largeSource" class="writing-count" role="status">长文源码模式</span>
           <span v-else-if="!state.pageError" class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
-        <div class="editor-panel" :class="{ empty: !current }">
+        <div class="editor-panel" :class="{ empty: !current, 'open-drop-target': openHover === 'panel' }">
           <ProseMirrorPort :asset-source="current?.path ? { id: current.id, path: current.path } : null" :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current && !state.pageError" @insert-image="executeCommand('insertImage')" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.pageError" class="loading-state" role="alert">{{ state.pageError }} <button @click="selectPage(current.id)">重试</button></div>
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
@@ -135,6 +135,7 @@
     </div>
     <div v-if="state.undoRemoval && !undoDismissed" class="removal-notice" role="status">已移除 <button :disabled="state.busy || !state.loaded" @click="action(() => coordinator.undoRemove())">撤销</button><button aria-label="关闭移除提示" @click="undoDismissed = true">×</button></div>
     <div v-if="browserTestHost" class="test-host-badge">浏览器验证 · 模拟 IPC</div>
+    <div v-if="dragFeedback" class="drag-hint" :class="'drag-hint-' + dragFeedback.kind" role="status" :style="dragFeedback.style">{{ dragFeedback.text }}</div>
   </div>
 </template>
 <script setup>
@@ -143,7 +144,9 @@ import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {initializeCloseHandshake} from './documents/closeHandshake.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,updatesApi,onHostClose,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {documentsApi,updatesApi,onHostClose,onHostOpenRequest,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {createOpenRequests} from './documents/openRequests.mjs'
+import {OPEN_AREAS,classifyDrop,dropArea,externalFileDrag,openDropMessages,skippedNotice} from './openDrop.mjs'
 import UpdateNotice from './updates/UpdateNotice.vue'
 import {UpdateController} from './updates/controller.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
@@ -158,7 +161,8 @@ import {describePlatform,formatShortcut,matchCommand,usesNativeAccelerator} from
 import {listen} from '@tauri-apps/api/event'
 const platform=describePlatform({browserTestHost,nativeWindow})
 const shortcutLabel=id=>formatShortcut(id,platform)
-let menuDispose
+const openMessages=openDropMessages(platform)
+let menuDispose,openDispose
 
 const state=reactive({})
 const editor=ref(null),findInput=ref(null)
@@ -175,7 +179,8 @@ const readingTheme=computed(()=>resolvedReadingTheme(readingPreferences.value,sy
 let analysisTimer
 function themeChanged(event){systemDark.value=event.matches}
 watch(readingTheme,value=>{document.documentElement.dataset.readingTheme=value;document.documentElement.style.colorScheme=value},{immediate:true})
-const dropTarget=ref(null),dropAfter=ref(false)
+const dropTarget=ref(null),dropAfter=ref(false),openHover=ref(null),dragFeedback=ref(null)
+let dragFeedbackTimer
 const findState=reactive({open:false,query:'',replacement:'',matchCase:false,count:0,index:0,limited:false,composing:false,replacementComposing:false,owner:null,pending:null,mode:'rendered'})
 let findSerial=0
 let dragging=null
@@ -230,6 +235,7 @@ const coordinator=new DocumentCoordinator(api,port,state)
 const updateState=reactive({})
 const updater=new UpdateController(updatesApi,coordinator,updateState)
 const search=new DocumentSearch(api,state,()=>coordinator.searchLive())
+const openRequests=createOpenRequests({open:()=>coordinator.openPending(),report:error=>coordinator.report(error)})
 watch(()=>[state.activeId,state.markdown,mode.value,largeSource.value],([id,markdown,view,long],previous)=>{
  clearTimeout(analysisTimer)
  if(id!==previous?.[0]||long)readingAnalysis.value={headings:[],wordCount:0,characterCount:0}
@@ -276,14 +282,17 @@ function startDrag(event,id){
  dragging={id,ids:opened.value.map(d=>d.id),revision:state.layoutRevision}
  event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('application/x-frowd-tab',id)
 }
+// Only the tab drag started here reorders; external files never show the insertion bar.
 function overTab(event,id){
- if(!dragging)return
+ if(!dragging||externalFileDrag(event.dataTransfer))return
+ event.preventDefault()
  event.dataTransfer.dropEffect='move';dropTarget.value=id
  const rect=event.currentTarget.getBoundingClientRect();dropAfter.value=event.clientX>rect.left+rect.width/2
 }
 function endDrag(){dragging=null;dropTarget.value=null}
 function dropTab(event,id){
- if(!dragging)return
+ if(!dragging||externalFileDrag(event.dataTransfer))return
+ event.preventDefault()
  const drag=dragging,after=dropAfter.value;endDrag()
  if(drag.id===id)return
  const ids=drag.ids.filter(value=>value!==drag.id),index=ids.indexOf(id)
@@ -419,23 +428,80 @@ function zoomWheel(event){
 }
 async function action(work){closeMenus();contextPage.value=null;try{await work()}catch(error){coordinator.report(error)}}
 function pasteResource(event){return action(()=>coordinator.pasteResources({id:event.id,generation:event.generation},event.payload))}
-function externalFileGesture(event){return Array.from(event.dataTransfer?.types||[]).some(type=>type.toLowerCase()==='files')}
-function insideEditorTarget(event){return Boolean(event.target?.closest?.('.ProseMirror, .markdown-source'))}
+// Body/margins keep the resource drop path; open areas (sidebar, Windows top
+// bars, or the empty editor panel) open .md/.markdown/.txt through the host.
+function insideEditorRoot(event){return Boolean(event.target?.closest?.('.editor-root'))}
+function areaOf(event){return dropArea(event.target,platform,{hasDocument:Boolean(current.value)})}
+function hideDragFeedback(){clearTimeout(dragFeedbackTimer);openHover.value=null;dragFeedback.value=null}
+// Beside the cursor, flipped near the right/bottom edges so it stays readable.
+function hintStyle(x,y){
+ const right=x>window.innerWidth-280,bottom=y>window.innerHeight-64
+ return {[right?'right':'left']:`${right?window.innerWidth-x+12:x+14}px`,[bottom?'bottom':'top']:`${bottom?window.innerHeight-y+12:y+18}px`}
+}
+// Feedback is shown while hovering: a target whose dragover leaves dropEffect
+// 'none' never receives drop, so a rejection explained only on drop is never
+// seen. dragover repeats while hovering; the timer also covers a drag that
+// leaves the window without a final dragleave.
+function showDragFeedback(event,area,kind,text){
+ openHover.value=kind==='open'?area:null
+ dragFeedback.value={kind,text,style:hintStyle(event.clientX,event.clientY)}
+ clearTimeout(dragFeedbackTimer);dragFeedbackTimer=setTimeout(hideDragFeedback,800)
+}
+function externalDragLeave(event){if(!event.relatedTarget&&externalFileDrag(event.dataTransfer))hideDragFeedback()}
+function bodyAccepts(area,event){return area==='body'&&insideEditorRoot(event)&&!state.busy&&!editingLocked.value&&mode.value==='rendered'}
+// Why an external file cannot be dropped here (never an open area or an accepting body).
+function dropRejection(area,event){
+ if(area==='tabbar')return openMessages.tabbar
+ if(!current.value)return '当前没有可接收资源的页面。'
+ if(state.busy||editingLocked.value)return '当前文档正忙，请等待当前操作完成后再拖入资源。'
+ if(area==='body'&&insideEditorRoot(event)&&mode.value==='source')return '源码模式暂不支持按坐标拖入，请切换到正文模式。'
+ return '请将图片或附件拖到正文编辑区。'
+}
 function guardExternalFileDrag(event){
- if(!externalFileGesture(event))return
- const editor=insideEditorTarget(event)
- if(editor&&!state.busy&&!editingLocked.value&&mode.value==='rendered')return
+ if(!externalFileDrag(event.dataTransfer))return
+ const area=areaOf(event)
+ if(OPEN_AREAS.has(area)){
+  // File names are unknown while hovering; the type is checked on drop.
+  event.preventDefault();event.stopPropagation()
+  if(event.dataTransfer)event.dataTransfer.dropEffect='copy'
+  showDragFeedback(event,area,'open','松开以打开');return
+ }
+ if(bodyAccepts(area,event)){hideDragFeedback();return}
  event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='none'
+ showDragFeedback(event,area,'reject',dropRejection(area,event))
 }
 function guardExternalFileDrop(event){
- if(!externalFileGesture(event))return
- const editor=insideEditorTarget(event)
- if(editor&&!state.busy&&!editingLocked.value&&mode.value==='rendered')return
+ if(!externalFileDrag(event.dataTransfer))return
+ const area=areaOf(event)
+ hideDragFeedback()
+ if(OPEN_AREAS.has(area)){event.preventDefault();event.stopPropagation();openDroppedFiles(event.dataTransfer);return}
+ if(bodyAccepts(area,event))return
  event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='none'
- if(editor)return
- if(!current.value)state.error='当前没有可接收资源的页面。'
- else if(state.busy||editingLocked.value)state.error='当前文档正忙，请等待当前操作完成后再拖入资源。'
- else state.error='请将图片或附件拖到正文编辑区。'
+ // The editor port explains its own (source/busy) refusal if a drop gets there.
+ if(area==='body'&&insideEditorRoot(event))return
+ state.error=dropRejection(area,event)
+}
+// Classification and the native claim start inside the drop event, before any
+// await: the macOS drag pasteboard and DataTransfer are only fresh right now.
+// Opening itself waits in the coordinator queue (busy/source/IME are honored).
+function openDroppedFiles(dataTransfer){
+ const dropped=classifyDrop(dataTransfer),skipped=skippedNotice(dropped,openMessages)
+ if(!dropped.openable.length){
+  state.error=dropped.skipped.length&&dropped.directories?skipped:dropped.directories?openMessages.directory:openMessages.unsupported
+  return
+ }
+ state.error=skipped
+ let claim
+ try{claim=api.claimDropped(dropped.openable)}catch(error){claim=Promise.reject(error)}
+ return claim.then(async result=>{
+  if(!result||result.unavailable){state.error=[skipped,openMessages.unavailable].filter(Boolean).join('。');return}
+  const notes=[skipped,...(result.errors||[])].filter(Boolean),initial=notes.join('。')
+  if(initial)state.error=initial
+  if(result.accepted){
+   await openRequests.request()
+   if(initial&&state.error&&state.error!==initial)state.error=`${initial} ${state.error}`
+  }
+ },()=>{state.error=[skipped,openMessages.unavailable].filter(Boolean).join('。')})
 }
 function insertResource(event,kind='auto'){
  if(state.busy||editingLocked.value){state.error='当前文档正忙，请等待当前操作完成后再拖入资源。';return}
@@ -547,12 +613,20 @@ onMounted(async()=>{
  if(nativeWindow)setPageZoom(100).catch(error=>coordinator.report(error))
  if(nativeWindow)menuDispose=await listen('frowd:menu-command',event=>executeCommand(event.payload))
  window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
+ try{openDispose=await onHostOpenRequest(()=>openRequests.request())}catch(error){coordinator.report(error)}
  closeDispose=await initializeCloseHandshake({
   listen:onHostClose,acknowledge:()=>api.ackCloseListener(),
   boot:()=>coordinator.boot(),close:()=>updater.blocksClose?api.cancelClose():coordinator.close(),
   cancel:()=>api.cancelClose(),report:error=>coordinator.report(error)
  })
- if(disposed)closeDispose()
+ if(disposed){closeDispose();openDispose?.();return}
+ // Cold-start Open With / argv paths were queued natively before this listener.
+ if(state.loaded){
+  let pending=false
+  try{pending=await api.hasPendingOpen()}catch(error){coordinator.report(error)}
+  if(disposed)return
+  openRequests.start(pending)
+ }
 })
-onBeforeUnmount(()=>{disposed=true;updater.dispose();menuDispose?.();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;updater.dispose();menuDispose?.();openDispose?.();openRequests.dispose();hideDragFeedback();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

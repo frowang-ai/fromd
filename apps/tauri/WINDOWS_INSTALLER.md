@@ -3,7 +3,7 @@
 Tauri 客户端使用官方 NSIS 流程生成 Windows x64 Setup.exe，产品名为 `fromd`，
 当前源码版本 `0.5.6`，应用身份为 `com.frowang.frowd.tauri.v1`。
 这是 Tauri 安装入口，不迁移旧 Electron 文档库。安装包未签名，支持用户手动检查更新，
-不会公开发布或注册 `.md` 默认打开方式。
+不会公开发布；仅将 fromd 注册到 `.md` / `.markdown` / `.txt` 的系统「打开方式」列表，不设默认打开应用。
 
 0.5.2 将共享配置与 Windows NSIS/macOS APP/DMG 配置拆分。跨平台边界、macOS 构建与验收见 [MACOS_PACKAGING.md](MACOS_PACKAGING.md)。
 
@@ -69,6 +69,8 @@ npm run tauri:installer
 - 安装目录内 `licenses/` 带有应用 MIT 许可证、第三方声明、SoloMD 来源许可证、
   Tauri API 的 MIT/Apache 许可证及编辑依赖清单。
   共 7 份文件，其中 `TAURI-THIRD-PARTY-NOTICES.md` 补充 html2canvas 及其四个间接依赖的原始 LICENSE。
+- **「打开方式」注册与卸载清理**：不使用 Tauri 内置 NSIS `fileAssociations`（该宏会无条件覆写 `.ext` 默认值且命令行未给可执行路径加引号），而由 `src-tauri/nsis/installer-hooks.nsh` 在 `HKCU\Software\Classes` 下注册专用 ProgID `fromd.Markdown`、`fromd.Text` 与 `Applications\frowd-tauri.exe`（`DefaultIcon` 及带引号的 `"$INSTDIR\frowd-tauri.exe" "%1"`、`FriendlyAppName`、`SupportedTypes`），并在 `.md`、`.markdown`、`.txt` 的 `OpenWithProgids` 下写入对应 ProgID 空值，随后调用 `SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0)`。全过程绝不修改 `.ext` 默认值、`UserChoice` 或 `HKLM`。覆盖更新（`$UpdateMode == 1`）保留并重写自身注册；真实卸载仅在 `shell\open\command` 仍指向当前 `$INSTDIR\frowd-tauri.exe` 时删除上述自建键与 `OpenWithProgids` 值（仅当 `OpenWithProgids` 为空时清理空键），不影响其他应用或另一目录的同程序安装。
+- **启动参数、单实例转交与窗口拖入打开**：启动时解析 `std::env::args_os().skip(1)`（跳过 `-` 选项，兼容相对路径与 `file://` URL）；已运行时由 `tauri-plugin-single-instance` 在争抢 `profile.lock` 之前将第二进程的 `argv` 与工作目录转交给原实例并立即退出，原窗口取消最小化、显示并聚焦后通过协调器串行 flush 并打开文档。debug 构建设置 `FROWANG_USER_DATA` 时自动关闭单实例插件，确保隔离原生测试不会把参数转交给本机其他正在运行的 fromd。窗口保持 `dragDropEnabled: false`：在侧栏、网页标题栏 `.app-header` 或标签栏 `.tabbar`（以及无页面时的空白编辑面板）放下文件时，前端通过 `chrome.webview.postMessageWithAdditionalObjects` 传递 `File` 对象并仅在 IPC 中报告 `name`/`size`；Rust 在主窗口受信任页面来源下通过 `ICoreWebView2WebMessageReceivedEventArgs2::AdditionalObjects` → `ICoreWebView2File::Path`（需 WebView2 Runtime ≥ 1.0.1774.30）读取真实路径并核对一致后入队打开，否则不建草稿并提示改用 `Ctrl+O`。
 
 WebView2 使用 Evergreen Runtime。安装器检查现有 Runtime，已存在时复用；
 缺失时通过 Tauri 官方 `downloadBootstrapper` 路线下载微软引导程序并安装，
@@ -115,6 +117,7 @@ Rust 检查 SQLite checkpoint 的 busy/页数结果，成功后直接 spawn 安�
 6. 备份临时测试资料后重装同一 Tauri 包，核对资料仍在；卸载时保持“删除应用数据”
    不勾选，再安装后核对恢复。若要测试勾选删除，仅对可丢弃测试资料执行，
    同时确认外部 Markdown/附件仍在。
+7. 验证「打开方式」、单实例与窗口拖入打开：安装到含空格路径（或默认路径）后，确认 `.md` / `.markdown` / `.txt` 原有默认打开程序未变，资源管理器右键「打开方式」出现 fromd；测试未启动（含全新空库不额外生成空白页）与已运行（含窗口最小化、正在编辑未保存内容或源码模式）时从资源管理器「打开方式」打开单个/多个/已打开文档，确认不报数据目录占用错误且当前窗口聚焦并切换到目标页；从资源管理器分别拖 `.md` / `.markdown` / `.txt` 到侧栏、网页标题栏 `.app-header`、标签栏 `.tabbar`（显示「松开以打开」并真实关联原文件，按 `Ctrl+S` 写回原路径），测试混合拖入 `.md` + 图片、拖入文件夹/纯图片提示，以及拖 `.md` 到正文和左右留白仍插入附件链接；卸载后确认资源管理器「打开方式」及 `HKCU\Software\Classes` 中 fromd 自建项已清理且其他应用关联完好。
 
 最终组合包由已审核的渲染、PDF 和安装功能源码构建；安装版手工验收仍由用户执行。
 0.5.1 修正版交付到 `release/tauri-0.5.1-console-fix/`，构建命令、PE修前/后结果、产物大小与SHA256

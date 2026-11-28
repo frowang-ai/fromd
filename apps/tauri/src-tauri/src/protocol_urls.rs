@@ -35,6 +35,9 @@ fn trusted_url(value: &str, origin: bool, development: bool) -> bool {
     matches!((url.scheme(), url.host_str(), url.port()), ("tauri", Some("localhost"), None) | ("http" | "https", Some("tauri.localhost"), None))
         || development && matches!(url.scheme(), "http" | "https") && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"))
 }
+/// A page URL from the app's own frontend, e.g. a WebView2 web message Source.
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+pub(super) fn trusted_page(value: &str, development: bool) -> bool { trusted_url(value, false, development) }
 pub(super) fn resource_source(label: &str, headers: &HeaderMap, development: bool) -> bool {
     if label != "main" { return false; }
     for (name, origin) in [("origin", true), ("referer", false)] {
@@ -78,5 +81,15 @@ mod tests {
         headers.remove("origin");
         headers.insert("referer", "https://evil.test/".parse().unwrap());
         assert!(!resource_source("main", &headers, true));
+    }
+    #[test]
+    fn web_message_source_must_be_the_app_page() {
+        for page in ["http://tauri.localhost/", "https://tauri.localhost/index.html", "tauri://localhost/index.html?x=1"] {
+            assert!(trusted_page(page, false), "{page}");
+        }
+        assert!(trusted_page("http://127.0.0.1:1420/?testHost=0", true));
+        for page in ["http://127.0.0.1:1420/", "https://evil.test/", "http://tauri.localhost.evil/", "http://tauri.localhost:8080/", "about:blank", "http://frowd-pdf.localhost/token"] {
+            assert!(!trusted_page(page, false), "{page}");
+        }
     }
 }
