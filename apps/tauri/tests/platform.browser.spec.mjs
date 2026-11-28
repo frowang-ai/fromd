@@ -36,8 +36,12 @@ for(const platform of ['windows','macos']){
   await page.keyboard.press(platform==='macos'?'Alt+Meta+f':'Control+h')
   await expect(page.getByRole('dialog',{name:'当前文档查找替换'})).toBeVisible()
   await page.keyboard.press('Escape')
-  await page.keyboard.press(`${primary}+=`);await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','110')
-  await page.keyboard.press(`${primary}+0`);await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','100')
+  await page.keyboard.press(`${primary}+Shift+=`);await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','110')
+  if(platform==='macos'){
+   await page.locator('.ProseMirror').dispatchEvent('wheel',{metaKey:true,deltaY:-100,bubbles:true,cancelable:true})
+   await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','120')
+  }
+  await page.keyboard.press(`${primary}+Shift+0`);await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','100')
   await page.keyboard.press('Control+Tab');await expect(page.locator('.tab.selected')).toHaveAttribute('data-tab-id','b')
   await page.keyboard.press('Control+Shift+Tab');await expect(page.locator('.tab.selected')).toHaveAttribute('data-tab-id','a')
   if(platform==='macos'){

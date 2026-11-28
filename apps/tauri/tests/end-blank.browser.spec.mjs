@@ -31,6 +31,7 @@ test('far blank click uses existing empty-paragraph semantics, reuses rows and i
  await boot(page)
  const point=await clickBelow(page,4.5),first=await snapshot(page)
  expect(first.doc.content.filter(n=>n.type==='paragraph'&&!n.content).length).toBeGreaterThan(1)
+ expect(first.markdown).toBe(original)
  const caret=await page.evaluate(()=>{const node=getSelection().anchorNode,element=node.nodeType===1?node:node.parentElement,p=element.closest('p'),r=p.getBoundingClientRect();return{y:r.top+r.height/2,left:r.left}})
  expect(Math.abs(caret.y-point.y)).toBeLessThan(point.line*1.5)
  await page.mouse.click(point.x,point.y)
@@ -39,17 +40,26 @@ test('far blank click uses existing empty-paragraph semantics, reuses rows and i
  await page.keyboard.press('Control+y');expect((await snapshot(page)).doc).toEqual(first.doc)
  await page.keyboard.insertText('远处输入')
  const typed=await snapshot(page)
- expect(typed.markdown).toContain('<br />') // Existing Enter/serializer semantics.
+ expect(typed.markdown).toBe(original+'\n远处输入\n')
  expect(typed.markdown).not.toMatch(/[\u200b\u200c\ufeff]/)
  await sourceMode(page,true)
  const source=page.getByRole('textbox',{name:'Markdown 源码'})
  await expect(source).toHaveValue(typed.markdown)
- // A harmless source newline forces an actual parser rebuild on returning.
- await source.fill(typed.markdown+'\n');await sourceMode(page,false)
+ await sourceMode(page,false)
  expect((await snapshot(page)).doc).toEqual(typed.doc)
  await page.locator('[data-tab-id="b"] .tab-title').click()
  await page.locator('[data-tab-id="a"] .tab-title').click()
  expect((await snapshot(page)).doc).toEqual(typed.doc)
+ const search=page.getByRole('searchbox',{name:'搜索全部页面'})
+ await search.fill('远处输入')
+ await page.locator('.search-result').click()
+ await expect.poll(()=>page.evaluate(()=>getSelection().toString())).toBe('远处输入')
+
+ // A harmless source newline forces an actual parser rebuild on returning.
+ await sourceMode(page,true)
+ await source.fill(typed.markdown+'\n');await sourceMode(page,false)
+ const paragraphs=(await snapshot(page)).doc.content
+ expect(paragraphs).toEqual(typed.doc.content.filter(node=>node.type!=='paragraph'||node.content))
 })
 
 for(const [kind,text]of [['table','| 列 | 值 |\n| --- | --- |\n| 原值 | 1 |\n'],['list','- 原条目一\n- 原条目二\n'],['code','```js\nconst answer = 42;\n```\n'],['Mermaid','```mermaid\nflowchart LR\nA[起点] --> B[终点]\n```\n']])test(`end click after ${kind} appends outside the existing block`,async({page})=>{
@@ -94,8 +104,9 @@ test('no active document never appends a new page from editor blank space',async
 
 test('end clicks honor document ownership and browser layout zoom',async({page})=>{
  await boot(page)
- await page.keyboard.press('Control+=');await page.keyboard.press('Control+=')
+ await page.keyboard.press('Control+Shift+=');await page.keyboard.press('Control+Shift+=')
  await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','120')
+ await expect(page.locator('html')).toHaveCSS('zoom','1.2')
  const point=await clickBelow(page,3)
  const p=await page.evaluate(()=>{const n=getSelection().anchorNode,e=n.nodeType===1?n:n.parentElement,r=e.closest('p').getBoundingClientRect();return{top:r.top,height:r.height}})
  expect(Math.abs(p.top+p.height/2-point.y)).toBeLessThan(point.line*1.5)

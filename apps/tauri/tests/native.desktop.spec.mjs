@@ -254,7 +254,7 @@ Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; pu
     await expect.poll(()=>native('plugin:window|is_minimized')).toBe(false)
     await body(page).click()
     const initialWidth=await page.evaluate(()=>innerWidth)
-    await page.keyboard.press('Control+=')
+    await page.keyboard.press('Control+Shift+=')
     await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','110')
     await expect.poll(()=>page.evaluate(()=>innerWidth)).toBeLessThan(initialWidth)
     await page.keyboard.down('Control')
@@ -262,7 +262,7 @@ Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; pu
     await page.keyboard.up('Control')
     await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom','120')
     await expect.poll(async()=>Math.abs((await page.evaluate(()=>innerWidth))-initialWidth/1.2)).toBeLessThan(2)
-    await page.keyboard.press('Control+0')
+    await page.keyboard.press('Control+Shift+0')
     await expect.poll(()=>page.evaluate(()=>innerWidth)).toBe(initialWidth)
     await page.keyboard.press('Control+/');await expect(source(page)).toBeVisible()
     await source(page).fill('# 原生标题栏验收\n\n正常关闭前最后输入')
@@ -329,7 +329,7 @@ test('native end-blank clicks place a real caret at 100/120 percent and survive 
   await setMode(page,'source');await source(page).fill(original);await setMode(page,'rendered')
   const positions=[]
   for(const zoom of [100,120]){
-   await page.keyboard.press('Control+0');if(zoom===120){await page.keyboard.press('Control+=');await page.keyboard.press('Control+=')}
+   await page.keyboard.press('Control+Shift+0');if(zoom===120){await page.keyboard.press('Control+Shift+=');await page.keyboard.press('Control+Shift+=')}
    await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom',String(zoom))
    await body(page).locator('h1').click();await page.keyboard.press('Home')
    await page.locator('.pm-scroller').evaluate(async el=>{el.scrollTop=0;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))})
@@ -342,7 +342,7 @@ test('native end-blank clicks place a real caret at 100/120 percent and survive 
   }
   await setMode(page,'source')
   const markdown=await source(page).inputValue()
-  expect(markdown).toContain('原生末尾输入100');expect(markdown).toContain('原生末尾输入120');expect(markdown).toContain('<br />')
+  expect(markdown).toContain('原生末尾输入100');expect(markdown).toContain('原生末尾输入120');expect(markdown).not.toContain('<br />')
   await source(page).fill(markdown+'\n');await setMode(page,'rendered')
   await writeFile(join(directory,'end-blank-native.json'),JSON.stringify({native:true,mock:false,positions,markdown},null,2))
   await closeNormally(app);app=null

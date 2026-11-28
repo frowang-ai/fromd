@@ -54,8 +54,8 @@ test('引用块普通文字在滚动和缩放后仍有可见原生光标，行�
   const target = quote.locator('p').nth(20)
   const observations = []
   for (const zoom of [100, 120]) {
-    await page.keyboard.press('Control+0')
-    if (zoom === 120) { await page.keyboard.press('Control+='); await page.keyboard.press('Control+=') }
+    await page.keyboard.press('Control+Shift+0')
+    if (zoom === 120) { await page.keyboard.press('Control+Shift+='); await page.keyboard.press('Control+Shift+=') }
     await expect(page.locator('.app-shell')).toHaveAttribute('data-zoom', String(zoom))
     await target.scrollIntoViewIfNeeded()
     const point = await pointForText(page, target, '引用第 21 段')
