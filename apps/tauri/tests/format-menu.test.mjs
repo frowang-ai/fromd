@@ -23,6 +23,9 @@ test('format menu labels and macOS accelerators resolve to the existing editor c
   const items = formatMenu.flat()
   assert.equal(items.length, 22)
   assert.equal(new Set(items.map(item => item.id)).size, items.length)
+  // View > 正文 switches modes; the Format item resets the block to a paragraph.
+  assert.deepEqual(items[0], {id: 'formatHeading0', label: '段落', accelerator: 'Cmd+0', macos: '⌘0', windows: 'Ctrl+0', command: {name: 'heading', level: 0}})
+  assert.ok(!items.some(item => item.label === '正文'))
   for (const item of items) {
     const windows = item.windows.split('+'), accelerator = item.accelerator.split('+')
     const nativeKey = accelerator.pop()

@@ -3,7 +3,7 @@ use tauri::{menu::{Menu, MenuItem, PredefinedMenuItem, Submenu}, Emitter, Manage
 // Mirrors the editor menu descriptor, checked by the Node menu test.
 const FORMAT_MENU: &[&[(&str, &str, &str)]] = &[
     &[
-        ("formatHeading0", "正文", "Cmd+0"),
+        ("formatHeading0", "段落", "Cmd+0"),
         ("formatHeading1", "标题 1", "Cmd+1"),
         ("formatHeading2", "标题 2", "Cmd+2"),
         ("formatHeading3", "标题 3", "Cmd+3"),
