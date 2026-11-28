@@ -9,7 +9,7 @@ fromd 是本地 Markdown 写作与阅读客户端，唯一桌面宿主为 **Taur
 | 层 | 入口与职责 |
 | --- | --- |
 | 共享产品内核 | `packages/editor`：Markdown 解析、序列化、编辑及 PDF HTML；`apps/tauri/crates/document-store/src`：文档、SQLite、资源、导入、搜索；`apps/tauri/src/documents/coordinator.mjs`：串行操作与保存协调 |
-| 薄平台壳 | `platform.mjs`、`WindowChrome.vue`、Rust IPC/协议与 `menu_macos.rs`、`pdf_macos.rs` / `pdf_windows.rs`；平台参数单向传给编辑器，内核不反向依赖宿主 |
+| 薄平台壳 | `platform.mjs`、`WindowChrome.vue`、Rust IPC/协议与 `menu_macos.rs`（路由策略在可跨平台单测的 `menu_routing.rs`）、`pdf_macos.rs` / `pdf_windows.rs`；平台参数单向传给编辑器，内核不反向依赖宿主 |
 | 打包层 | 共享 Tauri 配置 + Windows NSIS / macOS APP、DMG 覆盖配置；0.5.2 身份与许可资源统一，GitHub Actions 构建安装包、归档 SHA256SUMS.txt；发布 Release 另行执行 |
 
 页面直接收起/恢复，不播放旧 Electron 的 450ms 收起动画。macOS 使用系统标题栏和原生菜单；Windows 使用自绘窗口栏。两端保存、恢复、资源权限和 PDF 公共层保持一致。

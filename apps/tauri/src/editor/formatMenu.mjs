@@ -1,4 +1,4 @@
-// The native mirror in menu_macos.rs is checked against this menu.
+// The native mirror in menu_routing.rs is checked against this menu.
 export const formatMenu = [
   [
     ...Array.from({length: 7}, (_, level) => ({

@@ -10,6 +10,8 @@ mod pdf;
 mod open_requests;
 #[cfg(target_os = "macos")]
 mod menu_macos;
+#[cfg(any(target_os = "macos", test))]
+mod menu_routing;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
 use serde::Serialize;
 use serde_json::Value;
