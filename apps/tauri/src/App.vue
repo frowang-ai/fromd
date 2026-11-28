@@ -107,7 +107,7 @@
           <span v-else-if="!state.pageError" class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
         <div class="editor-panel" :class="{ empty: !current, 'open-drop-target': openHover === 'panel' }">
-          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current && !state.pageError" @insert-image="executeCommand('insertImage')" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <ProseMirrorPort :asset-source="current?.path ? { id: current.id, path: current.path } : null" :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current && !state.pageError" @insert-image="executeCommand('insertImage')" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.pageError" class="loading-state" role="alert">{{ state.pageError }} <button @click="selectPage(current.id)">重试</button></div>
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded || state.pageLoading" class="loading-state" role="status">{{ state.loaded ? '正在读取正文…' : '正在恢复页面…' }}</div>
@@ -222,7 +222,7 @@ const port={
  prepareFileImport:source=>editor.value.prepareFileImport(source),
  ready:async()=>{await nextTick();await editor.value.ready()},
  prepareResourcePaste:payload=>editor.value.prepareResourcePaste(payload),
- commitResourcePaste:prepared=>editor.value.commitResourcePaste(prepared),
+ commitResourcePaste:(prepared,copied)=>editor.value.commitResourcePaste(prepared,copied),
  insertResources:(items,position,dropState,dropMode)=>editor.value.insertResources(items,position,dropState,dropMode),
  capture:()=>editor.value?.capture(),
  waitComposition:waitAllComposition,

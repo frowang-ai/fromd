@@ -27,19 +27,21 @@ export { createMarkdownRenderer, getMarkdownRenderer }
 export { extractTOC, scrollToHeading }
 export { downloadMarkdown, downloadHTML }
 
+let svgRenderer
+
 /**
  * 渲染 Markdown 文本为 HTML
  * @param {string} markdown - Markdown 文本
  * @returns {string} HTML 字符串
  */
-export function renderMarkdown(markdown) {
+export function renderMarkdown(markdown, { allowRemoteImages = false, allowSvgData = false } = {}) {
   if (!markdown) return ''
 
   // 归一化顺序固定：块公式 → 行内公式 → CJK 标点 emphasis 修复
   const fixed = mapMarkdownBody(markdown, body => fixCjkEmphasis(normalizeInlineMath(normalizeBlockMath(body))))
 
-  const md = getMarkdownRenderer()
-  return sanitizeHtml(md.render(fixed))
+  const md = allowSvgData ? (svgRenderer ??= createMarkdownRenderer({ allowSvgData })) : getMarkdownRenderer()
+  return sanitizeHtml(md.render(fixed), { allowRemoteImages })
 }
 
 export default {

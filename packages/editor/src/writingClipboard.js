@@ -241,7 +241,7 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
         logWritingEvent('paste-error', { editorId, pasteId, errorType: error instanceof TypeError ? 'TypeError' : 'Error' })
       }
       logWritingEvent('paste-route', { ...metadata, route, reason, normalized })
-      if(parsePlain&&!html&&!literal&&!data.getData('vscode-editor-data')&&/(?:\.frowd-assets\/|blob:|frowd-resource[.:])/i.test(text)){
+      if(parsePlain&&!html&&!literal&&!data.getData('vscode-editor-data')&&/(?:\.frowd-assets\/|\.assets\/|blob:|frowd-resource[.:])/i.test(text)){
         const doc=parse(text);if(doc)slice=Slice.maxOpen(doc.content)
       }
       return {slice,inputSlice,event,recovered,literal,result}
@@ -266,12 +266,30 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
       }
       plan.slice=compatibleTableSlice(editorView,plan.slice,plan.event)
     }
+    return planInsertion(editorView, plan)
+  }
+  function planInsertion(editorView, plan){
+    const { event } = plan
     // A parsed LaTeX source selection uses the normal table paste path too.
     plan.table=plan.literal||(!plan.recovered&&event.clipboardData?.getData('vscode-editor-data'))?null:prepareTablePaste(editorView,event,plan.slice)
     if(!plan.literal&&!plan.table?.handled&&(!event.clipboardData?.getData('vscode-editor-data')||plan.recovered))
       plan.insertion=prepareFrontMatterInsertion(editorView.state,plan.slice,parse)
     plan.resourceSlice=plan.table?.resourceSlice??plan.insertion?.resourceSlice??plan.slice
     return plan
+  }
+  function replaceImages(editorView, plan, replacements) {
+    const rewrite = fragment => {
+      const children = []
+      fragment.forEach(node => {
+        const src = node.type.name === 'image' && replacements.get(node.attrs.src)
+        if (src) children.push(node.type.create({ ...node.attrs, src }, null, node.marks))
+        else children.push(node.childCount ? node.copy(rewrite(node.content)) : node)
+      })
+      return Fragment.fromArray(children)
+    }
+    const { slice } = plan
+    return planInsertion(editorView, { ...plan, recovered: true,
+      slice: new Slice(rewrite(slice.content), slice.openStart, slice.openEnd) })
   }
   function commit(editorView,plan,{authorized=false}={}){
     const {event,slice}=plan
@@ -318,5 +336,5 @@ export function installWritingClipboard(view, { parse, normalize, editorId, defe
     return commit(editorView,plan)
   }
   view.setProps({handlePaste})
-  return {prepare,commit}
+  return {prepare,replaceImages,commit}
 }

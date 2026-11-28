@@ -1,5 +1,5 @@
-pub fn suggested_name(title: &str) -> String {
-    let mut name: String = title
+pub(super) fn portable_component(value: &str) -> String {
+    value
         .chars()
         .map(|c| {
             if c.is_control() || "<>:\"/\\|?*".contains(c) {
@@ -8,8 +8,14 @@ pub fn suggested_name(title: &str) -> String {
                 c
             }
         })
-        .collect();
-    name = name.trim().trim_end_matches(['.', ' ']).to_owned();
+        .collect::<String>()
+        .trim()
+        .trim_end_matches(['.', ' '])
+        .to_owned()
+}
+
+pub fn suggested_name(title: &str) -> String {
+    let mut name = portable_component(title);
     for suffix in [".markdown", ".txt", ".md"] {
         if name.to_ascii_lowercase().ends_with(suffix) {
             name.truncate(name.len() - suffix.len());
@@ -25,7 +31,13 @@ pub fn suggested_name(title: &str) -> String {
     if name.is_empty() {
         name = "未命名笔记".into();
     }
-    let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+    mark_reserved_name(&mut name);
+    name.push_str(".md");
+    name
+}
+
+pub(super) fn mark_reserved_name(name: &mut String) {
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
     if [
         "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
         "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "COM¹",
@@ -35,8 +47,6 @@ pub fn suggested_name(title: &str) -> String {
     {
         name.insert(0, '_');
     }
-    name.push_str(".md");
-    name
 }
 
 #[cfg(test)]

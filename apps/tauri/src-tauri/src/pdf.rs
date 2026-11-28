@@ -31,8 +31,7 @@ fn check_revision(app: &tauri::AppHandle, id: &str, revision: i64) -> Result<(),
 }
 
 fn inline_image(reference: &str) -> Result<(Vec<u8>, String), String> {
-    // Bound allocation before base64 decoding. Only four raster MIME headers
-    // are accepted; no percent decoding, URL/file fetch, or SVG fallback.
+    // Bound allocation before base64 decoding and verify the declared format.
     if reference.len() > MAX_INLINE_ENCODED + 32 { return Err("PDF 内嵌图片最多 10 MiB。".into()); }
     let (header, encoded) = reference.split_once(',').ok_or("PDF 内嵌图片编码无效。")?;
     let declared = match header.to_ascii_lowercase().as_str() {
@@ -40,11 +39,12 @@ fn inline_image(reference: &str) -> Result<(Vec<u8>, String), String> {
         "data:image/jpeg;base64" => "image/jpeg",
         "data:image/gif;base64" => "image/gif",
         "data:image/webp;base64" => "image/webp",
-        _ => return Err("PDF 内嵌图片只支持 PNG/JPEG/GIF/WebP 的 base64 编码。".into()),
+        "data:image/svg+xml;base64" => "image/svg+xml",
+        _ => return Err("PDF 内嵌图片只支持 PNG/JPEG/GIF/WebP/SVG 的 base64 编码。".into()),
     };
     if encoded.len() > MAX_INLINE_ENCODED { return Err("PDF 内嵌图片最多 10 MiB。".into()); }
     let bytes = STANDARD.decode(encoded).map_err(|_| "PDF 内嵌图片 base64 编码无效。")?;
-    let mime = frowd_documents::validate_raster_image(&bytes).map_err(|e| format!("PDF 内嵌图片不可用：{e}"))?;
+    let mime = frowd_documents::validate_image(&bytes).map_err(|e| format!("PDF 内嵌图片不可用：{e}"))?;
     if mime != declared { return Err("PDF 内嵌图片声明格式与实际图片不一致。".into()); }
     Ok((bytes, mime))
 }
@@ -254,6 +254,14 @@ mod tests {
         }
         let mut oversized = PNG.to_vec();oversized.resize(frowd_documents::MAX_IMAGE_BYTES + 1, 0);
         assert!(inline_image(&format!("data:image/png;base64,{}", STANDARD.encode(oversized))).unwrap_err().contains("10 MiB"));
+    }
+    #[test]
+    fn inline_svg_is_embedded_only_after_shared_validation() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="2" height="3"/></svg>"#;
+        let data = format!("data:image/svg+xml;base64,{}", STANDARD.encode(svg));
+        let images = prepare_images(vec![data.clone()], |_| panic!("inline image must not access files")).unwrap();
+        assert_eq!(images[&data], data);
+        assert!(inline_image(&format!("data:image/png;base64,{}", STANDARD.encode(svg))).is_err());
     }
     #[test]
     fn atomic_pdf_replaces_only_a_successful_result() {

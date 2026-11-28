@@ -13,7 +13,7 @@ import { fixAutolinkCjkBoundary } from './autolinkCjk.js'
 /**
  * 创建 Markdown 渲染器实例
  */
-export function createMarkdownRenderer() {
+export function createMarkdownRenderer({ allowSvgData = false } = {}) {
   const md = new MarkdownIt({
     html: true, // 允许 HTML 标签（报告含 sub/sup/table 等）；安全性由 renderMarkdown 出口的 DOMPurify 清洗保证，不要绕过它直接 v-html 原始 md.render 结果
     linkify: true, // 自动转换 URL 为链接
@@ -25,6 +25,10 @@ export function createMarkdownRenderer() {
       return `<pre class="language-${lang}"><code>${escapeHtml(str)}</code></pre>`
     }
   })
+  if (allowSvgData) {
+    const validateLink = md.validateLink
+    md.validateLink = url => /^data:image\/svg\+xml;base64,/i.test(url) || validateLink(url)
+  }
 
   // Before block parsing, protect literal YAML from Markdown/HTML/math rules.
   md.core.ruler.before('block', 'frowd-frontmatter', state => {

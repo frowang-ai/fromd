@@ -12,11 +12,11 @@ import * as core from '@milkdown/kit/core'
 import { createTimer } from '@milkdown/kit/ctx'
 import { InputRule } from '@milkdown/kit/prose/inputrules'
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state'
-import { Fragment, Slice } from '@milkdown/kit/prose/model'
+import { DOMSerializer, Fragment, Slice } from '@milkdown/kit/prose/model'
 import { closeHistory } from '@milkdown/kit/prose/history'
 import { trailingConfig } from '@milkdown/kit/plugin/trailing'
 import { captureEmbeddedViews, restoreEmbeddedViews, focusEmbeddedView, updateEmbeddedViewEditability } from './writingViewState.js'
-import { imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
+import { htmlSchema, imageSchema, syncListOrderPlugin } from '@milkdown/kit/preset/commonmark'
 import * as utils from '@milkdown/kit/utils'
 import { noteScriptPlugins } from './compatibility/noteScriptMarks.js'
 import { writingHtmlFormattingPlugins, preservePastedComments } from './writingHtmlFormatting.js'
@@ -26,6 +26,8 @@ import { normalizeWritingMarkdown } from './writingMarkdownCompatibility.js'
 import { serializeAlertMarkers } from './writingAlertSerialization.js'
 import { writingFrontMatter, serializeFrontMatter, installFrontMatterView, frontMatterSelection } from './writingFrontMatter.js'
 import { isAllowedResourceUrl } from './markdown/sanitize.js'
+import { isResourceProtocol, remoteImageUrl } from './markdown/imageUrls.js'
+import { isPersistentResource } from './resourceReferences.js'
 import { installWritingMathViews, writingMathPlugins } from './writingMath.js'
 import { installWritingMarkdownViews, writingMarkdownExtensions, mermaidCodeLanguage } from './writingMarkdownExtensions.js'
 import { installWritingSelectionWrap } from './writingSelectionWrap.js'
@@ -37,7 +39,7 @@ import './editorFonts.css'
 import { installWritingLinks } from './writingLinks.js'
 import { configureWritingTables } from './writingTableSelection.js'
 import { configureWritingLineBreaks, installWritingLineBreakCommand } from './writingLineBreaks.js'
-import {sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
+import {documentAssetImages,sliceResources,markdownResources,markdownPasteResources} from './writingResourcePaste.js'
 import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
 import { markdownRange } from './writingMarkdownLocation.js'
 import {headingRange} from './writingHeadingLocation.js'
@@ -52,15 +54,73 @@ import './writingLists.css'
 import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, formatShortcut: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
+const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, formatShortcut: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, assetSource: Object, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
 const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste', 'insert-image'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
 let activeSession = null, sessionResolver = null, allPlugins, switching = false, updateTimer, rememberedViews = null, restoredViews = []
 let resolveReady, disposeLinks
+let copiedAssets
 const initialized = new Promise(resolve => { resolveReady = resolve })
 const view = () => editor?.editor.action(ctx => ctx.get(core.editorViewCtx))
+
+function imageAttributes(source, attrs) {
+  const resolver = sessionResolver || props.resolveImage
+  const src = resolver ? resolver(source) : (isAllowedResourceUrl(source) ? source : null)
+  if (!src) return { ...attrs, alt: `${attrs.alt || ''} [图片暂不可用]` }
+  const url = new URL(src, document.baseURI)
+  if (props.resourceImport && isResourceProtocol(url)) attrs.crossorigin = 'anonymous'
+  if (resolver && remoteImageUrl(src)) attrs.referrerpolicy = 'no-referrer'
+  return { ...attrs, src }
+}
+
+function rawImage(value, doc) {
+  const html = value.trim()
+  if (!/^<img(?=[\s/>])/i.test(html)) return null
+  // Template contents are inert. Build the preview from three attributes and
+  // keep the original HTML value in Milkdown's clipboard/source carrier.
+  const template = doc.createElement('template')
+  template.innerHTML = html
+  const img = template.content.firstElementChild
+  if (template.content.childNodes.length !== 1 || img?.localName !== 'img') return null
+  const src = img.getAttribute('src')?.trim()
+  return src ? { src, alt: img.getAttribute('alt') || '', title: img.getAttribute('title') || '' } : null
+}
+
+function copyDocumentAssets(editorView, event) {
+  copiedAssets = null
+  const { selection } = editorView.state
+  const source = props.assetSource
+  const cut = event.type === 'cut'
+  if (!source?.path || activeSession?.id !== source.id || !event.clipboardData || selection.empty || switching
+    || cut && (!editorView.editable || editorView.composing)) return false
+  const slice = selection.content()
+  if (!documentAssetImages(slice).size) return false
+  const copied = editorView.serializeForClipboard(slice)
+  const references = documentAssetImages(copied.slice)
+  if (!references.size || !copied.dom.firstElementChild) return false
+  const token = crypto.randomUUID()
+  copied.dom.firstElementChild.setAttribute('data-frowd-copy', token)
+  event.preventDefault()
+  event.clipboardData.clearData()
+  event.clipboardData.setData('text/html', copied.dom.innerHTML)
+  event.clipboardData.setData('text/plain', copied.text)
+  copiedAssets = { sourceId: source.id, sourcePath: source.path, token, references }
+  if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta('uiEvent', 'cut'))
+  return true
+}
+
+function clipboardAssetOrigin(event) {
+  if (!copiedAssets) return null
+  const html = event.clipboardData?.getData('text/html')
+  if (!html?.includes(copiedAssets.token)) return null
+  const template = document.createElement('template')
+  template.innerHTML = html
+  return template.content.querySelector('[data-frowd-copy]')?.dataset.frowdCopy === copiedAssets.token
+    ? copiedAssets : null
+}
+
 function serializePreservingOriginal(doc, baseline = initialDoc, normalized = initialSerialized, raw = original) {
   if (doc.eq(baseline)) return raw
   const text = editor.editor.ctx.get(core.serializerCtx)(doc)
@@ -176,7 +236,7 @@ function insertResources(items,position=null,expectedState=null) {
  const v = view(), {schema} = v.state, nodes = []
  if(expectedState&&v.state!==expectedState)throw Error('拖入期间正文已变化，请重新拖入。')
   for (const item of items) {
-    if (!/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(item.reference)) throw Error('资源引用无效。')
+    if (!isPersistentResource(item.reference)) throw Error('资源引用无效。')
     if (nodes.length) nodes.push(schema.text(' '))
     if (item.image) nodes.push(schema.nodes.image.create({src:item.reference,alt:item.name,title:''}))
     else nodes.push(schema.text(item.name || '附件', [schema.marks.link.create({href:item.reference,title:null})]))
@@ -252,18 +312,30 @@ function prepareResourcePaste(payload) {
   if (!created || !activeSession) throw Error('编辑会话不可用。')
   if (payload.error) throw Error(payload.error)
   const v=view(),plan=payload.preparedState===v.state?{...payload.plan,event:payload.event}:clipboard.prepare(v,payload.event,payload.slice,{authorized:true})
-  return {state:v.state,plan,references:plan.literal?[]:sliceResources(plan.resourceSlice)}
+  const images = payload.origin && !plan.literal ? [...documentAssetImages(plan.resourceSlice, payload.origin.references)] : []
+  const assetCopy = images.length ? {
+    sourceId: payload.origin.sourceId, sourcePath: payload.origin.sourcePath, images,
+  } : null
+  return {state:v.state,plan,references:plan.literal?[]:sliceResources(plan.resourceSlice),assetCopy}
 }
-function commitResourcePaste(prepared) {
+function commitResourcePaste(prepared, copied = []) {
   const v=view()
   if(v.state!==prepared.state)throw Error('正文或选区已变化，请重新粘贴。')
+  let { plan } = prepared
+  if (prepared.assetCopy) {
+    if (!Array.isArray(copied) || copied.length !== prepared.assetCopy.images.length || !copied.every(isPersistentResource)) {
+      throw Error('图片复制返回了无效引用。')
+    }
+    const replacements = new Map(prepared.assetCopy.images.flatMap((src, i) => src === copied[i] ? [] : [[src, copied[i]]]))
+    if (replacements.size) plan = clipboard.replaceImages(v, plan, replacements)
+  }
   // Prepared paste transactions are tied to this exact state. Mark their history
   // boundary without dispatching a separate transaction that would stale them.
-  if(prepared.plan.table?.handled)closeHistory(prepared.plan.table.transaction)
-  else if(prepared.plan.insertion)closeHistory(prepared.plan.insertion.transaction)
+  if(plan.table?.handled)closeHistory(plan.table.transaction)
+  else if(plan.insertion)closeHistory(plan.insertion.transaction)
   else v.dispatch(closeHistory(v.state.tr))
-  if(prepared.plan.literal)v.dispatch(v.state.tr.insertText(prepared.plan.event.clipboardData.getData('text/plain')).scrollIntoView())
-  else clipboard.commit(v,prepared.plan,{authorized:true})
+  if(plan.literal)v.dispatch(v.state.tr.insertText(plan.event.clipboardData.getData('text/plain')).scrollIntoView())
+  else clipboard.commit(v,plan,{authorized:true})
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
@@ -310,14 +382,18 @@ onMounted(async () => {
       return { ...schema, parseDOM: schema.parseDOM.map(rule => rule.tag === 'img[src]' ? {
         ...rule, tag: 'img', getAttrs(dom) { return { ...rule.getAttrs(dom), src: dom.getAttribute('data-editor-image-src') ?? dom.getAttribute('src') ?? '' } },
       } : rule), toDOM(node) {
-        const dom = schema.toDOM(node), attrs = { ...dom[1], 'data-editor-image-src': node.attrs.src }
-        const originalSrc = attrs.src
-        const resolver = sessionResolver || props.resolveImage
-        const safeSrc = resolver ? resolver(originalSrc) : (isAllowedResourceUrl(originalSrc) ? originalSrc : null)
-        if (safeSrc) { attrs.src = safeSrc; if (props.resourceImport) attrs.crossorigin = 'anonymous' }
-        else { delete attrs.src; attrs.alt = `${attrs.alt || ''} [图片暂不可用]` }
-        return [dom[0], attrs]
+        const dom = schema.toDOM(node), { src: originalSrc, ...attrs } = dom[1]
+        attrs['data-editor-image-src'] = node.attrs.src
+        return [dom[0], imageAttributes(originalSrc, attrs)]
       } }
+    }))
+    if (props.resourceImport) editor.editor.use(utils.$view(htmlSchema.node, () => (node, view) => {
+      const doc = view.dom.ownerDocument
+      const spec = node.type.spec.toDOM(node)
+      const image = rawImage(node.attrs.value, doc)
+      if (!image) return DOMSerializer.renderSpec(doc, spec)
+      const { src, ...attrs } = image
+      return DOMSerializer.renderSpec(doc, [spec[0], spec[1], ['img', imageAttributes(src, attrs)]])
     }))
     editor.editor.use(ctx => {
       const ready = createTimer('WritingMathReady')
@@ -390,9 +466,10 @@ onMounted(async () => {
         if(!activeSession||!editorView.editable||switching||plan.literal)return false
         let references,error
         try{references=sliceResources(plan.resourceSlice)}catch(cause){error=cause.message}
-        if(!error&&!references.length)return false
+        const origin=clipboardAssetOrigin(event)
+        if(!error&&!references.length&&!(origin&&documentAssetImages(plan.resourceSlice,origin.references).size))return false
         event.preventDefault()
-        emit('resource-paste',{...activeSession,payload:{mode:'rendered',slice:plan.inputSlice,preparedState:editorView.state,plan,event:snapshotPasteEvent(event),error}})
+        emit('resource-paste',{...activeSession,payload:{mode:'rendered',slice:plan.inputSlice,preparedState:editorView.state,plan,event:snapshotPasteEvent(event),error,origin}})
         return true
       }:undefined,
       parsePlain:props.resourceImport,
@@ -402,7 +479,10 @@ onMounted(async () => {
     })
     if (props.resourceImport) {
       const handlers = v.props.handleDOMEvents || {}
-      v.setProps({handleDOMEvents:{...handlers,paste(editorView,event) {
+      v.setProps({handleDOMEvents:{...handlers,
+        copy: (editorView,event) => handlers.copy?.(editorView,event) || copyDocumentAssets(editorView,event),
+        cut: (editorView,event) => handlers.cut?.(editorView,event) || copyDocumentAssets(editorView,event),
+        paste(editorView,event) {
         const files = Array.from(event.clipboardData?.files || [])
         if (!files.length) return handlers.paste?.(editorView,event) || false
         event.preventDefault()

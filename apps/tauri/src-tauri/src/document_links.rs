@@ -70,8 +70,10 @@ pub fn open(app: &tauri::AppHandle, href: &str, document_path: Option<&str>) -> 
         Link::Local { path, absolute } => (path, absolute),
     };
     let target = if absolute { PathBuf::from(path) } else {
-        document_path.and_then(|p| Path::new(p).parent())
-            .ok_or("相对链接需要当前笔记的位置，请先保存为 Markdown 文件。")?.join(path)
+        let document = document_path.map(Path::new)
+            .ok_or("相对链接需要当前笔记的位置，请先保存为 Markdown 文件。")?;
+        frowd_documents::check_bound_path(document).map_err(|e| e.to_string())?;
+        document.parent().ok_or("文稿目录无效。")?.join(path)
     };
     let path = std::fs::canonicalize(target).map_err(|_| "链接目标不存在或无法访问。")?;
     if path.is_dir() {

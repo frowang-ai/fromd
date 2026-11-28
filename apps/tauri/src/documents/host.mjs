@@ -16,6 +16,8 @@ export const documentsApi = {
   prepareImportResources:(token,references)=>call('prepare_document_import_resources',{token,references}),
   commitImport:(token,markdown)=>call('commit_document_import',{token,markdown}),
   reuseResources:(id,references,purpose)=>call('reuse_resources',{id,references,purpose}),
+  copyDocumentImages:(id,{sourceId,sourcePath,images},legacyReferences)=>
+    call('copy_document_images',{id,sourceId,sourcePath,images,legacyReferences}),
   list: () => call('list_metadata'),
   importResources: async(id,files,kind)=>{
     const {metadata,payload}=await resourcePacket(files,kind);

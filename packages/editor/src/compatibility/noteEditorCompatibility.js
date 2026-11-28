@@ -1,4 +1,5 @@
 import { isEscaped } from '../markdown/normalize/pipeline.js'
+import { isPersistentResource } from '../resourceReferences.js'
 
 export function replaceNoteMathInputRules(rules, { InputRule, TextSelection }, schema) {
   const crepeInlinePattern = /(?:\$)([^$]+)(?:\$)$/.source
@@ -56,7 +57,7 @@ export function normalizeNoteBracketMath(markdown, parseMarkdown) {
       }
       if (node.type === 'link') {
         // Managed attachment labels are literal filenames, not formula input.
-        if (/^\.frowd-assets\/[a-f0-9]{64}\.[a-z0-9]{1,8}$/.test(node.url || '')) {
+        if (isPersistentResource(node.url)) {
           protectedRanges.push([start, end]); return
         }
         const labelStart = node.children?.[0]?.position?.start.offset

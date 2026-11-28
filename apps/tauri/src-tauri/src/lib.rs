@@ -407,6 +407,7 @@ pub fn run() {
             resource_host::import_resources,
             resource_host::choose_resources,
             resource_host::reuse_resources,
+            resource_host::copy_document_images,
             list_metadata,
             search_documents,
             sync_document_file,

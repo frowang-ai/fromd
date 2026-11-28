@@ -8,7 +8,8 @@
     ".": "./src/MarkdownEditor.vue",
     "./pdf": "./src/markdown/pdfDocument.js",
     "./markdown": "./src/markdown/index.js",
-    "./location": "./src/writingMarkdownLocation.js"
+    "./location": "./src/writingMarkdownLocation.js",
+    "./resources": "./src/resourceReferences.js"
   },
   "dependencies": {
     "@codemirror/commands": "^6.8.1",

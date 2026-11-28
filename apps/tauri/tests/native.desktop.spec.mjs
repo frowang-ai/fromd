@@ -455,7 +455,7 @@ test('native WebView2 authoring, search, managed image and normal-close SQLite r
   } finally { await cleanup(app) }
 })
 
-test('native save writes Markdown and its managed image beside an existing file', async ({}, info) => {
+test('native save writes Markdown and its image in the document asset folder', async ({}, info) => {
   const { directory, profile } = await fixture()
   let app
   try {
@@ -470,12 +470,12 @@ test('native save writes Markdown and its managed image beside an existing file'
     app = await launch(profile)
     await pasteImage(app.page)
     await app.page.keyboard.press('Control+s')
-    await expect.poll(() => readFile(file, 'utf8')).toContain('.frowd-assets/')
+    await expect.poll(() => readFile(file, 'utf8')).toContain('.assets/')
     const saved = await readFile(file, 'utf8')
-    const reference = saved.match(/\.frowd-assets\/[^\s)]+/)?.[0]
+    const reference = saved.match(/!\[[^\]]*\]\(([^\s)]+\.assets\/[^\s)]+)\)/)?.[1]
     expect(reference).toBeTruthy()
-    expect(await readFile(resolve(dirname(file), reference))).toEqual(await readFile(join(root, 'apps/tauri/tests/fixtures/synthetic-resource.png')))
-    await expect(app.page.getByRole('status', { name: '保存状态', exact: true })).toHaveText('已保存')
+    expect(await readFile(resolve(dirname(file), decodeURIComponent(reference)))).toEqual(await readFile(join(root, 'apps/tauri/tests/fixtures/synthetic-resource.png')))
+    await expect(app.page.getByRole('status', { name: '保存状态', exact: true })).toHaveText('已保存到文件')
     await app.page.screenshot({ path: info.outputPath('native-saved-image.png') })
     await closeNormally(app)
     app = null

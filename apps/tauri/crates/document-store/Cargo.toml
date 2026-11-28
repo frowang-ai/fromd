@@ -18,3 +18,6 @@ image = { version = "=0.25.10", default-features = false, features = ["png", "jp
 pulldown-cmark = { version = "=0.13.6", default-features = false, features = ["html"] }
 html5ever = "=0.39.0"
 percent-encoding = "=2.3.2"
+roxmltree = "=0.21.1"
+cssparser = "=0.37.0"
+quick-xml = "=0.39.2"
