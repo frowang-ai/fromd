@@ -6,7 +6,7 @@ export function installMockHost(options = {}) {
  {id:'b',title:'公式推导',markdown:'# 第二篇\n\n数学 $x^2$ 与代码。',shelved:false},
  {id:'c',title:'阅读摘录',markdown:'收起页合成内容',shelved:true}
  ]).map((d,position)=>[d.id,{path:null,revision:0,position,dirty:false,conflict:false,viewState:null,...d,savedText:d.path?d.markdown:'',preview:d.markdown.slice(0,1200)}]));
- let activeId=options.activeId??'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
+ let activeId=Object.hasOwn(options,'activeId')?options.activeId:'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
  const h={rows,externalTexts:new Map((options.missingFiles||[]).map(id=>[id,null])),calls:[],holds:new Set(options.holds||[]),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
  h.updateResult=options.updateResult??{currentVersion:'0.5.2',version:'0.6.0',platform:'windows'};
  const updateListeners=new Set();
@@ -29,6 +29,13 @@ export function installMockHost(options = {}) {
   h.closeDispatched=true;for(const fn of callbacks)await fn();
  };
  h.snapshot=snapshot;
+ // Synthetic platform open queue: Open With / Dock / second instance push
+ // {path} or {error}; window drops are matched by name/size against dropSource,
+ // the stand-in for the drag pasteboard / WebView2 File paths. No real disk.
+ h.disk=new Map(options.disk||[]);h.pendingOpen=[...(options.pendingOpen||[])];h.dropSource=options.dropSource??null;
+ const openListeners=new Set();
+ h.onOpenRequest=callback=>{openListeners.add(callback);return()=>openListeners.delete(callback)};
+ h.requestOpen=entries=>{h.pendingOpen.push(...entries);for(const callback of openListeners)callback()};
  h.invoke=async(command,args={})=>{
   h.calls.push({command,args:structuredClone(args)});h.entered[command]=(h.entered[command]??0)+1;
   if(h.holds.has(command))await new Promise(resolve=>h.gates.set(command,resolve));
@@ -174,6 +181,32 @@ export function installMockHost(options = {}) {
     return snapshot();
    }
    case 'open_document':return{cancelled:true};
+   case 'has_pending_open':return h.pendingOpen.length>0;
+   case 'claim_dropped_documents':{
+    if(!/^[0-9a-f]{32}$/.test(args.token)||!args.files.length)throw Error('拖入描述无效');
+    const source=h.dropSource?[...h.dropSource]:null,matched=[];
+    if(!source)return {unavailable:true,accepted:0,errors:[]};
+    for(const file of args.files){
+     const index=source.findIndex(entry=>entry.path.split('/').pop()===file.name&&entry.size===file.size);
+     if(index<0)return {unavailable:true,accepted:0,errors:[]};
+     matched.push(source.splice(index,1)[0].path);
+    }
+    h.pendingOpen.push(...matched.map(path=>({path})));return {unavailable:false,accepted:matched.length,errors:[]};
+   }
+   case 'open_pending_documents':{
+    const entries=h.pendingOpen.splice(0),errors=[];let opened=0;
+    for(const entry of entries){
+     if(entry.error){errors.push(entry.error);continue}
+     const existing=[...rows.values()].find(d=>d.path===entry.path);
+     if(existing){existing.shelved=false;activeId=existing.id;layoutRevision++;opened++;continue}
+     const markdown=h.disk.get(entry.path);
+     if(markdown===undefined){errors.push('「'+entry.path.split('/').pop()+'」无法打开：文件不存在。');continue}
+     const id='opened-'+counter++;
+     rows.set(id,{id,title:entry.path.split('/').pop(),path:entry.path,markdown,savedText:markdown,revision:0,position:Math.max(-1,...[...rows.values()].map(d=>d.position))+1,shelved:false,viewState:null,conflict:false,preview:markdown.slice(0,1200)});
+     activeId=id;layoutRevision++;opened++;
+    }
+    return {snapshot:opened?snapshot():null,opened,errors};
+   }
    case 'checkpoint':return;
    case 'ack_close_listener':{
     h.closeListenerReady=true;const pending=h.closePending&&!h.closeDispatched;

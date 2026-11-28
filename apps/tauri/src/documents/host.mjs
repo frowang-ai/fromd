@@ -2,6 +2,7 @@ import {resourcePacket,relativeImage} from './resources.mjs';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { preparePdfDocument } from './pdf.mjs';
+import { claimDroppedFiles } from './dropClaim.mjs';
 
 // Only a loopback Vite development test can inject the in-memory IPC double.
 // Release bundles tree-shake this branch. No browser document authority is used.
@@ -35,6 +36,9 @@ export const documentsApi = {
   shelveAll: () => call('shelve_all'),
   reorder: (ids, layoutRevision) => call('reorder_documents', { ids, layoutRevision }),
   open: () => call('open_document'),
+  openPending: () => call('open_pending_documents'),
+  hasPendingOpen: () => call('has_pending_open'),
+  claimDropped: files => claimDroppedFiles(files, testHost ? { invoke: call, webview: null } : { invoke }),
   save: (id, saveAs = false) => call('save_document', { id, saveAs }),
   exportPdf: async snapshot => {
     const html = await preparePdfDocument(snapshot, (id, revision, references) => call('pdf_images', { id, revision, references }));
@@ -55,6 +59,8 @@ export const updatesApi = {
   onProgress: callback => testHost ? Promise.resolve(testHost.onUpdateProgress(callback)) :
     listen('frowd:update-progress', event => callback(event.payload)),
 };
+export const onHostOpenRequest = callback => testHost ? Promise.resolve(testHost.onOpenRequest(callback)) :
+  listen('frowd:open-requested', callback);
 export const onHostClose = callback => testHost ? Promise.resolve(testHost.onClose(callback)) :
   listen('frowd:close-requested', callback);
 export function openDocumentLink(id, href) { return call('open_document_link', { id, href }); }

@@ -89,13 +89,22 @@ AppKit 的异步 delegate 在主线程运行，Tokio 等待结果；启动 modal
 
 Cmd+Q、菜单退出和 Dock Quit 都先经过 `ExitRequested` → `frowd:close-requested` → 前端 flush/checkpoint → `close_ready` 握手。监听尚未注册时的请求由 Rust 挂起；前端注册后立即调用 `ack_close_listener` 原子领取，并等 `coordinator.boot()` 完成再执行保存。事件与 IPC 补领共用一次派发状态，重复关闭不会重复保存；窗口销毁/重建会清除监听就绪状态并保留尚未处理的关闭/退出意图。保存失败/取消会重置退出意图。普通红叉关闭保存后仅隐藏主窗口，并清除关闭/退出确认；再次红叉或 Cmd+Q 都重新握手。点击 Dock 图标会恢复并聚焦窗口；若窗口意外销毁，则从相同平台配置重建，并从持久化存储恢复。Windows 继续使用原来的保存后关闭窗口行为。
 
+### 系统打开方式与侧栏拖入打开
+
+`tauri.macos.conf.json` 不使用 `bundle.fileAssociations`，而以 `bundle.macOS.infoPlist` 合并 `src-tauri/macos/Info.plist`，其中 `CFBundleDocumentTypes` 只按扩展名登记 `md` / `markdown` 与 `txt`（`CFBundleTypeExtensions`），`CFBundleTypeRole = Editor`、`LSHandlerRank = Alternate`，不写 `LSItemContentTypes`，也不声明 `UTExportedTypeDeclarations`。原因：Tauri CLI 的 `fileAssociations` 总会为 `txt` 写入 `LSItemContentTypes: ["public.plain-text"]`（`contentTypes: []` 也一样），而 LaunchServices 按 UTI 继承匹配候选应用；用临时探针应用实测（测后已注销删除），按 `public.plain-text` 登记会让应用出现在 `.py`、`.md` 的「打开方式」并接受其拖入图标，只按扩展名登记则「打开方式」与拖入图标都只匹配 `.txt`。合并时自定义数组会整体替换生成的 `CFBundleDocumentTypes`，因此两者不能并存。`scripts/check-macos-artifact.mjs` 在产物校验中要求恰好 `md`/`markdown`/`txt`、Editor/Alternate 且无 `LSItemContentTypes`。安装后 fromd 只加入 Finder「打开方式」候选列表并支持拖入 Dock 图标打开，不抢占系统默认打开应用；用户如需设为默认，可在 Finder「显示简介 → 打开方式 → 全部更改」自行设置。`tauri.conf.json` 与 `tauri.windows.conf.json` 不放 `fileAssociations`。构建 APP 后可用 `plutil -p path/to/fromd.app/Contents/Info.plist` 核对 `CFBundleDocumentTypes` 与 `LSHandlerRank = Alternate`。
+
+Finder「打开方式」和拖到 Dock 图标由 `RunEvent::Opened { urls }` 接收：仅接受 `file://` URL，校验文件存在、为普通文件且原路径与 canonical 目标扩展名均在 `.md` / `.markdown` / `.txt`（不区分大小写）内，随后入队并由前端协调器串行 flush 当前页后调用 `Store::open_file`（复用规范路径去重、10 MB 与 UTF-8 规则）。冷启动阶段 `Opened` 早于前端就绪时先在 Rust `OpenState` 队列挂起，前端完成 `coordinator.boot()` 后通过 `has_pending_open` / `open_pending_documents` 领取；若资料库为空且已有待打开请求，启动时不额外新建空白草稿。红叉隐藏或意外销毁主窗口后收到 `Opened`，复用 `reopen_main` 恢复/重建并聚焦窗口。
+
+窗口保持 `dragDropEnabled: false` 以保留网页内附件拖放。macOS 系统标题栏由 AppKit 绘制，不在 WebView 内；窗口内拖入打开区域仅限侧栏 `.sidebar`（含窄屏抽屉）及无任何打开页时的空白编辑面板；标签栏 `.tabbar` 拒绝外部文件（`dropEffect = 'none'`，浏览器因此不派发 `drop`），拒绝原因「拖到侧栏可打开文档」在悬停时就浮现在光标旁（侧栏收起时可拖到 Dock 图标打开），正文与两侧留白维持图片/附件导入。侧栏放下时前端仅上报每个可打开文件的 `name` 与 `size`，Rust 在主线程读取 `NSPasteboardNameDrag` 上的文件 URL（含 `file:///.file/id=...` 文件引用解析），逐一核对文件名（兼容 NFC/NFD）与字节大小一致后才入队打开；核对不一致或拿不到真实路径时不建草稿，仅提示改用「文件 → 打开…（⌘O）」。不新增任意文件系统 capability。
+
 ## Mac 真机验收清单
 
 本地 Windows 单测、模拟平台浏览器回归不代表 macOS 原生验收通过。macOS 本机构建（或按需手动触发 CI 编译）、实际打开和以下检查分别记录：
 
-1. 两架构本机构建（或手动触发 CI 编译）、Rust 测试、APP/DMG 产物校验；在对应机器打开，确认图标、版本、标题栏与菜单。
+1. 两架构本机构建（或手动触发 CI 编译）、Rust 测试、APP/DMG 产物校验；用 `plutil -p` 确认 `fromd.app/Contents/Info.plist` 含 `CFBundleDocumentTypes`（`md`/`markdown`/`txt` 仅按扩展名、`CFBundleTypeRole=Editor`、`LSHandlerRank=Alternate`、无 `LSItemContentTypes`；CI 产物校验同样检查）；在对应机器打开，确认图标、版本、标题栏与菜单。
 2. 中文输入法最后一段组合输入，立即 Cmd+Q / 菜单退出 / Dock Quit；重开核对正文与名称。模拟写入失败后取消退出，确保窗口保留；恢复写入后再退出。初创或 Dock 重建后立即红叉/Cmd+Q，确认恢复完成后仍能保存并关闭/退出；红叉保存隐藏后点击 Dock 恢复，继续编辑再红叉、再恢复后 Cmd+Q；还要覆盖最小化和异常销毁后的 Dock 重建。
 3. 确认 Cmd+N/O/S、Shift+Cmd+S、Cmd+/、Cmd+F、Option+Cmd+F、Cmd+,、缩放各只触发一次；Cmd+H 隐藏、Cmd+Tab 切换应用、Ctrl+Tab 切换页面。50%–200% 缩放下交通灯稳定。
 4. 正文/表格链接普通点击编辑，Cmd+Click 打开网页或定位文件；POSIX 绝对路径含冒号、相对路径、受管附件均正常。正文图片在无 Origin 或仅有 Referer 的 WKWebView 请求下显示，其他来源仍拒绝。
 5. 用临时长文导出多页 A4 PDF，使用 `pdfinfo` 检查页数/纸张，`pdftotext` 检查中文和末段，检查 18mm 边距、表格跨页、代码换行、图片、KaTeX/图表。确认保存选择器取消、资源失败和打印失败保留旧目标，无隐藏 worker 残留。
 6. 验证原生剪贴板、文件选择器、重启恢复以及 DMG 中应用拖入 Applications 的首次运行。对新构建检查 `codesign` 真实结果、Finder 的中英文背景/箭头/图标与 Applications 链接，分别记录浏览器下载隔离下的 Gatekeeper 提示。Developer ID 与公证不在当前交付范围；Windows 单测不构成这些原生检查的证据。
+7. 验证系统打开方式与拖入打开：将 `fromd.app` 放入 `/Applications` 后，确认 `.md` / `.markdown` / `.txt` 原默认打开应用未被篡改，右键「打开方式」出现 fromd、拖到 Dock 图标可打开，而 `.py`、`.js` 等源码文件的「打开方式」中不出现 fromd、拖到 Dock 图标也不被接受；分别测试应用未启动（含全新空库冷启动不产生多余空白页）、已运行编辑中（含源码模式与中文输入法组合后自动保存当前页）、红叉隐藏窗口三种状态下从 Finder「打开方式」与拖入 Dock 图标打开单个/多个/已打开文档；测试从 Finder 拖文件到侧栏（含窄窗抽屉）显示「松开以打开」并真实打开对应路径（保存后写回原文件）、混合拖入 `.md` + 图片跳过提示、拖入文件夹/纯图片拒绝提示、悬停标签栏时光标旁提示改拖侧栏（松手后文件弹回、不打开）、拖 `.md` 到正文及左右边距仍插入附件链接。

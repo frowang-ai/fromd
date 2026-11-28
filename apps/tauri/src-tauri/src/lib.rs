@@ -7,6 +7,7 @@ mod protocol_urls;
 mod file_import_host;
 mod resource_host;
 mod pdf;
+mod open_requests;
 #[cfg(target_os = "macos")]
 mod menu_macos;
 use frowd_documents::{Document, Snapshot, Store, MAX_SESSION_BYTES};
@@ -322,9 +323,26 @@ fn profile(app: &tauri::App) -> Result<PathBuf, Box<dyn std::error::Error>> {
     }
     Ok(app.path().app_data_dir()?)
 }
+/// The single-instance mutex is keyed by bundle identifier only. An isolated
+/// debug profile must never hand its argv to (and exit for) another running
+/// fromd, so the plugin is off there; that profile's own lock still applies.
+#[cfg(windows)]
+fn forwards_second_instance() -> bool {
+    !(cfg!(debug_assertions) && std::env::var_os("FROWANG_USER_DATA").is_some())
+}
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must be the first plugin: a second Windows process forwards argv and exits
+    // before setup, so it never contends for profile.lock.
+    #[cfg(windows)]
+    let builder = if forwards_second_instance() {
+        builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            open_requests::deliver_arguments(app, argv.into_iter().skip(1).map(Into::into), Some(PathBuf::from(cwd)));
+        }))
+    } else { builder };
+    builder
         .manage(pdf::PdfState::default())
+        .manage(open_requests::OpenState::default())
         .manage(updates::UpdateState::default())
         .register_uri_scheme_protocol("frowd-pdf", pdf::document_response)
         .register_asynchronous_uri_scheme_protocol("frowd-resource", |ctx, request, responder| {
@@ -350,6 +368,13 @@ pub fn run() {
             });
             #[cfg(target_os = "macos")]
             menu_macos::install(app)?;
+            // Windows "Open with" passes the file as argv; macOS uses RunEvent::Opened.
+            #[cfg(windows)]
+            {
+                open_requests::deliver_arguments(app.handle(), std::env::args_os().skip(1), std::env::current_dir().ok());
+                open_requests::install_drop_receiver(app);
+            }
+            app.state::<open_requests::OpenState>().mark_started();
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -399,6 +424,9 @@ pub fn run() {
             undo_remove,
             reorder_documents,
             open_document,
+            open_requests::has_pending_open,
+            open_requests::open_pending_documents,
+            open_requests::claim_dropped_documents,
             save_document,
             checkpoint,
             ack_close_listener,
@@ -428,6 +456,10 @@ pub fn run() {
                 tauri::RunEvent::Reopen { .. } => {
                     if let Err(error) = reopen_main(app) { eprintln!("Cannot reopen main window: {error}"); }
                 }
+                // Finder/Dock "Open With" (also at cold start, before setup:
+                // then the request is only queued and claimed after boot).
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Opened { urls } => open_requests::deliver_urls(app, &urls),
                 _ => {}
             }
         });
