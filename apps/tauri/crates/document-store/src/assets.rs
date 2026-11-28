@@ -3,6 +3,7 @@ use html5ever::tokenizer::{
     states::RawKind, BufferQueue, StartTag, Token, TokenSink, TokenSinkResult, Tokenizer,
 };
 use image::{ImageFormat, ImageReader, Limits};
+use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use pulldown_cmark::{html, Options, Parser};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -18,6 +19,8 @@ const MAX_OBJECT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_OBJECTS: usize = 2048;
 const MAX_EXPORT: usize = 256;
 const PREFIX: &str = ".frowd-assets/";
+const SVG_MIME: &str = "image/svg+xml";
+const URL_COMPONENT: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~');
 
 #[derive(PartialEq, Eq)]
 pub(super) enum ResourceSave {
@@ -62,7 +65,7 @@ impl TokenSink for ResourceTokens {
         {
             let reference = value.value.trim();
             if !reference.is_empty()
-                && (image || reference.trim_start_matches("./").starts_with(PREFIX))
+                && (image || attachment_reference(reference).is_ok_and(|path| path.is_some()))
             {
                 self.0.borrow_mut().push((reference.to_owned(), image));
             }
@@ -141,6 +144,57 @@ fn display_name(name: &str) -> String {
         result.into()
     }
 }
+
+fn asset_parts(path: &Path) -> Option<(&str, &str)> {
+    let mut parts = path.components();
+    let std::path::Component::Normal(folder) = parts.next()? else { return None };
+    let std::path::Component::Normal(file) = parts.next()? else { return None };
+    let folder = folder.to_str()?;
+    (parts.next().is_none() && folder.strip_suffix(".assets").is_some_and(|stem| !stem.is_empty()))
+        .then_some((folder, file.to_str()?))
+}
+
+fn asset_filename(name: &str, extension: &str, image: bool) -> (String, String) {
+    let name = filename::portable_component(name);
+    let path = Path::new(&name);
+    let mut stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_owned();
+    let mut ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_owned();
+    if image && !ext.eq_ignore_ascii_case(extension)
+        && !(extension == "jpg" && ext.eq_ignore_ascii_case("jpeg"))
+    {
+        ext = extension.into();
+    }
+    stem.truncate(stem.floor_char_boundary(140));
+    stem = filename::portable_component(&stem);
+    if stem.is_empty() {
+        stem = if image { "image" } else { "attachment" }.into();
+        ext = extension.into();
+    }
+    filename::mark_reserved_name(&mut stem);
+    ext.truncate(ext.floor_char_boundary(40));
+    (stem, ext.trim_end_matches(['.', ' ']).to_owned())
+}
+
+fn resource_chunks<'a>(inputs: &[ResourceInput], payload: &'a [u8]) -> Result<Vec<&'a [u8]>> {
+    if inputs.len() > 8 || payload.len() > MAX_IMPORT_BYTES {
+        return Err(invalid("每批最多 8 个资源、合计 50 MiB。"));
+    }
+    let mut remaining = payload;
+    let mut chunks = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        if input.size > MAX_ATTACHMENT_BYTES {
+            return Err(invalid("附件最多 25 MiB。"));
+        }
+        let (bytes, rest) = remaining.split_at_checked(input.size)
+            .ok_or_else(|| invalid("资源数据长度不一致。"))?;
+        chunks.push(bytes);
+        remaining = rest;
+    }
+    if !remaining.is_empty() {
+        return Err(invalid("资源数据尾部长度不一致。"));
+    }
+    Ok(chunks)
+}
 fn kind(bytes: &[u8], name: &str, required: bool) -> Result<(String, String)> {
     let format = image::guess_format(bytes).ok();
     let raster = matches!(
@@ -178,9 +232,13 @@ fn kind(bytes: &[u8], name: &str, required: bool) -> Result<(String, String)> {
         return Ok((ext.into(), mime.into()));
     }
     if required {
-        return Err(invalid(
-            "图片只支持真实 PNG/JPEG/GIF/WebP；SVG 可通过“插入附件”添加，伪造或损坏图片请重新导入。",
-        ));
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err(invalid("图片最多 10 MiB。"));
+        }
+        if super::svg::is_safe_svg(bytes) {
+            return Ok(("svg".into(), SVG_MIME.into()));
+        }
+        return Err(invalid("图片只支持有效的 PNG/JPEG/GIF/WebP 或安全的 SVG。"));
     }
     let ext = name
         .rsplit_once('.')
@@ -189,9 +247,9 @@ fn kind(bytes: &[u8], name: &str, required: bool) -> Result<(String, String)> {
         .unwrap_or_else(|| "bin".into());
     Ok((ext, "application/octet-stream".into()))
 }
-// A transient export image must obey exactly the same raster decoder policy as
+// A transient export image must obey exactly the same validation policy as
 // managed/file images, without importing it into the persistent resource store.
-pub fn validate_raster_image(bytes: &[u8]) -> Result<String> {
+pub fn validate_image(bytes: &[u8]) -> Result<String> {
     kind(bytes, "image", true).map(|(_, mime)| mime)
 }
 pub(super) fn bounded_read(path: &Path, max: usize) -> Result<Vec<u8>> {
@@ -216,7 +274,7 @@ fn budget(bytes: u64, count: usize) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn relative(reference: &str) -> Result<PathBuf> {
+fn decode_resource_path(reference: &str) -> Result<String> {
     if reference.len() > 4096 || reference.chars().any(|c| c.is_control()) {
         return Err(invalid("资源引用无效。"));
     }
@@ -227,7 +285,10 @@ pub(super) fn relative(reference: &str) -> Result<PathBuf> {
     if decoded.chars().any(|c| c.is_control()) {
         return Err(invalid("资源路径含控制字符。"));
     }
-    let value = decoded.replace('\\', "/");
+    Ok(decoded.replace('\\', "/"))
+}
+
+fn relative_path(value: &str) -> Result<PathBuf> {
     if value.is_empty()
         || value.starts_with('/')
         || value.contains(':')
@@ -235,32 +296,96 @@ pub(super) fn relative(reference: &str) -> Result<PathBuf> {
     {
         return Err(invalid("资源必须是文稿目录内的相对路径。"));
     }
-    let result = PathBuf::from(value);
+    let result: PathBuf = Path::new(value)
+        .components()
+        .filter(|part| !matches!(part, std::path::Component::CurDir))
+        .collect();
     if result.is_absolute() {
         return Err(invalid("资源不能使用绝对路径。"));
     }
     Ok(result)
 }
+
+pub(super) fn relative(reference: &str) -> Result<PathBuf> {
+    relative_path(&decode_resource_path(reference)?)
+}
+
+fn attachment_reference(reference: &str) -> Result<Option<PathBuf>> {
+    let Ok(decoded) = decode_resource_path(reference) else { return Ok(None) };
+    // Keep explicit web and absolute links in the regular link handler.
+    if decoded.starts_with('/') || decoded.contains(':') {
+        return Ok(None);
+    }
+    let asset_directory = decoded.split('/').any(|part| {
+        part.strip_suffix(".assets").is_some_and(|stem| !stem.is_empty())
+            || part == ".frowd-assets"
+    });
+    if !asset_directory {
+        return Ok(None);
+    }
+    let rel = relative_path(&decoded)?;
+    Ok((rel.starts_with(".frowd-assets") || asset_parts(&rel).is_some()).then_some(rel))
+}
+
+fn link_or_reparse(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if meta.file_attributes() & 0x400 != 0 { return true; }
+    }
+    meta.file_type().is_symlink()
+}
+
+fn check_asset_path(root: &Path, path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if link_or_reparse(&meta) || !fs::canonicalize(path)?.starts_with(root) => {
+            Err(invalid("文稿资源不能经由链接或越过所属目录。"))
+        }
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.into()),
+    }
+}
+
 fn destination(root: &Path, rel: &Path) -> Result<PathBuf> {
-    let root = fs::canonicalize(root)?;
-    let mut parent = root.clone();
+    check_bound_path(root)?;
+    let document_asset = asset_parts(rel).is_some();
+    let mut parent = root.to_path_buf();
     for component in rel.parent().unwrap_or(Path::new("")).components() {
         if let std::path::Component::Normal(part) = component {
             parent.push(part);
+            if document_asset {
+                check_asset_path(root, &parent)?;
+            }
             if !parent.exists() {
-                fs::create_dir(&parent)?
+                match fs::create_dir(&parent) {
+                    Ok(()) => (),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            if document_asset {
+                check_asset_path(root, &parent)?;
             }
             let canonical = fs::canonicalize(&parent)?;
-            if !canonical.starts_with(&root) || !canonical.is_dir() {
+            if !canonical.starts_with(root) || !canonical.is_dir() {
                 return Err(invalid("目标资源目录越界或不是文件夹。"));
             }
         }
     }
     let path = parent.join(rel.file_name().ok_or_else(|| invalid("资源文件名无效。"))?);
+    if document_asset {
+        check_asset_path(root, &path)?;
+    }
     if path.exists() && !fs::canonicalize(&path)?.starts_with(root) {
         return Err(invalid("目标资源文件越界。"));
     }
     Ok(path)
+}
+
+fn bound_resource_root(document: &Path) -> Result<&Path> {
+    check_bound_path(document)?;
+    document.parent().ok_or_else(|| invalid("文稿目录无效。"))
 }
 /// Create-only copy: reuse identical data, never replace a different destination.
 fn write_new(path: &Path, bytes: &[u8]) -> Result<bool> {
@@ -333,7 +458,13 @@ impl Store {
         ).optional()?)
     }
     pub fn managed_attachment(&self, id: &str, reference: &str) -> Result<Option<PathBuf>> {
-        self.owned_object(id, reference)
+        let reference = reference.trim();
+        let Some(rel) = attachment_reference(reference)? else { return Ok(None) };
+        if rel.starts_with(".frowd-assets") {
+            return self.owned_object(id, reference);
+        }
+        let document_path = self.resource_document_path(id)?;
+        self.source_resource(id, document_path.as_deref(), reference).map(Some)
     }
     /// Explicit clipboard reuse: only immutable objects already bound somewhere
     /// in this profile qualify (retained removed-document bindings also qualify).
@@ -343,7 +474,7 @@ impl Store {
             return Err(invalid("一次粘贴最多复用 256 个资源。"));
         }
         let root = self.object_root()?;
-        let mut hashes = HashSet::new();
+        let mut hashes = Vec::new();
         let mut requested = HashMap::<&str, bool>::new();
         for item in references {
             if item.reference.len() > 128 {
@@ -386,16 +517,22 @@ impl Store {
             if hash_bytes(&bytes) != hash {
                 return Err(invalid("受管资源完整性校验失败，请重新导入。"));
             }
-            if image {
-                let (actual, _) = kind(&bytes, "image", true)?;
-                if actual != ext {
+            let upgrade_svg = if image {
+                let (actual, mime) = kind(&bytes, "image", true)?;
+                if actual != ext && mime != SVG_MIME {
                     return Err(invalid("资源扩展名与图片真实格式不一致，请重新导入。"));
                 }
-            }
-            hashes.insert(hash.to_owned());
+                mime == SVG_MIME
+            } else {
+                false
+            };
+            hashes.push((hash, upgrade_svg));
         }
         let tx = self.conn.unchecked_transaction()?;
-        for hash in hashes {
+        for (hash, upgrade_svg) in hashes {
+            if upgrade_svg {
+                upgrade_svg_mime(&tx, hash)?;
+            }
             tx.execute(
                 "INSERT OR IGNORE INTO resource_bindings(docId,hash) VALUES(?1,?2)",
                 params![id, hash],
@@ -409,21 +546,11 @@ impl Store {
         inputs: &[ResourceInput],
         payload: &[u8],
     ) -> Result<Vec<(ResourceInfo, usize, usize)>> {
-        if inputs.len() > 8 || payload.len() > MAX_IMPORT_BYTES {
-            return Err(invalid("每批最多 8 个资源、合计 50 MiB。"));
-        }
         let mut offset = 0usize;
         let mut plans = Vec::new();
         let mut proposed = HashMap::<String, (String, String)>::new();
-        for input in inputs {
-            if input.size > MAX_ATTACHMENT_BYTES {
-                return Err(invalid("附件最多 25 MiB。"));
-            }
-            let end = offset
-                .checked_add(input.size)
-                .filter(|end| *end <= payload.len())
-                .ok_or_else(|| invalid("资源数据长度不一致。"))?;
-            let bytes = &payload[offset..end];
+        for (input, bytes) in inputs.iter().zip(resource_chunks(inputs, payload)?) {
+            let end = offset + bytes.len();
             let name = display_name(&input.name);
             let (mut ext, mut mime) = kind(bytes, &name, input.image)?;
             let hash = hash_bytes(bytes);
@@ -437,7 +564,9 @@ impl Store {
                 .optional()?;
             if let Some((e, m)) = existing.or_else(|| proposed.get(&hash).cloned()) {
                 ext = e;
-                mime = m
+                if mime != SVG_MIME || m != "application/octet-stream" {
+                    mime = m;
+                }
             }
             if !safe_ext(&ext) {
                 return Err(invalid("资源登记扩展名无效。"));
@@ -456,9 +585,6 @@ impl Store {
                 end,
             ));
             offset = end;
-        }
-        if offset != payload.len() {
-            return Err(invalid("资源数据尾部长度不一致。"));
         }
         Ok(plans)
     }
@@ -482,7 +608,112 @@ impl Store {
         if inputs.is_empty() {
             return Err(invalid("每批至少一个资源。"));
         }
+        if let Some(path) = self.resource_document_path(id)? {
+            let path = Path::new(&path);
+            if is_markdown_file(path) {
+                return Self::import_document_assets(path, inputs, payload);
+            }
+        }
         self.import_resource_batch(id, inputs, payload, None)
+    }
+
+    pub fn copy_document_images(
+        &mut self,
+        source_id: &str,
+        source_path: &str,
+        id: &str,
+        references: &[String],
+        legacy_references: &[ResourceReference],
+    ) -> Result<Vec<String>> {
+        if references.is_empty() || references.len() > MAX_EXPORT {
+            return Err(invalid("每次最多粘贴 256 张不同的文稿图片。"));
+        }
+        if self.resource_document_path(source_id)?.as_deref() != Some(source_path) {
+            return Err(invalid("来源文稿路径已变化，请重新复制图片。"));
+        }
+        let source_root = bound_resource_root(Path::new(source_path))?;
+        let target = self.resource_document_path(id)?;
+        let same_directory = target.as_deref().map(Path::new).map(bound_resource_root).transpose()?
+            .is_some_and(|target_root| path_key(&target_root.to_string_lossy()) == path_key(&source_root.to_string_lossy()));
+        if !same_directory && references.len() > 8 {
+            return Err(invalid("一次最多导入 8 张文稿图片。"));
+        }
+        let mut inputs = Vec::with_capacity(references.len());
+        let mut payload = Vec::new();
+        for reference in references {
+            let rel = relative(reference)?;
+            let (_, name) = asset_parts(&rel)
+                .ok_or_else(|| invalid("只能复制来源文稿目录内的 .assets 图片。"))?;
+            let path = self.source_resource(source_id, Some(source_path), reference)?;
+            if same_directory {
+                continue;
+            }
+            let bytes = bounded_read(&path, MAX_IMAGE_BYTES)?;
+            if payload.len() + bytes.len() > MAX_IMPORT_BYTES {
+                return Err(invalid("复制的文稿图片合计最多 50 MiB。"));
+            }
+            inputs.push(ResourceInput { name: name.into(), size: bytes.len(), image: true });
+            payload.extend(bytes);
+        }
+        if !legacy_references.is_empty() {
+            self.reuse_resources(id, legacy_references)?;
+        }
+        if same_directory {
+            return Ok(references.to_vec());
+        }
+        Ok(self.import_resources(id, &inputs, &payload)?.into_iter().map(|info| info.reference).collect())
+    }
+
+    fn import_document_assets(
+        document: &Path,
+        inputs: &[ResourceInput],
+        payload: &[u8],
+    ) -> Result<Vec<ResourceInfo>> {
+        let dir = bound_resource_root(document)?;
+        let stem = document.file_stem().and_then(|s| s.to_str()).ok_or_else(|| invalid("文稿文件名无效。"))?;
+        let mut folder = filename::portable_component(stem);
+        folder.truncate(folder.floor_char_boundary(247));
+        filename::mark_reserved_name(&mut folder);
+        let folder = format!("{}.assets", if folder.is_empty() { "document" } else { &folder });
+        let mut plans = Vec::new();
+        for (input, bytes) in inputs.iter().zip(resource_chunks(inputs, payload)?) {
+            let (ext, mime) = kind(bytes, &input.name, input.image)?;
+            let (stem, ext) = asset_filename(&input.name, &ext, input.image);
+            let id = hash_bytes(bytes);
+            plans.push((input, bytes, stem, ext, mime, id));
+        }
+        let mut imported = Vec::with_capacity(plans.len());
+        for (input, bytes, stem, ext, mime, id) in plans {
+            let mut file = None;
+            let extension = if ext.is_empty() { String::new() } else { format!(".{ext}") };
+            for suffix in ["", &id[..8], &id] {
+                let suffix = if suffix.is_empty() { String::new() } else { format!("-{suffix}") };
+                let name = format!("{stem}{suffix}{extension}");
+                let path = destination(dir, &Path::new(&folder).join(&name))?;
+                if path.exists() {
+                    let metadata = fs::metadata(&path)?;
+                    if !metadata.is_file() || metadata.len() != bytes.len() as u64
+                        || hash_bytes(&bounded_read(&path, MAX_ATTACHMENT_BYTES)?) != id
+                    {
+                        continue;
+                    }
+                } else {
+                    write_new(&path, bytes)?;
+                }
+                file = Some(name);
+                break;
+            }
+            let name = file.ok_or_else(|| invalid("文稿资源文件名冲突，原资源已保留。"))?;
+            imported.push(ResourceInfo {
+                id,
+                reference: format!("{}/{}", utf8_percent_encode(&folder, URL_COMPONENT), utf8_percent_encode(&name, URL_COMPONENT)),
+                name,
+                mime,
+                size: input.size,
+                image: input.image,
+            });
+        }
+        Ok(imported)
     }
     pub(super) fn import_resource_batch(
         &mut self,
@@ -547,6 +778,9 @@ impl Store {
                 }
                 let ext = file.rsplit_once('.').unwrap().1;
                 tx.execute("INSERT OR IGNORE INTO resource_objects(hash,extension,mime,size) VALUES(?1,?2,?3,?4)",params![info.id,ext,info.mime,info.size as i64])?;
+                if info.mime == SVG_MIME {
+                    upgrade_svg_mime(&tx, &info.id)?;
+                }
                 tx.execute(
                     "INSERT OR IGNORE INTO resource_bindings(docId,hash) VALUES(?1,?2)",
                     params![id, info.id],
@@ -582,26 +816,25 @@ impl Store {
             return Ok(path);
         }
         let rel = relative(reference)?;
-        let root =
-            fs::canonicalize(
-                Path::new(document_path.ok_or_else(|| {
-                    invalid("未保存草稿的外部图片没有所属目录，请先通过本页导入。")
-                })?)
-                .parent()
-                .ok_or_else(|| invalid("文稿目录无效。"))?,
-            )?;
+        let document = Path::new(document_path.ok_or_else(|| {
+            invalid("未保存草稿的外部图片没有所属目录，请先通过本页导入。")
+        })?);
+        let root = bound_resource_root(document)?;
+        if let Some((folder, _)) = asset_parts(&rel) {
+            check_asset_path(root, &root.join(folder))?;
+            check_asset_path(root, &root.join(&rel))?;
+        }
         let path = fs::canonicalize(root.join(rel))?;
         if !path.starts_with(root) || !path.is_file() {
             return Err(invalid("资源越过文稿所属目录或不是文件。"));
         }
         Ok(path)
     }
+    fn resource_document_path(&self, id: &str) -> Result<Option<String>> {
+        Ok(self.conn.query_row("SELECT path FROM documents WHERE id=?1", params![id], |r| r.get(0))?)
+    }
     pub fn resource_image(&self, id: &str, reference: &str) -> Result<(Vec<u8>, String)> {
-        let document_path: Option<String> =
-            self.conn
-                .query_row("SELECT path FROM documents WHERE id=?1", params![id], |r| {
-                    r.get(0)
-                })?;
+        let document_path = self.resource_document_path(id)?;
         let path = self.source_resource(id, document_path.as_deref(), reference)?;
         let bytes = bounded_read(&path, MAX_IMAGE_BYTES)?;
         let (_, mime) = kind(&bytes, "image", true)?;
@@ -619,7 +852,7 @@ impl Store {
         if image
             && !matches!(
                 mime,
-                "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+                "image/png" | "image/jpeg" | "image/gif" | "image/webp" | SVG_MIME
             )
         {
             return Ok(None);
@@ -665,15 +898,17 @@ impl Store {
             {
                 continue;
             }
-            let managed = reference.trim_start_matches("./").starts_with(PREFIX);
-            if !managed && mode != ResourceSave::SaveAs {
-                continue;
-            }
-            let rel = match relative(&reference) {
-                Ok(rel) => rel,
-                Err(_) if mode == ResourceSave::Sync => continue,
+            let attachment = attachment_reference(&reference);
+            let rel = match attachment {
+                Ok(Some(rel)) => rel,
+                _ if mode != ResourceSave::SaveAs => continue,
+                _ if !image => continue,
+                Ok(None) => relative(&reference)?,
                 Err(error) => return Err(error),
             };
+            if mode != ResourceSave::SaveAs && !rel.starts_with(".frowd-assets") {
+                continue;
+            }
             if let Some(index) = indexes.get(&rel) {
                 references[*index].2 |= image;
                 continue;
@@ -755,6 +990,15 @@ impl Store {
         Ok(())
     }
 }
+
+fn upgrade_svg_mime(conn: &Connection, hash: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE resource_objects SET mime=?2 WHERE hash=?1 AND mime='application/octet-stream'",
+        params![hash, SVG_MIME],
+    )?;
+    Ok(())
+}
+
 #[cfg(test)]
 #[path = "asset_tests.rs"]
 mod tests;

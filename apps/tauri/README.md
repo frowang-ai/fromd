@@ -215,12 +215,16 @@ See [READING_V1.md](READING_V1.md) for exact counting and persistence boundaries
 
 ## Images, attachments and imports
 
-The pre-existing resource service remains in use. Browser File paste, body drop
-and File > Insert image/attachment register immutable objects in the profile's
-`resources/objects` directory and bind hashes to docId using additive SQLite tables.
-Markdown uses `.frowd-assets/<SHA256>.<extension>`. The `frowd-resource` protocol
-checks document ownership, relative roots and decoded raster bytes. Attachments
-use reveal-only Ctrl-click, not arbitrary file execution.
+Browser File paste, body drop and File > Insert image/attachment write new files
+for an associated Markdown document to its sibling `<document-name>.assets/`
+directory. The original filename is kept where possible and a hash suffix
+disambiguates same-name files. Drafts keep the content-addressed
+`resources/objects` store and `.frowd-assets/<SHA256>.<extension>` references.
+Their first save materializes referenced files at the same paths and retains the
+profile bindings. The `frowd-resource` protocol checks document ownership, relative
+roots, and validated raster or SVG bytes. Modifier-click on attachments reveals
+them in the file manager. HTTP(S) images referenced in the editor load with no
+referrer. PDF prints their alt text and embeds the local images.
 
 Import waits for body/name IME and freezes the actual editor. After registration,
 one undoable PM/source batch is inserted and flushed. Imports time out after
@@ -228,7 +232,7 @@ one undoable PM/source batch is inserted and flushed. Imports time out after
 until it settles. Late replies do not insert into another page. If body backup
 fails after registration, the visible insertion remains available for save retry.
 
-Save As copies managed resources and document-relative raster images to the same
+Save As copies managed resources, sibling `.assets/` attachments and local images to the same
 relative paths beside the target Markdown. This includes inline/reference Markdown
 images and, in this round, raw HTML `<img src>` references. HTML tokenization
 excludes comments, escaped code and script/style/raw-text contents. Ordinary file
@@ -239,8 +243,11 @@ Markdown self-aliases fail without overwriting. The editor buffer/revision/histo
 is not rewritten by these copies.
 
 Removing pages or undoing insertions retains objects; undo-remove restores
-ownership under its fresh docId. Cross-page resource paste explicitly registers
-already-owned references before insertion, with the same document/state checks.
+ownership under its fresh docId. Cross-page paste can bind already-owned
+profile objects to the target. Within one app session, copying or cutting an
+image in the body and pasting it into another directory imports the image to
+the receiving document's asset folder or draft store. Other pasted `.assets/`
+references follow the receiving document's relative path.
 Table paste uses the original keyed tableEditing handler and qualifies only the
 resources in cells that will actually be inserted. No GC, cloud upload or wildcard
 filesystem access runs. See [RESOURCES_V1.md](RESOURCES_V1.md) and

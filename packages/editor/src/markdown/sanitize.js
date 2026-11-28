@@ -6,10 +6,12 @@
  * 图片/样式中的外部资源引用只允许同源或 data:image。
  */
 import DOMPurify from 'dompurify'
+import { remoteImageUrl } from './imageUrls.js'
 
 // 专用实例：钩子只注册一次，且不影响 CollabThreadView / MarkdownText
 // 等使用默认实例的页面，避免钩子累积或配置串扰。
 const sanitizer = typeof window !== 'undefined' && window.document ? DOMPurify(window) : null
+const imageSanitizer = sanitizer ? DOMPurify(window) : null
 
 // KaTeX 的视觉渲染依赖行内 SVG（根号、上括号等），默认 html profile 会剥掉，
 // 这里按 KaTeX 实际使用的最小集合放行 SVG 标签/属性；script、事件处理器、
@@ -142,13 +144,17 @@ const SVG_TAGS = new Set([
   'POLYLINE'
 ])
 
-function enforceSameOriginResources(node) {
+function enforceSameOriginResources(node, allowRemoteImages = false) {
   if (!node.getAttribute) return
   // 注意：HTML 文档里的 SVG 元素 tagName 保留原大小写（'rect'），
   // HTML 元素是大写（'IMG'），统一转大写再比较
   const tag = (node.tagName || '').toUpperCase()
   if (tag === 'IMG') {
-    if (node.hasAttribute('src') && !isAllowedResourceUrl(node.getAttribute('src'))) {
+    const src = node.getAttribute('src')
+    if (allowRemoteImages && remoteImageUrl(src)) {
+      node.removeAttribute('crossorigin')
+      node.setAttribute('referrerpolicy', 'no-referrer')
+    } else if (src !== null && !isAllowedResourceUrl(src)) {
       node.removeAttribute('src')
       node.setAttribute('alt', ((node.getAttribute('alt') || '') + ' [外部图片已拦截]').trim())
     }
@@ -170,11 +176,13 @@ function enforceSameOriginResources(node) {
 }
 
 if (sanitizer) {
-  sanitizer.addHook('afterSanitizeAttributes', enforceSameOriginResources)
+  sanitizer.addHook('afterSanitizeAttributes', node => enforceSameOriginResources(node))
+  imageSanitizer.addHook('afterSanitizeAttributes', node => enforceSameOriginResources(node, true))
 }
 
-export function sanitizeHtml(html) {
+export function sanitizeHtml(html, { allowRemoteImages = false } = {}) {
   // Node 单测环境没有 DOM，不清洗（清洗行为由浏览器测试覆盖）；
   // 生产路径（Vue SPA）一定在浏览器里运行，sanitizer 必然存在。
-  return sanitizer ? sanitizer.sanitize(html, SANITIZE_CONFIG) : html
+  const instance = allowRemoteImages ? imageSanitizer : sanitizer
+  return instance ? instance.sanitize(html, SANITIZE_CONFIG) : html
 }

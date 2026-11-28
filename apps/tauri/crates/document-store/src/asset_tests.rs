@@ -32,6 +32,266 @@ fn put(store: &mut Store, id: &str, markup: &str) {
     let revision = store.read_stored(id).unwrap().revision + 1;
     store.update(id, markup, revision).unwrap();
 }
+
+const SVG: &[u8] = br##"<?xml version="1.0" encoding="UTF-8"?>
+<s:svg xmlns:s="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <s:defs><s:path id="shape" d="M0 0h10v10z"/></s:defs>
+  <s:style><![CDATA[ .shape { clip-path: url("#clip"); } ]]></s:style>
+  <s:use class="shape" xlink:href="#shape"/>
+</s:svg>"##;
+
+#[test]
+fn svg_import_display_and_legacy_attachment_upgrade_share_validation() {
+    let (dir, mut store, id) = setup();
+    let attachment = import(&mut store, &id, SVG, "图.svg", false);
+    assert_eq!(attachment.mime, "application/octet-stream");
+    let image = import(&mut store, &id, SVG, "图.svg", true);
+    assert_eq!(image.reference, attachment.reference);
+    assert_eq!(store.bound_resource_mime(&id, &image.id, "svg").unwrap().as_deref(), Some("image/svg+xml"));
+    assert_eq!(store.resource_image(&id, &image.reference).unwrap(), (SVG.to_vec(), "image/svg+xml".into()));
+    let other = store.create("", "另一页").unwrap().active_id.unwrap();
+    assert!(store.resource_image(&other, &image.reference).is_err());
+    let file = dir.path().join("note.md");
+    fs::write(&file, "").unwrap();
+    fs::write(dir.path().join("图.svg"), SVG).unwrap();
+    let disk = store.open_file(&file).unwrap().active_id.unwrap();
+    assert_eq!(store.resource_image(&disk, "%E5%9B%BE.svg").unwrap().1, "image/svg+xml");
+    assert!(store.resource_image(&disk, "../图.svg").is_err());
+    assert_eq!(validate_image(SVG).unwrap(), "image/svg+xml");
+}
+
+#[test]
+fn svg_rejects_malformed_xml_active_content_and_nonlocal_references() {
+    let ns = "http://www.w3.org/2000/svg";
+    for xml in [
+        "<svg/>".into(),
+        format!("<svg xmlns='{ns}'><g></svg>"),
+        format!("<svg xmlns='{ns}'/><svg xmlns='{ns}'/>"),
+        format!("<!DOCTYPE svg><svg xmlns='{ns}'/>"),
+        format!("<svg xmlns='{ns}'>&unknown;</svg>"),
+        format!("<?xml-stylesheet href='local.css'?><svg xmlns='{ns}'/>"),
+        format!("<svg xmlns='{ns}'><script/></svg>"),
+        format!("<svg xmlns='{ns}' onload='active'/>"),
+        format!("<svg xmlns='{ns}'><foreignObject/></svg>"),
+        format!("<svg xmlns='{ns}'><g xmlns='other'/></svg>"),
+        format!("<svg xmlns='{ns}'><image href='https://invalid.test/image.png'/></svg>"),
+        format!("<svg xmlns='{ns}'><use href='file&#58;image.svg'/></svg>"),
+        format!("<svg xmlns='{ns}'><rect fill='url(other.svg#paint)'/></svg>"),
+        format!("<svg xmlns='{ns}'><style>@import 'other.css';</style></svg>"),
+    ] {
+        assert!(validate_image(xml.as_bytes()).is_err(), "{xml}");
+    }
+}
+
+#[test]
+fn svg_depth_is_bounded_before_tree_parsing() {
+    let nested = |groups| format!(
+        "<svg xmlns='http://www.w3.org/2000/svg'>{}{}</svg>",
+        "<g>".repeat(groups),
+        "</g>".repeat(groups),
+    );
+    assert!(validate_image(nested(127).as_bytes()).is_ok());
+    assert!(validate_image(nested(128).as_bytes()).is_err());
+    assert!(validate_image(nested(50_000).as_bytes()).is_err());
+}
+
+#[test]
+fn bound_markdown_assets_are_single_copy_and_keep_references_on_save_as() {
+    let (dir, mut store, draft) = setup();
+    let source = dir.path().join("source");
+    let target = dir.path().join("target");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&target).unwrap();
+    let note = source.join("合成 #笔记.markdown");
+    fs::write(&note, "").unwrap();
+    let id = store.open_file(&note).unwrap().active_id.unwrap();
+    let image = import(&mut store, &id, SVG, "示意 (A)#%.svg", true);
+    let duplicate = import(&mut store, &id, SVG, "示意 (A)#%.svg", true);
+    assert_eq!(image.reference, duplicate.reference);
+    assert_eq!(image.reference, "%E5%90%88%E6%88%90%20%23%E7%AC%94%E8%AE%B0.assets/%E7%A4%BA%E6%84%8F%20%28A%29%23%25.svg");
+    let local = source.join("合成 #笔记.assets").join("示意 (A)#%.svg");
+    assert_eq!(fs::read(&local).unwrap(), SVG);
+    assert_eq!(store.resource_image(&id, &image.reference).unwrap().0, SVG);
+    assert!(store.resource_image(&draft, &image.reference).is_err());
+    let first = import(&mut store, &id, b"first", "附件.bin", false);
+    let second = import(&mut store, &id, b"second", "附件.bin", false);
+    assert_eq!(second.name, format!("附件-{}.bin", &second.id[..8]));
+    assert_eq!(import(&mut store, &id, b"second", "附件.bin", false).reference, second.reference);
+    assert_eq!(fs::read(store.managed_attachment(&id, &first.reference).unwrap().unwrap()).unwrap(), b"first");
+    assert!(!store.profile.join("resources").exists());
+    let markup = format!("![图]({})\n\n[附件][id]\n\n[id]: {}\n\n<a href='{}'>HTML</a>\n\n[ordinary](missing.txt)", image.reference, first.reference, second.reference);
+    put(&mut store, &id, &markup);
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    store.sync_file(&id, &path, 1).unwrap();
+    assert_eq!(fs::read_to_string(&note).unwrap(), markup);
+    let other_note = target.join("renamed.md");
+    store.save_file(&id, Some(&other_note)).unwrap();
+    assert_eq!(fs::read_to_string(&other_note).unwrap(), markup);
+    assert_eq!(fs::read(target.join("合成 #笔记.assets").join(second.name)).unwrap(), b"second");
+    let fresh_id = store.open_file(&note).unwrap().active_id.unwrap();
+    assert_eq!(store.resource_image(&fresh_id, &image.reference).unwrap().0, SVG);
+    assert_eq!(store.resource_image(&id, &image.reference).unwrap().0, SVG);
+    let new = import(&mut store, &id, b"new", "附件.bin", false);
+    assert_eq!(new.reference, "renamed.assets/%E9%99%84%E4%BB%B6.bin");
+}
+
+#[cfg(any(windows, unix))]
+#[test]
+fn document_asset_directory_link_cannot_read_write_or_reveal_outside() {
+    let (dir, mut store, _) = setup();
+    let source = dir.path().join("source");
+    let outside = dir.path().join("outside");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&outside).unwrap();
+    fs::write(outside.join("existing.png"), png()).unwrap();
+    let note = source.join("note.md");
+    fs::write(&note, "").unwrap();
+    directory_link(&source.join("note.assets"), &outside);
+    let id = store.open_file(&note).unwrap().active_id.unwrap();
+    let input = ResourceInput { name: "new.txt".into(), size: 1, image: false };
+    assert!(store.import_resources(&id, &[input], b"x").is_err());
+    assert!(!outside.join("new.txt").exists());
+    assert!(store.resource_image(&id, "note.assets/existing.png").is_err());
+    assert!(store.managed_attachment(&id, "note.assets/existing.png").is_err());
+}
+
+#[cfg(any(windows, unix))]
+#[test]
+fn binding_does_not_follow_a_replaced_document_directory() {
+    let (dir, mut store, draft) = setup();
+    let source = dir.path().join("source");
+    let outside = dir.path().join("outside");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir_all(outside.join("note.assets")).unwrap();
+    let note = source.join("note.md");
+    fs::write(&note, "").unwrap();
+    fs::write(outside.join("note.md"), "").unwrap();
+    fs::write(outside.join("neighbor.png"), png()).unwrap();
+    fs::write(outside.join("note.assets").join("other.png"), png()).unwrap();
+    let old = import(&mut store, &draft, &png(), "retained.png", true);
+    let id = store.open_file(&note).unwrap().active_id.unwrap();
+    store.reuse_resources(&id, &[reference(&old, true)]).unwrap();
+
+    fs::rename(&source, dir.path().join("original")).unwrap();
+    directory_link(&source, &outside);
+    assert!(store.resource_image(&id, "neighbor.png").is_err());
+    assert!(store.resource_image(&id, "./note.assets/other.png").is_err());
+    assert!(store.managed_attachment(&id, "note%2Eassets/other.png").is_err());
+    let input = ResourceInput { name: "new.txt".into(), size: 1, image: false };
+    assert!(store.import_resources(&id, &[input], b"x").is_err());
+    assert!(!outside.join("note.assets").join("new.txt").exists());
+    assert_eq!(store.resource_image(&id, &old.reference).unwrap().0, png());
+}
+
+#[test]
+fn attachment_path_aliases_are_revealed_and_copied_within_the_bound_directory() {
+    let (dir, mut store, _) = setup();
+    let source = dir.path().join("source");
+    let target = dir.path().join("target");
+    fs::create_dir_all(source.join("note.assets")).unwrap();
+    fs::create_dir(&target).unwrap();
+    let note = source.join("note.md");
+    let markdown = "[first](./note.assets/first.txt)\n\n<a href='note%2Eassets/second.txt'>second</a>\n";
+    fs::write(&note, markdown).unwrap();
+    fs::write(source.join("note.assets/first.txt"), "first").unwrap();
+    fs::write(source.join("note.assets/second.txt"), "second").unwrap();
+    let id = store.open_file(&note).unwrap().active_id.unwrap();
+    for (href, contents) in [
+        ("./note.assets/first.txt", "first"),
+        ("note%2Eassets/second.txt", "second"),
+    ] {
+        assert_eq!(fs::read_to_string(store.managed_attachment(&id, href).unwrap().unwrap()).unwrap(), contents);
+    }
+    assert!(store.managed_attachment(&id, "../source/note%2Eassets/second.txt").is_err());
+    let copy = target.join("renamed.md");
+    store.save_file(&id, Some(&copy)).unwrap();
+    assert_eq!(fs::read_to_string(copy).unwrap(), markdown);
+    assert_eq!(fs::read_to_string(target.join("note.assets/first.txt")).unwrap(), "first");
+    assert_eq!(fs::read_to_string(target.join("note.assets/second.txt")).unwrap(), "second");
+}
+
+#[test]
+fn clipboard_copies_scoped_document_images_into_a_bound_file_or_draft() {
+    let (dir, mut store, draft) = setup();
+    let source = dir.path().join("source");
+    let target = dir.path().join("target");
+    fs::create_dir(&source).unwrap();
+    fs::create_dir(&target).unwrap();
+    let source_note = source.join("first.md");
+    let target_note = target.join("second.md");
+    fs::write(&source_note, "").unwrap();
+    fs::write(&target_note, "").unwrap();
+    let from = store.open_file(&source_note).unwrap().active_id.unwrap();
+    let to = store.open_file(&target_note).unwrap().active_id.unwrap();
+    let source_path = store.read_stored(&from).unwrap().path.unwrap();
+    let image = import(&mut store, &from, SVG, "my image.svg", true);
+    let attachment = import(&mut store, &from, b"not an image", "secret.txt", false);
+    for reference in [attachment.reference, "../first.assets/my%20image.svg".into(), "other.svg".into()] {
+        assert!(store.copy_document_images(&from, &source_path, &to, &[image.reference.clone(), reference], &[]).is_err());
+        assert!(!target.join("second.assets").exists());
+    }
+    let refs = [image.reference];
+    let copied = store.copy_document_images(&from, &source_path, &to, &refs, &[]).unwrap();
+    assert_eq!(copied, ["second.assets/my%20image.svg"]);
+    assert_eq!(fs::read(target.join("second.assets/my image.svg")).unwrap(), SVG);
+    assert_eq!(fs::read(source.join("first.assets/my image.svg")).unwrap(), SVG);
+    assert!(!store.profile.join("resources").exists());
+    assert_eq!(store.copy_document_images(&from, &source_path, &to, &refs, &[]).unwrap(), copied);
+    let copied = store.copy_document_images(&from, &source_path, &draft, &refs, &[]).unwrap();
+    assert!(copied[0].starts_with(PREFIX));
+    assert_eq!(store.resource_image(&draft, &copied[0]).unwrap().0, SVG);
+    assert!(store.resource_image(&to, &copied[0]).is_err());
+    assert!(store.copy_document_images(&draft, &source_path, &to, &refs, &[]).is_err());
+}
+
+#[test]
+fn clipboard_rejects_source_save_as_before_importing_or_binding_assets() {
+    let (dir, mut store, draft) = setup();
+    let source = dir.path().join("first.md");
+    let moved = dir.path().join("moved");
+    let target = dir.path().join("target");
+    fs::create_dir_all(moved.join("first.assets")).unwrap();
+    fs::create_dir(&target).unwrap();
+    let destination = target.join("second.md");
+    fs::write(&source, "").unwrap();
+    fs::write(&destination, "").unwrap();
+    let from = store.open_file(&source).unwrap().active_id.unwrap();
+    let to = store.open_file(&destination).unwrap().active_id.unwrap();
+    let source_path = store.read_stored(&from).unwrap().path.unwrap();
+    let original = br#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1" fill="green"/></svg>"#;
+    let replacement = br#"<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1" fill="blue"/></svg>"#;
+    let image = import(&mut store, &from, original, "color.svg", true);
+    let legacy = import(&mut store, &draft, &png(), "retained.png", true);
+    fs::write(moved.join(&image.reference), replacement).unwrap();
+    store.save_file(&from, Some(&moved.join("first.md"))).unwrap();
+    assert_eq!(store.resource_image(&from, &image.reference).unwrap().0, replacement);
+    let error = store
+        .copy_document_images(&from, &source_path, &to, &[image.reference], &[reference(&legacy, true)])
+        .unwrap_err();
+    assert!(error.to_string().contains("请重新复制"));
+    assert!(!target.join("second.assets").exists());
+    assert!(store.managed_attachment(&to, &legacy.reference).unwrap().is_none());
+    assert_eq!(fs::read_to_string(destination).unwrap(), "");
+}
+
+#[test]
+fn clipboard_reuses_nine_same_directory_images_without_importing() {
+    let (dir, mut store, draft) = setup();
+    let source = dir.path().join("first.md");
+    let sibling = dir.path().join("second.md");
+    fs::write(&source, "").unwrap();
+    fs::write(&sibling, "").unwrap();
+    let from = store.open_file(&source).unwrap().active_id.unwrap();
+    let to = store.open_file(&sibling).unwrap().active_id.unwrap();
+    let source_path = store.read_stored(&from).unwrap().path.unwrap();
+    let bytes = png();
+    let refs: Vec<_> = (1..=9).map(|i| import(&mut store, &from, &bytes, &format!("{i}.png"), true).reference).collect();
+    assert_eq!(store.copy_document_images(&from, &source_path, &to, &refs, &[]).unwrap(), refs);
+    let error = store.copy_document_images(&from, &source_path, &draft, &refs, &[]).unwrap_err();
+    assert!(error.to_string().contains("8 张"));
+    assert!(!dir.path().join("second.assets").exists());
+    assert!(!store.profile.join("resources").exists());
+}
 #[test]
 fn durable_image_ownership_reopen_title_shelf_and_undo_new_id() {
     let (dir, mut store, id) = setup();
@@ -319,12 +579,13 @@ fn markdown_write_and_postwrite_commit_failures_have_distinct_truthful_outcomes(
 #[test]
 fn auto_sync_copies_owned_images_for_a_standalone_file_and_preserves_existing_copies() {
     let (dir, mut store, original) = setup();
+    let image = import(&mut store, &original, &png(), "x.png", true);
+    let unused = import(&mut store, &original, b"other", "unused.txt", false);
     let target = dir.path().join("note.md");
     fs::write(&target, "original").unwrap();
     let id = store.open_file(&target).unwrap().active_id.unwrap();
     let path = store.read_stored(&id).unwrap().path.unwrap();
-    let image = import(&mut store, &id, &png(), "x.png", true);
-    let unused = import(&mut store, &id, b"other", "unused.txt", false);
+    store.reuse_resources(&id, &[reference(&image, true), reference(&unused, false)]).unwrap();
     let markup = format!("![图]({})", image.reference);
     put(&mut store, &id, &markup);
     store.sync_file(&id, &path, 1).unwrap();
@@ -332,7 +593,6 @@ fn auto_sync_copies_owned_images_for_a_standalone_file_and_preserves_existing_co
     assert_eq!(fs::read(&out).unwrap(), png());
     assert!(!dir.path().join(&unused.reference).exists());
     assert_eq!(store.resource_image(&id, &image.reference).unwrap().0, png());
-    assert!(store.managed_attachment(&original, &image.reference).unwrap().is_none());
     fs::write(&out, "externally replaced").unwrap();
     put(&mut store, &id, &format!("{markup}\n\nsecond edit"));
     assert!(store.sync_file(&id, &path, 2).is_err());
@@ -601,7 +861,7 @@ fn all_supported_raster_formats_decode_and_incorrect_extension_is_not_trusted() 
             .write_to(&mut buffer, format)
             .unwrap();
         assert_eq!(kind(buffer.get_ref(), "spoof.txt", true).unwrap().1, mime);
-        assert_eq!(validate_raster_image(buffer.get_ref()).unwrap(), mime);
+        assert_eq!(validate_image(buffer.get_ref()).unwrap(), mime);
     }
 }
 #[test]
@@ -618,7 +878,7 @@ fn transient_raster_validation_reuses_dimension_and_pixel_limits() {
             for _ in 0..8 { crc = (crc >> 1) ^ (0xedb88320 & 0u32.wrapping_sub(crc & 1)); }
         }
         bytes[29..33].copy_from_slice(&(!crc).to_be_bytes());
-        let error = validate_raster_image(&bytes).unwrap_err().to_string();
+        let error = validate_image(&bytes).unwrap_err().to_string();
         assert!(error.contains(reason), "{error}");
     }
 }
@@ -880,7 +1140,7 @@ fn clipboard_reuse_rejects_paths_and_svg_image_intent_without_silent_attachment_
         .reuse_resources(&b, &[reference(&svg, true)])
         .unwrap_err()
         .to_string();
-    assert!(error.contains("插入附件"));
+    assert!(error.contains("安全的 SVG"));
     for path in [
         "../private.png",
         "C:/private.png",

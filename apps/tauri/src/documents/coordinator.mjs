@@ -294,11 +294,15 @@ export class DocumentCoordinator {
       if(!owner||owner.id!==this.state.activeId||owner.generation!==this.generation)throw Error('页面已切换，本次资源未粘贴。');
       await this.flush();
       const prepared=await this.port.prepareResourcePaste(payload);
-      if(prepared.references.length)await this.resourceRequest(
+      let copied=[];
+      if(prepared.assetCopy)copied=await this.resourceRequest(
+        ()=>this.api.copyDocumentImages(owner.id,prepared.assetCopy,prepared.references),
+        this.resourceTimeoutMs,'图片复制超时，正文未粘贴；已复制的图片保留，可稍后重试。');
+      else if(prepared.references.length)await this.resourceRequest(
         ()=>this.api.reuseResources(owner.id,prepared.references,'clipboard-paste'),
         this.resourceTimeoutMs,'资源复用超时，正文未粘贴；迟到登记保留，请稍后重试。');
       if(owner.id!==this.state.activeId||owner.generation!==this.generation)throw Error('粘贴归属已变化，请重试。');
-      await this.port.commitResourcePaste(prepared);
+      await this.port.commitResourcePaste(prepared,copied);
       await this.flush();
     });
   }

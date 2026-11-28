@@ -42,7 +42,7 @@ const pdfCss = `
 
 // Build the complete sanitized document, never copy the editor's lazy DOM.
 // Resources are embedded by the caller; PDF workers must not fetch user URLs.
-export async function buildPdfDocument({ markdown, title = '文档', resolveImage, pageLayout = 'css' }) {
+export async function buildPdfDocument({ markdown, title = '文档', resolveImage, resolveImages, pageLayout = 'css' }) {
   if (!['css', 'native'].includes(pageLayout)) throw Error('Unknown PDF page layout owner');
   const doc = document.implementation.createHTMLDocument(title)
   doc.documentElement.lang = 'zh-CN'
@@ -51,16 +51,29 @@ export async function buildPdfDocument({ markdown, title = '文档', resolveImag
   const pageCss = pageLayout === 'css' ? '@page { size: A4; margin: 18mm; }' : '';
   const style = doc.createElement('style'); style.textContent = pageCss + pdfCss + extensionCss; doc.head.append(style)
   const article = doc.createElement('article'); article.className = 'markdown-body'
-  article.innerHTML = renderMarkdown(markdown)
+  const template = doc.createElement('template')
+  template.innerHTML = renderMarkdown(markdown, { allowRemoteImages: true, allowSvgData: Boolean(resolveImages) })
+  // Template content never loads images. Remove web URLs before exposing the
+  // local reference list to the host or moving content into the print document.
+  for (const image of template.content.querySelectorAll('img')) {
+    if (!/^(?:https?:)?\/\//i.test(image.getAttribute('src')?.trim())) continue
+    const label = doc.createElement('span'); label.className = 'missing-image'
+    label.textContent = image.getAttribute('alt')?.trim() || '[外部图片]'
+    image.replaceWith(label)
+  }
+  const localImages = [...template.content.querySelectorAll('img')]
+  const references = [...new Set(localImages.map(image => image.getAttribute('src')))]
+  if (references.includes(null)) throw new Error('文档中有图片不可用，请检查后重新导出。')
+  const embedded = resolveImages && references.length ? await resolveImages(references) : null
   // Diagram code still passes through the unchanged Markdown sanitizer first;
   // only the local renderer's generated SVG uses the dedicated SVG sanitizer.
-  for (const code of article.querySelectorAll('pre > code.language-mermaid, pre.language-mermaid > code')) {
+  for (const code of template.content.querySelectorAll('pre > code.language-mermaid, pre.language-mermaid > code')) {
     const figure = doc.createElement('figure'); figure.className = 'writing-mermaid-figure'
     try { figure.innerHTML = await renderMermaid(code.textContent) }
     catch (error) { throw new Error(`Mermaid 图表无法导出：${error.message}`) }
     code.parentElement.replaceWith(figure)
   }
-  for (const item of article.querySelectorAll('li')) {
+  for (const item of template.content.querySelectorAll('li')) {
     const content = item.firstElementChild?.tagName === 'P' ? item.firstElementChild : item
     const first = content.firstChild
     if (first?.nodeType !== 3) continue
@@ -69,9 +82,9 @@ export async function buildPdfDocument({ markdown, title = '文档', resolveImag
     const mark = doc.createElement('span'); mark.className = 'task-mark'; mark.textContent = match[1].toLowerCase() === 'x' ? '☑' : '☐'
     first.textContent = first.textContent.slice(match[0].length); content.insertBefore(mark, first)
   }
-  await Promise.all([...article.querySelectorAll('img')].map(async image => {
+  await Promise.all(localImages.map(async image => {
     const original = image.getAttribute('src')
-    const src = resolveImage ? await resolveImage(original) : original
+    const src = resolveImages ? embedded?.[original] : resolveImage ? await resolveImage(original) : original
     if (!src) throw new Error('文档中有图片不可用，请检查后重新导出。')
     if (src.startsWith('data:image/')) { image.src = src; return }
     const url = new URL(src, document.baseURI)
@@ -85,6 +98,7 @@ export async function buildPdfDocument({ markdown, title = '文档', resolveImag
     })
     image.removeAttribute('loading')
   }))
+  article.append(template.content)
   doc.body.append(article)
   return '<!doctype html>' + doc.documentElement.outerHTML
 }

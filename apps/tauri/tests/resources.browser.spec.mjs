@@ -33,6 +33,31 @@ async function picker(page,name,text){
  await page.evaluate(({name,text})=>{const bytes=[...new TextEncoder().encode(text)];window.__FROWD_TEST_HOST__.resourceChoice={metadata:[{name,size:bytes.length,image:false}],payload:bytes}},{name,text})
  await page.getByText('文件',{exact:true}).click();await page.getByRole('button',{name:'插入附件…',exact:true}).click()
 }
+test('bound Markdown accepts encoded assets from paste and picker and reveals the relative link',async({page})=>{
+ await body(page).focus()
+ await body(page).press('Control+s')
+ await expect.poll(async()=> (await stored(page)).path).toMatch(/\.md$/)
+ const folder=encodeURIComponent('方案讨论')+'.assets/'
+ const image=folder+encodeURIComponent('合成 #%.png')
+ const attachment=folder+encodeURIComponent('附件 #%.txt')
+ expect(await paste(page,{name:'合成 #%.png'})).toBe(true)
+ await waitImage(page)
+ await expect.poll(async()=> (await stored(page)).markdown).toContain(image)
+ await picker(page,'附件 #%.txt','synthetic attachment')
+ const link=body(page).locator('a')
+ await expect(link).toHaveAttribute('href',attachment)
+ await link.click({modifiers:['Control']})
+ await expect.poll(()=>page.evaluate(()=>window.__FROWD_TEST_HOST__.calls.findLast(c=>c.command==='open_document_link')?.args.href)).toBe(attachment)
+ await body(page).press('Control+End')
+ await body(page).evaluate((el,ref)=>{
+  const data=new DataTransfer();data.setData('text/plain',`![copied](${ref})`)
+  el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}))
+ },image)
+ await expect(body(page).locator('img[data-editor-image-src]')).toHaveCount(2)
+ await expect.poll(() => body(page).locator('img[alt="copied"]').evaluate(img => img.naturalWidth)).toBe(240)
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.objects.size)).toBe(0)
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.entered.reuse_resources??0)).toBe(0)
+})
 test('durable raster paste keeps relative source through rename/shelf/reload and one-step undo redo',async({page})=>{
  expect(await paste(page)).toBe(true);await waitImage(page)
  await expect.poll(async()=> (await stored(page)).markdown).toMatch(/!\[合成图\.png\]\(\.frowd-assets\/[a-f0-9]{64}\.png\)/)

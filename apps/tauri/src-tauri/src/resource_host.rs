@@ -1,5 +1,5 @@
 use super::*;
-use frowd_documents::{ResourceInfo, ResourceInput, MAX_ATTACHMENT_BYTES, MAX_IMPORT_BYTES};
+use frowd_documents::{ResourceInfo, ResourceInput, ResourceReference, MAX_ATTACHMENT_BYTES, MAX_IMPORT_BYTES};
 use std::{fs::File, io::Read};
 use tauri_plugin_opener::OpenerExt;
 
@@ -55,7 +55,7 @@ pub(super) async fn import_resources(
 #[tauri::command]
 pub(super) async fn reuse_resources(
     id: String,
-    references: Vec<frowd_documents::ResourceReference>,
+    references: Vec<ResourceReference>,
     purpose: String,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -72,6 +72,27 @@ pub(super) async fn reuse_resources(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub(super) async fn copy_document_images(
+    id: String,
+    source_id: String,
+    source_path: String,
+    images: Vec<String>,
+    legacy_references: Vec<ResourceReference>,
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<Vec<String>, String> {
+    if window.label() != "main" {
+        return Err("只能在主窗口粘贴文稿图片。".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = lock(&state)?.copy_document_images(&source_id, &source_path, &id, &images, &legacy_references)
+            .map_err(|e| e.to_string());
+        result
+    }).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub(super) async fn choose_resources(
@@ -99,8 +120,8 @@ pub(super) async fn choose_resources(
         let mut picker = app.dialog().file();
         if kind == "image" {
             picker = picker.add_filter(
-                "PNG / JPEG / GIF / WebP",
-                &["png", "jpg", "jpeg", "gif", "webp"],
+                "PNG / JPEG / GIF / WebP / SVG",
+                &["png", "jpg", "jpeg", "gif", "webp", "svg"],
             )
         }
         let Some(selected) = picker.blocking_pick_files() else {
@@ -204,6 +225,11 @@ pub(super) fn image_response(
         result
     })();
     match result {
+        Ok((bytes, mime)) if mime == "image/svg+xml" => response
+            .header("Content-Type", "image/svg+xml")
+            .header("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:")
+            .body(bytes)
+            .unwrap(),
         Ok((bytes, mime)) => response.header("Content-Type", mime).body(bytes).unwrap(),
         Err(_) => response
             .status(403)
@@ -218,9 +244,6 @@ pub(super) fn reveal_managed(
     id: &str,
     href: &str,
 ) -> Result<bool, String> {
-    if !href.trim_start_matches("./").starts_with(".frowd-assets/") {
-        return Ok(false);
-    }
     let path = lock(state)?
         .managed_attachment(id, href)
         .map_err(|e| e.to_string())?;

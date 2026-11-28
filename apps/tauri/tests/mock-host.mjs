@@ -14,7 +14,12 @@ export function installMockHost(options = {}) {
  h.updateProgress=(downloaded,total)=>{for(const callback of updateListeners)callback({downloaded,total})};
  h.importChoice=null;h.importSources=new Map();h.pendingImport=null;
  h.objects=new Map(options.objects||[]);h.bindings=new Map((options.bindings||[]).map(([id,refs])=>[id,new Set(refs)]));h.resourceChoice=null;
- h.resourceUrl=(id,reference)=>{const object=h.objects.get(reference);return h.bindings.get(id)?.has(reference)&&object?'data:'+object.mime+';base64,'+object.base64:null};
+ h.localResources=new Map(options.localResources||[]);
+ const localKey=(doc,ref)=>doc?.path?.replace(/[^/]+$/,'')+ref;
+ h.resourceUrl=(id,reference)=>{
+  const object=h.bindings.get(id)?.has(reference)?h.objects.get(reference):h.localResources.get(localKey(rows.get(id),reference));
+  return object?'data:'+object.mime+';base64,'+object.base64:null;
+ };
  const snapshot=()=>({documents:[...rows.values()].sort((a,b)=>a.position-b.position).map(({markdown,savedText,...d})=>({...d,dirty:markdown!==savedText})),activeId,layoutRevision,undoRemoval:removed?.doc.title??null});
  h.release=command=>{h.holds.delete(command);h.gates.get(command)?.();h.gates.delete(command)};
  h.closeListenerReady=false;h.closePending=false;h.closeDispatched=false;
@@ -48,7 +53,7 @@ export function installMockHost(options = {}) {
     if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');
     // Typed inline fixture echo only; real byte/decoder limits belong to Rust
     // and the native PDF regression, not this in-memory service double.
-    const images={};for(const reference of args.references){const url=/^data:image\/(png|jpeg|gif|webp);base64,/i.test(reference)?reference:h.resourceUrl(args.id,reference);if(!url)throw Error('PDF 图片不可用');images[reference]=url}return images;
+    const images={};for(const reference of args.references){const url=/^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,/i.test(reference)?reference:h.resourceUrl(args.id,reference);if(!url)throw Error('PDF 图片不可用');images[reference]=url}return images;
    }
    case 'export_pdf':{
     if(!doc||doc.revision!==args.revision)throw Error('PDF 文稿版本已变化');
@@ -96,19 +101,47 @@ export function installMockHost(options = {}) {
     for(const item of args.references)h.bindings.get(doc.id).add(item.reference)
     return
    }
+   case 'copy_document_images':{
+    const source=rows.get(args.sourceId);
+    if(!doc||!source?.path||source.path!==args.sourcePath)throw Error('来源文稿路径已变化，请重新复制图片。');
+    const sameDirectory=doc.path&&localKey(doc,'')===localKey(source,'');
+    if(args.images.length>(sameDirectory?256:8))throw Error('图片数量超过上限');
+    const metadata=[],payload=[];
+    for(const reference of args.images){
+     const asset=h.localResources.get(localKey(source,reference));
+     if(!asset)throw Error('来源图片不可用');
+     if(sameDirectory)continue;
+     const bytes=atob(asset.base64);
+     metadata.push({name:decodeURIComponent(reference.split('/').pop()),size:bytes.length,image:true});
+     for(const byte of bytes)payload.push(byte.charCodeAt(0));
+    }
+    if(args.legacyReferences.length)await h.invoke('reuse_resources',{id:args.id,references:args.legacyReferences,purpose:'clipboard-paste'});
+    if(sameDirectory)return args.images;
+    const imported=await h.invoke('import_resources',{id:args.id,metadata,payload});
+    return imported.resources.map(asset=>asset.reference);
+   }
    case 'import_resources':{
     if(!doc)throw Error('page removed')
     const result=[];let offset=0
     for(const item of args.metadata){
      const bytes=new Uint8Array(args.payload.slice(offset,offset+item.size));offset+=item.size
      const digest=await crypto.subtle.digest('SHA-256',bytes),hash=[...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')
-     const ext=item.image?'png':(item.name.split('.').pop().replace(/[^a-z0-9]/ig,'').slice(0,8)||'bin')
-     const reference='.frowd-assets/'+hash+'.'+ext
+     const svg=item.image&&/\.svg$/i.test(item.name)
+     if(svg&&new DOMParser().parseFromString(new TextDecoder().decode(bytes),'image/svg+xml').documentElement.namespaceURI!=='http://www.w3.org/2000/svg')throw Error('SVG 图片无效')
+     const ext=item.image?(svg?'svg':'png'):(item.name.split('.').pop().replace(/[^a-z0-9]/ig,'').slice(0,8)||'bin')
+     const mime=svg?'image/svg+xml':item.image?'image/png':'application/octet-stream'
+     const bound=/\.(?:md|markdown)$/i.test(doc.path);
+     const encode=name=>encodeURIComponent(name).replace(/[!'()*]/g,c=>'%'+c.charCodeAt(0).toString(16).toUpperCase());
+     const reference=bound?encode(doc.path.split('/').pop().replace(/\.(?:md|markdown)$/i,''))+'.assets/'+encode(item.name):'.frowd-assets/'+hash+'.'+ext
      let binary='';for(const b of bytes)binary+=String.fromCharCode(b)
-     h.objects.set(reference,{reference,base64:btoa(binary),mime:item.image?'image/png':'application/octet-stream'})
-     if(!h.bindings.has(doc.id))h.bindings.set(doc.id,new Set())
-     h.bindings.get(doc.id).add(reference)
-     result.push({id:hash,reference,name:item.name,mime:item.image?'image/png':'application/octet-stream',size:item.size,image:item.image})
+     const asset={reference,base64:btoa(binary),mime}
+     if(bound)h.localResources.set(localKey(doc,reference),asset)
+     else {
+      h.objects.set(reference,asset)
+      if(!h.bindings.has(doc.id))h.bindings.set(doc.id,new Set())
+      h.bindings.get(doc.id).add(reference)
+     }
+     result.push({id:hash,reference,name:item.name,mime,size:item.size,image:item.image})
     }
     return {cancelled:false,resources:result}
    }
@@ -164,7 +197,7 @@ export function installMockHost(options = {}) {
    case 'undo_remove':{
     if(removed){const id='undo-'+counter++;rows.set(id,{...removed.doc,id});h.bindings.set(id,new Set(h.bindings.get(removed.doc.id)||[]));if(!removed.doc.shelved&&(removed.wasActive||!activeId))activeId=id;removed=null;layoutRevision++;}return snapshot();
    }
-   case 'save_document':if(h.saveChoice==='cancel')return{cancelled:true};if(h.saveChoice==='fail')throw Error('合成文件保存失败');doc.path??='/synthetic/'+doc.title+'.md';doc.savedText=doc.markdown;return{cancelled:false,snapshot:snapshot()};
+   case 'save_document':if(h.saveChoice==='cancel')return{cancelled:true};if(h.saveChoice==='fail')throw Error('合成文件保存失败');if(args.saveAs&&h.saveAsPath)doc.path=h.saveAsPath;doc.path??='/synthetic/'+doc.title+'.md';doc.savedText=doc.markdown;return{cancelled:false,snapshot:snapshot()};
    case 'sync_document_file':{
     if(!doc||doc.path!==args.expectedPath||doc.revision!==args.expectedRevision)throw Error('文稿路径或版本已变化');
     if(doc.markdown!==doc.savedText){

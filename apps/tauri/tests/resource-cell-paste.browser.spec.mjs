@@ -178,6 +178,41 @@ test('new File paste uses the same frozen table continuation and one undo',async
 })
 
 const missing='.frowd-assets/'+'d'.repeat(64)+'.png'
+test('cross-directory cell paste copies only kept images and reuses legacy bindings',async({page})=>{
+ const kept='first.assets/kept.png',clipped='first.assets/clipped.png'
+ const legacy='.frowd-assets/'+'b'.repeat(64)+'.png'
+ const image={mime:'image/png',base64:Buffer.from(png).toString('base64')}
+ await page.addInitScript(installMockHost,{
+  documents:[
+   {id:'a',title:'A',path:'/source/first.md',markdown:table('A')
+    .replace('A11',`A11 ![kept](${kept}) ![legacy](${legacy})`).replace('A12',`A12 ![clipped](${clipped})`)},
+   {id:'b',title:'B',path:'/target/second.md',markdown:table('B')},
+  ],
+  localResources:[['/source/'+kept,image],['/source/'+clipped,image]],
+  objects:[[legacy,image]],bindings:[['a',[legacy]]],
+ })
+ await page.goto('/?testHost=1');await expect(body(page)).toBeVisible()
+ const copied=await copy(page,'rows')
+ expect(copied.html).toContain('data-frowd-copy')
+ expect(copied.html).toContain(clipped)
+ await page.locator('[data-tab-id="b"] .tab-title').click()
+ await expect.poll(async()=>(await capture(page)).id).toBe('b')
+ await body(page).locator('td').filter({hasText:'B11'}).locator('p').click({clickCount:3,position:{x:6,y:12}})
+ const before=await capture(page)
+ expect(before.selected).toBe(1)
+ await paste(page,copied)
+ await expect.poll(async()=>(await capture(page)).markdown).toContain('second.assets/kept.png')
+ const after=await capture(page)
+ expect(after.markdown).not.toContain(clipped)
+ expect(after.markdown).toContain(legacy)
+ expect(after.images).toBe(2)
+ expect(after.tables[0][1].slice(1)).toEqual(before.tables[0][1].slice(1))
+ const migrated=await page.evaluate(()=>window.__FROWD_TEST_HOST__.calls.filter(c=>c.command==='copy_document_images').map(c=>c.args.images))
+ expect(migrated).toEqual([[kept]])
+ await body(page).press('Control+z')
+ await expect.poll(async()=>(await capture(page)).markdown).toBe(before.markdown)
+})
+
 async function cropFixture(page,kind){
  await boot(page,true)
  const refs=await page.evaluate(()=>[...window.__FROWD_TEST_HOST__.bindings.get('a')])

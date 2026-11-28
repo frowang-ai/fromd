@@ -1,3 +1,5 @@
+import { isDocumentAssetReference } from './resourceReferences.js'
+
 // A clipboard gesture may reuse only canonical, already-managed profile objects.
 // These are references in parsed Markdown/PM nodes, never a free-text scan.
 const managed=/^(?:\.\/)?\.frowd-assets\/([a-f0-9]{64}\.[a-z0-9]{1,8})(?:[?#].*)?$/
@@ -19,6 +21,17 @@ export function sliceResources(slice){
   for(const mark of node.marks)if(mark.type.name==='link')add(map,mark.attrs.href,false)
  })
  return [...map.values()]
+}
+
+export function documentAssetImages(slice, allowed) {
+  const references = new Set()
+  slice.content.descendants(node => {
+    const src = node.attrs.src
+    if (node.type.name === 'image' && isDocumentAssetReference(src) && (!allowed || allowed.has(src))) {
+      references.add(src)
+    }
+  })
+  return references
 }
 function markdownNodes(tree){
  const nodes=[],definitions=new Map()

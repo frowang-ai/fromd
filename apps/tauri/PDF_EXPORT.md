@@ -8,7 +8,7 @@
 
 导出在现有协调器中串行执行。确认当前输入并保存草稿后，固定页面 ID、标题、正文及 revision；导出期间页面操作等待这次命令完成。没有增加 source 切页的输入法拦截规则。
 
-图片通过 `pdf_images(id, revision, references)` 准备：文件图片只读取该页面已获授权的受管图片或文稿目录内的相对图片；原文中的 PNG/JPEG/GIF/WebP base64 图片临时解码校验，不写入资源库。两者复用资源服务同一栅格校验（真实格式、单图10 MiB、宽高各12000、4000万像素、解码内存96 MiB），并共同计入一次256张、原始字节合计50 MiB的导出限制。内嵌图在解码前也检查base64长度，声明MIME须匹配实际图片格式，不接受SVG。错误不回显图片数据。远程图片、任意绝对路径和越界文件仍会报错。生成 HTML 上限96 MiB。KaTeX 的锁定 WOFF2 字体一并内嵌，无需联网。
+打印准备先把 HTTP(S) 图片换成替代文字。之后由 `pdf_images(id, revision, references)` 读取文稿授权的本地图，并校验原文中的 PNG、JPEG、GIF、WebP 和 SVG base64 图片。声明的 MIME 必须匹配实际格式。SVG 复用导入和本地预览的 XML 结构及资源引用检查。每张上限 10 MiB，每次最多 256 张、原始字节合计 50 MiB。栅格图还受尺寸和解码内存限制。绝对路径和越界文件会报错。生成的 HTML 上限 96 MiB，KaTeX 的 WOFF2 字体一并内嵌。整个打印准备过程可以离线运行。
 
 共享 `buildPdfDocument` 负责完整文稿的 Markdown 渲染和清洗。Tauri adapter 不复制编辑器 DOM，也不维护另一套 Markdown 渲染器。builder 构造失败时尚未创建原生打印任务。
 

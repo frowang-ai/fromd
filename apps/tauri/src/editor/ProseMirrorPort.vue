@@ -1,7 +1,7 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
-   <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" :format-shortcut="formattingShortcut" ref="engine" link-navigation resource-import @insert-image="emit('insert-image')" @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
+   <MarkdownEditor :asset-source="assetSource" :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" :format-shortcut="formattingShortcut" ref="engine" link-navigation resource-import @insert-image="emit('insert-image')" @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :wrap="largeDocument ? 'off' : 'soft'" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
@@ -16,11 +16,12 @@ import {resourceMarkdown} from '../documents/resources.mjs'
 import {literalMatchOffsets} from '../documents/search.mjs'
 import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
 import {leadingFrontMatter,preserveFrontMatterSource} from '../../../../packages/editor/src/markdown/frontmatter.js'
+import {remoteImageUrl} from '../../../../packages/editor/src/markdown/imageUrls.js'
 import {matchEditorShortcut} from './shortcuts.mjs'
 import {formatSource,sourceBodyStart} from './sourceFormatting.mjs'
 import {MAX_DOCUMENT_BYTES,utf8Bytes} from '../../../../packages/editor/src/documentLimits.js'
 import {isLargeDocument} from './largeDocument.mjs'
-const props=defineProps({linkModifier:{type:String,default:'ctrl'},mathDoneShortcut:{type:String,default:'Ctrl+Enter'}})
+const props=defineProps({assetSource:Object,linkModifier:{type:String,default:'ctrl'},mathDoneShortcut:{type:String,default:'Ctrl+Enter'}})
 const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste','insert-image'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
 const largeDocument=ref(false)
@@ -48,7 +49,7 @@ function endBlankClick(event){
  if(!intent||intent.owner!==owner||frozen.value||composing||mode.value!=='rendered'||!primaryEndClick(event)||event.detail!==1||Math.hypot(event.clientX-intent.x,event.clientY-intent.y)>5)return
  if(engine.value.placeEndBlank(intent.plan))event.preventDefault()
 }
-const resolveImage=src=>/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)?src:resourceImageUrl(renderDocId,src)
+const resolveImage=src=>/^data:image\/(png|jpeg|gif|webp);base64,/i.test(src)?src:remoteImageUrl(src)??resourceImageUrl(renderDocId,src)
 async function ready(){await nextTick();await engine.value.whenReady();await engineRecovery;if(disposed)throw Error('编辑器已关闭。')}
 function owns(event){return !disposed&&owner&&event?.id===owner.id&&event.generation===owner.generation}
 function onEngineRelease(event){
@@ -277,15 +278,15 @@ function resourcePaste(event){
 }
 function prepareResourcePaste(payload){
  if(!owner||!frozen.value||payload.mode!==mode.value)throw Error('粘贴页面或模式已变化，请重试。')
- if(mode.value==='rendered'){const prepared=engine.value.prepareResourcePaste(payload);return {owner:{...owner},mode:mode.value,prepared,references:prepared.references}}
+ if(mode.value==='rendered'){const prepared=engine.value.prepareResourcePaste(payload);return {owner:{...owner},mode:mode.value,prepared,references:prepared.references,assetCopy:prepared.assetCopy}}
  const before=source.value.value,range=sourceSelection(),text=payload.text
  const next=before.slice(0,range.start)+text+before.slice(range.end)
  const references=engine.value.resourceMarkdownReferences(next,{from:range.start,to:range.start+text.length},before)
  return {owner:{...owner},mode:mode.value,before,range,text,next,references}
 }
-async function commitResourcePaste(prepared){
+async function commitResourcePaste(prepared,copied){
  if(!owner||!frozen.value||prepared.owner.id!==owner.id||prepared.owner.generation!==owner.generation||prepared.mode!==mode.value)throw Error('粘贴归属已变化，请重试。')
- if(mode.value==='rendered')engine.value.commitResourcePaste(prepared.prepared)
+ if(mode.value==='rendered')engine.value.commitResourcePaste(prepared.prepared,copied)
  else {
   const range=sourceSelection()
   if(source.value.value!==prepared.before||range.start!==prepared.range.start||range.end!==prepared.range.end)throw Error('正文或选区已变化，请重新粘贴。')

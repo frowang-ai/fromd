@@ -25,7 +25,7 @@ Built on **Tauri 2 + Vue 3 + Milkdown (ProseMirror) + SQLite + Rust**. ~6.3 MB i
 
 1. **Zero-friction drafts & one-click page shelving.** Click `+` to open a fresh Markdown page immediately. Rename unsaved drafts directly above the document; body text, titles, and reading scroll positions stream continuously to local SQLite with IME-safe close handshakes. Click `−` on any tab to shelve pages out of the top bar into the **Shelved** list and restore them anytime in one click.
 2. **Calm WYSIWYG & first-class math authoring.** Write directly in clean rendered prose, tables, code blocks, formulas, and diagrams without split-pane clutter—or press `Ctrl+/` (`⌘/` on macOS) anytime to toggle full raw Markdown source (unmodified files preserve exact literal spelling and comments). Edit inline and centered display KaTeX formulas in place, select text and press `$` to wrap as math (or `*`, `_`, `~`, `` ` ``, brackets/quotes to wrap styles), and paste `.tex` snippets from VS Code with automatic math delimiter recognition.
-3. **Offline diagrams, full-text search & native A4 PDF export.** Render Mermaid diagrams (`flowchart`, `sequenceDiagram`, `classDiagram`, `gantt`, `mindmap`, etc.), footnotes, and all 5 GitHub Alerts (`NOTE`, `TIP`, `IMPORTANT`, `WARNING`, `CAUTION`) 100% offline. Paste screenshots or drag images into a SHA-256 deduplicated local store (`Save As` automatically copies referenced local images alongside your `.md`). Export multi-page A4 PDFs (18 mm margins) natively with zero external Pandoc or LaTeX setup.
+3. **Offline diagrams, full-text search & native A4 PDF export.** Render Mermaid diagrams, footnotes, and all five GitHub Alerts offline. Paste screenshots or drop files into a saved Markdown document to store them beside it in `<document-name>.assets/`. Save As copies referenced local resources at the same relative paths. Export multi-page A4 PDFs with 18 mm margins using the native print engine.
 
 | Feature | What it does |
 | --- | --- |
@@ -76,7 +76,7 @@ Guides: [Windows Install (ZH)](docs/install-windows.md) · [macOS Install (ZH)](
 
 ## Privacy & security
 
-100% offline during daily writing. Editor bundles, KaTeX fonts, and Mermaid live inside the app—zero CDN requests, zero analytics. Network requests happen only when you explicitly click **Check for Updates**, strictly pinned to HTTPS 443 GitHub Release allowlists. Document images use a custom `frowd-resource` protocol that enforces per-document ownership and raster header validation.
+The editor, KaTeX fonts, and Mermaid are bundled locally. The editor loads HTTP(S) images referenced in the document with no referrer. PDF export runs offline, embedding local images and replacing web images with text. Local raster and SVG images are validated and served through the document-scoped `frowd-resource` protocol. **Check for Updates** fetches release information from GitHub.
 
 ## Build from source
 

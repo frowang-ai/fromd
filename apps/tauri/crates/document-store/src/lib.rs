@@ -279,6 +279,11 @@ fn path_key(path: &str) -> String {
         path.into()
     }
 }
+fn is_markdown_file(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {
+        ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown")
+    })
+}
 fn file_bytes(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let info = fs::metadata(path)?;
     if !info.is_file() || info.len() > limit as u64 {
@@ -335,7 +340,7 @@ fn encoded_body(doc: &Stored) -> Result<Cow<'_, [u8]>> {
     bytes.extend(&text.as_bytes()[start..]);
     Ok(Cow::Owned(bytes))
 }
-fn check_bound_path(path: &Path) -> Result<()> {
+pub fn check_bound_path(path: &Path) -> Result<()> {
     if path_key(&fs::canonicalize(path)?.to_string_lossy()) != path_key(&path.to_string_lossy()) {
         return Err(invalid("原文件路径已变化。"));
     }
@@ -1002,13 +1007,7 @@ INSERT INTO settings(key,value) VALUES('version','4') ON CONFLICT(key) DO UPDATE
             return Err(invalid("文稿路径或版本已变化，本次未同步。"));
         }
         let path = Path::new(expected_path);
-        let markdown_file = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| {
-                ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown")
-            });
-        if !markdown_file || !doc.dirty() || doc.conflict {
+        if !is_markdown_file(path) || !doc.dirty() || doc.conflict {
             return self.snapshot();
         }
         let Ok(current_hash) = same_file_hash(path) else {
@@ -1214,8 +1213,9 @@ pub mod search;
 
 #[path = "assets.rs"]
 mod assets;
+mod svg;
 pub use assets::{
-    validate_raster_image, ResourceInfo, ResourceInput, ResourceReference, MAX_ATTACHMENT_BYTES,
+    validate_image, ResourceInfo, ResourceInput, ResourceReference, MAX_ATTACHMENT_BYTES,
     MAX_IMAGE_BYTES, MAX_IMPORT_BYTES,
 };
 
