@@ -82,6 +82,8 @@ macOS 使用 Tauri 应用身份 `com.frowang.frowd.tauri.v1` 的应用数据目�
 「格式」位于「编辑」和「视图」之间，显示正文与源码共用的格式快捷键。
 编辑区先处理适用的格式按键，网页未处理时由 AppKit 菜单派发。菜单动作返回最后
 聚焦的正文或源码选区，并检查编辑与输入法状态。「文件 → 插入图片…」使用 `⌃⌘I`。
+「文件 → 收起当前页面」使用 `⌘W`，与标签 `−` 一样收起当前页。没有展开页时，
+`⌘W` 请求关闭并在保存后隐藏窗口。「窗口 → 关闭窗口」使用 `⇧⌘W`，与红叉共用关闭握手。
 
 macOS 用系统装饰标题栏和红黄绿按钮；WebView 缩放不会移动交通灯。原生菜单含系统隐藏/退出、剪切/复制/粘贴/全选及业务命令。菜单 accelerator 由 AppKit 处理，前端不重复执行；标签切换单独使用 `⌃Tab` / `⌃⇧Tab`。查找替换为 `⌥⌘F`，保留系统 `⌘H` 和 `⌘Tab`。链接为 Cmd+Click，普通点击编辑；Windows 维持 Ctrl+Click。
 
@@ -108,6 +110,9 @@ Finder「打开方式」和拖到 Dock 图标由 `RunEvent::Opened { urls }` 接
 1. 两架构本机构建（或手动触发 CI 编译）、Rust 测试、APP/DMG 产物校验；用 `plutil -p` 确认 `fromd.app/Contents/Info.plist` 含 `CFBundleDocumentTypes`（`md`/`markdown`/`txt` 仅按扩展名、`CFBundleTypeRole=Editor`、`LSHandlerRank=Alternate`、无 `LSItemContentTypes`；CI 产物校验同样检查）；在对应机器打开，确认图标、版本、标题栏与菜单。
 2. 中文输入法最后一段组合输入，立即 Cmd+Q / 菜单退出 / Dock Quit；重开核对正文与名称。模拟写入失败后取消退出，确保窗口保留；恢复写入后再退出。初创或 Dock 重建后立即红叉/Cmd+Q，确认恢复完成后仍能保存并关闭/退出；红叉保存隐藏后点击 Dock 恢复，继续编辑再红叉、再恢复后 Cmd+Q；还要覆盖最小化和异常销毁后的 Dock 重建。
 3. 确认 Cmd+N/O/S、Shift+Cmd+S、Cmd+/、Cmd+F、Option+Cmd+F、Cmd+,、缩放各只触发一次；Cmd+H 隐藏、Cmd+Tab 切换应用、Ctrl+Tab 切换页面。50%–200% 缩放下交通灯稳定。
+   确认 Cmd+W 只收起当前页，最后一页收起后再按 Cmd+W 会保存并隐藏窗口；有展开页时用
+   Shift+Cmd+W 验证与红叉相同的关闭握手。用可撤销的标题或加粗操作分别检查格式菜单点击
+   和加速键在正文、源码只派发一次，焦点位于搜索或内嵌编辑器时忽略，并验证 Cmd+Ctrl+I 只打开一次图片选择器。
 4. 正文/表格链接普通点击编辑，Cmd+Click 打开网页或定位文件；POSIX 绝对路径含冒号、相对路径、受管附件均正常。正文图片在无 Origin 或仅有 Referer 的 WKWebView 请求下显示，其他来源仍拒绝。
 5. 用临时长文导出多页 A4 PDF，使用 `pdfinfo` 检查页数/纸张，`pdftotext` 检查中文和末段，检查 18mm 边距、表格跨页、代码换行、图片、KaTeX/图表。确认保存选择器取消、资源失败和打印失败保留旧目标，无隐藏 worker 残留。
 6. 验证原生剪贴板、文件选择器、重启恢复以及 DMG 中应用拖入 Applications 的首次运行。对新构建检查 `codesign` 真实结果、Finder 的中英文背景/箭头/图标与 Applications 链接，分别记录浏览器下载隔离下的 Gatekeeper 提示。Developer ID 与公证不在当前交付范围；Windows 单测不构成这些原生检查的证据。

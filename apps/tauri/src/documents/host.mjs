@@ -3,6 +3,7 @@ import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { preparePdfDocument } from './pdf.mjs';
 import { claimDroppedFiles } from './dropClaim.mjs';
+import { closeWindow } from '../window.mjs';
 
 // Only a loopback Vite development test can inject the in-memory IPC double.
 // Release bundles tree-shake this branch. No browser document authority is used.
@@ -65,6 +66,7 @@ export const onHostOpenRequest = callback => testHost ? Promise.resolve(testHost
   listen('frowd:open-requested', callback);
 export const onHostClose = callback => testHost ? Promise.resolve(testHost.onClose(callback)) :
   listen('frowd:close-requested', callback);
+export const requestWindowClose = () => testHost ? testHost.requestClose() : closeWindow();
 export const onHostMenuCommand = callback => testHost ? Promise.resolve(testHost.onMenuCommand(callback)) :
   listen('frowd:menu-command', event => callback(event.payload));
 export function openDocumentLink(id, href) { return call('open_document_link', { id, href }); }

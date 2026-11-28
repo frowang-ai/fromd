@@ -12,6 +12,7 @@
           <button :disabled="!current || state.busy" @click="executeCommand('insertImage')">插入图片… <kbd>{{ shortcutLabel('insertImage') }}</kbd></button>
           <button :disabled="!current || state.busy" @click="executeCommand('insertAttachment')">插入附件…</button>
           <button :disabled="!state.loaded" @click="executeCommand('checkUpdates')">检查更新…</button>
+          <button :disabled="state.busy || !state.loaded || (!current && platform.os !== 'macos')" @click="executeCommand('collapse')">收起当前页面 <kbd>{{ shortcutLabel('collapse') }}</kbd></button>
           <button :disabled="!current" @click="executeCommand('remove')">移除当前页面</button>
         </div></details>
         <details><summary>编辑</summary><div class="menu-popup">
@@ -86,7 +87,7 @@
           <div class="tabs" aria-label="已展开标签">
             <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover="overTab($event,doc.id)" @drop="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
               <button :disabled="state.busy || !state.loaded" class="tab-title" :title="doc.path || doc.title" @click="selectPage(doc.id)">{{ doc.title }}</button>
-              <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
+              <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" :title="'收起（' + shortcutLabel('collapse') + '）'" @click="collapse(doc.id)">−</button>
             </div>
           </div>
           <button class="new-tab" aria-label="新建页面" :disabled="state.busy || !state.loaded" @click="action(() => coordinator.create())">＋</button>
@@ -152,7 +153,7 @@ import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {initializeCloseHandshake} from './documents/closeHandshake.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,updatesApi,onHostClose,onHostMenuCommand,onHostOpenRequest,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {documentsApi,updatesApi,onHostClose,onHostMenuCommand,onHostOpenRequest,openDocumentLink,requestWindowClose,browserTestHost} from './documents/host.mjs'
 import {createOpenRequests} from './documents/openRequests.mjs'
 import {OPEN_AREAS,classifyDrop,dropArea,externalFileDrag,openDropMessages,skippedNotice} from './openDrop.mjs'
 import UpdateNotice from './updates/UpdateNotice.vue'
@@ -579,7 +580,7 @@ function shortcut(event){
  const command=matchCommand(event,platform)
  if(!command)return
  // AppKit owns registered accelerators; Ctrl+Tab is DOM-only on both platforms.
- if(nativeWindow&&usesNativeAccelerator(command,event,platform))return
+ if(usesNativeAccelerator(command,event,platform))return
  event.preventDefault();event.stopImmediatePropagation();executeCommand(command)
 }
 function executeCommand(command){
@@ -599,6 +600,11 @@ function executeCommand(command){
   case 'save': case 'saveAs': return active&&action(()=>coordinator.save(state.activeId,command==='saveAs'))
   case 'exportPdf': return active&&action(()=>coordinator.exportPdf())
   case 'insertImage': case 'insertAttachment': return active&&insertResource(null,command==='insertImage'?'image':'attachment')
+  case 'collapse':
+   if(state.busy||globalComposing)return
+   if(active)return collapse(state.activeId)
+   if(!opened.value.length&&platform.os==='macos'&&(nativeWindow||browserTestHost))return action(requestWindowClose)
+   return
   case 'remove': return active&&removePage(state.activeId)
   case 'source': return active&&setMode(mode.value==='source'?'rendered':'source')
   case 'sourceMode': return active&&setMode('source')

@@ -56,6 +56,7 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
         &command("exportPdf", "导出 PDF…", None)?,
         &command("insertImage", "插入图片…", Some("Ctrl+Cmd+I"))?,
         &command("insertAttachment", "插入附件…", None)?,
+        &command("collapse", "收起当前页面", Some("Cmd+W"))?,
         &command("remove", "移除当前页面…", None)?,
     ])?;
     let edit = Submenu::with_items(app, "编辑", true, &[
@@ -90,14 +91,18 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
     let windows = Submenu::with_items(app, "窗口", true, &[
         &PredefinedMenuItem::minimize(app, Some("最小化"))?,
         &PredefinedMenuItem::maximize(app, Some("缩放"))?,
-        &PredefinedMenuItem::close_window(app, Some("关闭窗口"))?,
+        &command("closeWindow", "关闭窗口", Some("Cmd+Shift+W"))?,
     ])?;
     app.set_menu(Menu::with_items(app, &[&application, &file, &edit, &format, &view, &windows])?)?;
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
-        if FORMAT_MENU.iter().any(|group| group.iter().any(|item| item.0 == id))
-            || matches!(id, "checkUpdates" | "new" | "open" | "import" | "save" | "saveAs" | "exportPdf" | "insertImage" | "insertAttachment" | "remove" | "find" | "replace" | "reading" | "source" | "rendered" | "zoomIn" | "zoomOut" | "zoomReset" | "sidebar") {
-            if let Some(window) = app.get_webview_window("main") { let _ = window.emit("frowd:menu-command", id); }
+        let Some(window) = app.get_webview_window("main") else { return };
+        if id == "closeWindow" {
+            // Follow the same CloseRequested handshake as the system close button.
+            let _ = window.close();
+        } else if FORMAT_MENU.iter().any(|group| group.iter().any(|item| item.0 == id))
+            || matches!(id, "checkUpdates" | "new" | "open" | "import" | "save" | "saveAs" | "exportPdf" | "insertImage" | "insertAttachment" | "collapse" | "remove" | "find" | "replace" | "reading" | "source" | "rendered" | "zoomIn" | "zoomOut" | "zoomReset" | "sidebar") {
+            let _ = window.emit("frowd:menu-command", id);
         }
     });
     Ok(())

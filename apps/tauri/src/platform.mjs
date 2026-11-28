@@ -5,7 +5,7 @@ export function describePlatform({platform = globalThis.navigator?.platform || '
   const nativeChrome = nativeWindow || browserTestHost && new URLSearchParams(search).get('testNativeChrome') === '1'
   return Object.freeze({os, primaryModifier: os === 'macos' ? 'Meta' : 'Control', linkModifier: os === 'macos' ? 'meta' : 'ctrl', nativeMenu: nativeChrome && os === 'macos', customControls: nativeChrome && os === 'windows', customDrag: nativeChrome && os === 'windows'})
 }
-const keys = {new: 'n', open: 'o', save: 's', saveAs: 's', source: '/', find: 'f', replace: 'h', reading: ',', zoomIn: '=', zoomOut: '-', zoomReset: '0', nextTab: 'Tab', previousTab: 'Tab'}
+const keys = {new: 'n', open: 'o', save: 's', saveAs: 's', collapse: 'w', source: '/', find: 'f', replace: 'h', reading: ',', zoomIn: '=', zoomOut: '-', zoomReset: '0', nextTab: 'Tab', previousTab: 'Tab'}
 export function commandShortcut(id, platform) {
   if (!(id in keys)) return null
   const mac = platform.os === 'macos', tab = id === 'nextTab' || id === 'previousTab'
