@@ -17,6 +17,14 @@
         <details><summary>编辑</summary><div class="menu-popup">
           <button @click="executeCommand('find')">查找 / 替换… <kbd>{{ shortcutLabel('find') }} / {{ shortcutLabel('replace') }}</kbd></button>
         </div></details>
+        <details class="format-menu"><summary @mousedown.prevent>格式</summary><div class="menu-popup">
+          <template v-for="(group, index) in formatMenu" :key="index">
+            <hr v-if="index" />
+            <button v-for="item in group" :key="item.id" @mousedown.prevent @click="executeCommand(item.id)">
+              {{ item.label }} <kbd>{{ platform.os === 'macos' ? item.macos : item.windows }}</kbd>
+            </button>
+          </template>
+        </div></details>
         <details><summary>视图</summary><div class="menu-popup">
           <button :disabled="!current" @click="executeCommand('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
           <button :disabled="!current" @click="executeCommand('sourceMode')">源码 <kbd>{{ shortcutLabel('source') }}</kbd><span v-if="mode === 'source'">✓</span></button>
@@ -144,7 +152,7 @@ import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {initializeCloseHandshake} from './documents/closeHandshake.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,updatesApi,onHostClose,onHostOpenRequest,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {documentsApi,updatesApi,onHostClose,onHostMenuCommand,onHostOpenRequest,openDocumentLink,browserTestHost} from './documents/host.mjs'
 import {createOpenRequests} from './documents/openRequests.mjs'
 import {OPEN_AREAS,classifyDrop,dropArea,externalFileDrag,openDropMessages,skippedNotice} from './openDrop.mjs'
 import UpdateNotice from './updates/UpdateNotice.vue'
@@ -152,13 +160,13 @@ import {UpdateController} from './updates/controller.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
 import {isLargeDocument} from './editor/largeDocument.mjs'
+import {formatMenu,formatMenuCommands} from './editor/formatMenu.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
 import './reading/reading.css'
 import './reading/markdown-theme.css'
 import {nativeWindow,setPageZoom} from './window.mjs'
 import WindowChrome from './WindowChrome.vue'
 import {describePlatform,formatShortcut,matchCommand,usesNativeAccelerator} from './platform.mjs'
-import {listen} from '@tauri-apps/api/event'
 const platform=describePlatform({browserTestHost,nativeWindow})
 const shortcutLabel=id=>formatShortcut(id,platform)
 const openMessages=openDropMessages(platform)
@@ -563,6 +571,7 @@ function answerRemoval(answer){removalDialog.value=null;removalResolve?.(answer)
 function removePage(id){return action(()=>coordinator.remove(id,askRemoval))}
 function globalStart(){globalComposing=true}
 function globalEnd(){globalComposing=false}
+function rememberEditableFocus(event){editor.value?.rememberEditableFocus(event.target)}
 function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=false}
 function shortcut(event){
  if(event.isComposing||event.keyCode===229||globalComposing||removalDialog.value)return
@@ -575,6 +584,8 @@ function shortcut(event){
 }
 function executeCommand(command){
  if(removalDialog.value||!state.loaded)return
+ const formatting=formatMenuCommands.get(command)
+ if(formatting)return executeFormatMenu(formatting)
  // Save/open/new and tab navigation retain the coordinator's serial queue,
  // including a page switch requested while resource registration is in flight.
  if(state.busy&&['import','exportPdf','insertImage','insertAttachment','remove','source','sourceMode','rendered','reading'].includes(command))return
@@ -605,14 +616,24 @@ function executeCommand(command){
   }
  }
 }
+function executeFormatMenu(shortcut){
+ closeMenus()
+ if(current.value&&!state.pageError&&!editingLocked.value&&!globalComposing)
+  editor.value?.formatFromMenu(shortcut)
+}
+function nativeMenuCommand(command){
+ if(command==='insertImage'){
+  if(!removalDialog.value&&state.loaded)executeFormatMenu({name:'insertImage'})
+ }else executeCommand(command)
+}
 async function openLink(event){const detail=event.detail;if(!current.value||detail.id&&detail.id!==current.value.id)return;try{await openDocumentLink(current.value.id,detail.href)}catch(e){coordinator.report(e)}}
 onMounted(async()=>{
  narrow.value=media.matches;sidebarOpen.value=!narrow.value;media.addEventListener('change',resize)
  themeMedia.addEventListener('change',themeChanged)
  window.addEventListener('pointerdown',outsideMenus,true);window.addEventListener('wheel',zoomWheel,{capture:true,passive:false});window.addEventListener('resize',contextResize)
  if(nativeWindow)setPageZoom(100).catch(error=>coordinator.report(error))
- if(nativeWindow)menuDispose=await listen('frowd:menu-command',event=>executeCommand(event.payload))
- window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
+ if(platform.nativeMenu)menuDispose=await onHostMenuCommand(nativeMenuCommand)
+ window.addEventListener('focusin',rememberEditableFocus,true);window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{openDispose=await onHostOpenRequest(()=>openRequests.request())}catch(error){coordinator.report(error)}
  closeDispose=await initializeCloseHandshake({
   listen:onHostClose,acknowledge:()=>api.ackCloseListener(),
@@ -628,5 +649,5 @@ onMounted(async()=>{
   openRequests.start(pending)
  }
 })
-onBeforeUnmount(()=>{disposed=true;updater.dispose();menuDispose?.();openDispose?.();openRequests.dispose();hideDragFeedback();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;updater.dispose();menuDispose?.();openDispose?.();openRequests.dispose();hideDragFeedback();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('focusin',rememberEditableFocus,true);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

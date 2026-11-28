@@ -43,6 +43,9 @@ export function installMockHost(options = {}) {
  const openListeners=new Set();
  h.onOpenRequest=callback=>{openListeners.add(callback);return()=>openListeners.delete(callback)};
  h.requestOpen=entries=>{h.pendingOpen.push(...entries);for(const callback of openListeners)callback()};
+ const menuListeners=new Set();
+ h.onMenuCommand=callback=>{menuListeners.add(callback);return()=>menuListeners.delete(callback)};
+ h.menuCommand=id=>{for(const callback of menuListeners)callback(id)};
  h.invoke=async(command,args={})=>{
   h.calls.push({command,args:structuredClone(args)});h.entered[command]=(h.entered[command]??0)+1;
   if(h.holds.has(command))await new Promise(resolve=>h.gates.set(command,resolve));

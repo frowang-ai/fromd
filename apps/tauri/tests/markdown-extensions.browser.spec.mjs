@@ -6,7 +6,7 @@ const pdfModule = '/@fs/' + fileURLToPath(new URL('../../../packages/editor/src/
 const sample = '# 合成扩展文稿\n\n开头正文[^named]，重复引用[^named]。\n\n```mermaid\nflowchart LR\n A[开始] --> B[完成]\n```\n\n> [!NOTE]\n> 提示内容 **加粗**。\n\n> [!WARNING]\n> 请先保存。\n\n> 普通引用。\n\n[^named]: 多行脚注 [资料](https://example.com)\n\n    第二段内容。\n\n[^unused]: 未引用的定义也要保留。\n\n结尾正文。\n'
 async function mode(page, source) {
   await page.getByText('视图', { exact: true }).click()
-  await page.locator('.menu-popup button').filter({ hasText: source ? '源码' : '正文' }).first().click()
+  await page.locator('details[open] .menu-popup button').filter({ hasText: source ? '源码' : '正文' }).first().click()
   return page.getByRole('textbox', { name: 'Markdown 源码', exact: true })
 }
 async function capture(page) {

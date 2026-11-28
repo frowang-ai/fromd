@@ -68,7 +68,7 @@ test('text-first survives switch, shelf restore, source roundtrip and reorder',a
  await page.locator('.shelved-row .page-title').filter({hasText:'方案讨论'}).click();await expect(page.locator('.tab.selected')).toContainText('方案讨论')
  await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'源码'}).click()
  await expect(page.getByRole('textbox',{name:'Markdown 源码'})).toHaveValue(sample)
- await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'正文'}).first().click()
+ await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:'正文'}).first().click()
  await page.locator('[data-tab-id="b"]').dragTo(page.locator('[data-tab-id="a"]'),{targetPosition:{x:2,y:12}})
  await expect(page.locator('.tab-title')).toHaveText(['公式推导','方案讨论'])
  const a=await point(page,plain,5),b=await point(page,other,8);await drag(page,a,b)
@@ -116,7 +116,7 @@ test('cross-cell copy serializes selected portions rather than the whole table',
 })
 async function sourceMode(page,value){
  await page.getByText('视图',{exact:true}).click()
- await page.locator('.menu-popup button').filter({hasText:value?'源码':'正文'}).first().click()
+ await page.locator('details[open] .menu-popup button').filter({hasText:value?'源码':'正文'}).first().click()
  return page.getByRole('textbox',{name:'Markdown 源码',exact:true})
 }
 test('source undo/redo belongs to its docId across switches and cannot undo into another page',async({page})=>{

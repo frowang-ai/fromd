@@ -17,7 +17,7 @@ async function append(page,text){
  else await expect(body).toContainText(text.trim());
 }
 async function stored(page,id='a'){return page.evaluate(id=>window.__FROWD_TEST_HOST__.rows.get(id),id)}
-async function menu(page,title){await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:title}).first().click()}
+async function menu(page,title){await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:title}).first().click()}
 async function remove(page,title='方案讨论'){
  await page.getByRole('button',{name:'页面菜单 '+title,exact:true}).click();await page.getByRole('menuitem',{name:'移除页面…'}).click();
 }

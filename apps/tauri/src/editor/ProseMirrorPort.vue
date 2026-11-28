@@ -28,6 +28,7 @@ const largeDocument=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
 let lastActivation=null,engineDetached=false,engineRecovery=Promise.resolve()
 let sessionDeferred=false
+let formatFocus=null
 let endClick=null
 function cancelEndClick(){endClick=null}
 function primaryEndClick(event){return event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey}
@@ -154,6 +155,32 @@ function formattingShortcut(event){
  if(!owner||frozen.value||composing||event.isComposing||event.keyCode===229)return null
  return matchEditorShortcut(event,props.linkModifier==='meta')
 }
+function rememberEditableFocus(target){
+ if(target.matches?.('input, textarea, select, [contenteditable="true"], [contenteditable="plaintext-only"]')){
+  formatFocus={target,owner,mode:mode.value}
+ }
+}
+function formatFromMenu(shortcut){
+ if(!owner||frozen.value||composing||formatFocus?.owner!==owner||formatFocus.mode!==mode.value)return
+ const {target}=formatFocus
+ if(mode.value==='rendered'){
+  if(!engineDetached)engine.value.formatFromMenu(shortcut,target)
+ }else if(target===source.value&&!target.readOnly){
+  target.focus()
+  applySourceFormat(target,shortcut)
+ }
+}
+function applySourceFormat(input,shortcut){
+ const range=sourceSelection(), text=input.value
+ if(range.start<sourceBodyStart(text))return
+ if(shortcut.name==='insertImage'){emit('insert-image');return}
+ const edit=formatSource(text,range,shortcut,engine.value.parseSourceSyntax(text))
+ if(!edit||edit.text===text)return
+ // DOM offsets use LF. Keep the original metadata prefix byte for byte.
+ const prefix=leadingFrontMatter(sourceText.value)?.prefix??''
+ const next=prefix+edit.text.slice(prefix.replace(/\r\n?/g,'\n').length)
+ commitSourceKey(input,next,range,{start:edit.start,end:edit.end})
+}
 function sourceKey(event){
  const input=source.value
  if(event.target!==input||mode.value!=='source'||frozen.value||!owner||input.readOnly||
@@ -161,21 +188,14 @@ function sourceKey(event){
  if((event.ctrlKey||event.metaKey)&&!event.altKey&&['z','y'].includes(event.key.toLowerCase())){
   event.preventDefault();undoSource(event.key.toLowerCase()==='y'||event.shiftKey);return
  }
- const range=sourceSelection(), text=input.value, shortcut=formattingShortcut(event)
+ const shortcut=formattingShortcut(event)
  if(shortcut){
   event.preventDefault();event.stopPropagation()
-  if(range.start<sourceBodyStart(text))return
-  if(shortcut.name==='insertImage'){emit('insert-image');return}
-  const edit=formatSource(text,range,shortcut,engine.value.parseSourceSyntax(text))
-  if(!edit||edit.text===text)return
-  // DOM offsets use LF. Keep the original metadata prefix byte for byte.
-  const prefix=leadingFrontMatter(sourceText.value)?.prefix??''
-  const next=prefix+edit.text.slice(prefix.replace(/\r\n?/g,'\n').length)
-  commitSourceKey(input,next,range,{start:edit.start,end:edit.end})
-  return
+  return applySourceFormat(input,shortcut)
  }
  const closing=sourcePairs[event.key]
  if(event.ctrlKey||event.metaKey||event.altKey||!closing)return
+ const range=sourceSelection(), text=input.value
  if(range.start>=range.end)return
  event.preventDefault()
  const next=preserveFrontMatterSource(text.slice(0,range.start)+event.key+text.slice(range.start,range.end)+closing+text.slice(range.end),sourceText.value)
@@ -369,7 +389,7 @@ function end(event){
 }
 onMounted(()=>{root.value.addEventListener('compositionstart',start);root.value.addEventListener('compositionend',end);ready().then(editable).catch(()=>{})})
 onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('compositionstart',start);root.value?.removeEventListener('compositionend',end)})
-defineExpose({largeDocument,currentOwner,revealHeading,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
+defineExpose({largeDocument,currentOwner,revealHeading,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus,rememberEditableFocus,formatFromMenu})
 </script>
 <style>
 .pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:14px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}

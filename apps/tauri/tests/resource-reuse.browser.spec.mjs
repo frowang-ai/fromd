@@ -6,7 +6,7 @@ const png=[...await readFile(new URL('./fixtures/synthetic-resource.png',import.
 const evidence=fileURLToPath(new URL('../../../output/resource-reuse-evidence/',import.meta.url))
 const body=page=>page.locator('.ProseMirror:visible'),source=page=>page.getByRole('textbox',{name:'Markdown 源码',exact:true})
 const row=(page,id)=>page.evaluate(id=>window.__FROWD_TEST_HOST__.rows.get(id),id)
-async function mode(page,name){await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:name}).first().click()}
+async function mode(page,name){await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:name}).first().click()}
 async function select(page,name){await page.locator('.tab-title').filter({hasText:name}).click();await expect(page.locator('.tab.selected')).toContainText(name)}
 async function paste(page,data,keepSelection=false){
  const target=await source(page).isVisible()?source(page):body(page)

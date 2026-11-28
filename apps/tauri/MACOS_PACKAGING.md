@@ -79,6 +79,10 @@ macOS 使用 Tauri 应用身份 `com.frowang.frowd.tauri.v1` 的应用数据目�
 
 ## 原生行为与 PDF
 
+「格式」位于「编辑」和「视图」之间，显示正文与源码共用的格式快捷键。
+编辑区先处理适用的格式按键，网页未处理时由 AppKit 菜单派发。菜单动作返回最后
+聚焦的正文或源码选区，并检查编辑与输入法状态。「文件 → 插入图片…」使用 `⌃⌘I`。
+
 macOS 用系统装饰标题栏和红黄绿按钮；WebView 缩放不会移动交通灯。原生菜单含系统隐藏/退出、剪切/复制/粘贴/全选及业务命令。菜单 accelerator 由 AppKit 处理，前端不重复执行；标签切换单独使用 `⌃Tab` / `⌃⇧Tab`。查找替换为 `⌥⌘F`，保留系统 `⌘H` 和 `⌘Tab`。链接为 Cmd+Click，普通点击编辑；Windows 维持 Ctrl+Click。
 
 PDF 公共层仍负责版本校验、单任务、资源限制、临时 URL 与原子保存。macOS 使用 `printOperationWithPrintInfo`，A4 595.28×841.89pt、18mm 四边距、自动纵向分页，禁用打印/进度面板。文稿、字体、图片与 KaTeX 就绪探测和 Windows 共用。不会使用只截长矩形的 `createPDFWithConfiguration`。

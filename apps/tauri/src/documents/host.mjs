@@ -65,6 +65,8 @@ export const onHostOpenRequest = callback => testHost ? Promise.resolve(testHost
   listen('frowd:open-requested', callback);
 export const onHostClose = callback => testHost ? Promise.resolve(testHost.onClose(callback)) :
   listen('frowd:close-requested', callback);
+export const onHostMenuCommand = callback => testHost ? Promise.resolve(testHost.onMenuCommand(callback)) :
+  listen('frowd:menu-command', event => callback(event.payload));
 export function openDocumentLink(id, href) { return call('open_document_link', { id, href }); }
 
 export function resourceImageUrl(id,reference){

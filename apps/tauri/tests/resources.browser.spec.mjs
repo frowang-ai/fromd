@@ -25,7 +25,7 @@ async function paste(page,{name='合成图.png',text=null}={}){
  },{name,text})
 }
 async function mode(page,name){
- await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:name}).first().click()
+ await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:name}).first().click()
 }
 async function select(page,name){await page.locator('.tab-title').filter({hasText:name}).click();await expect(page.locator('.tab.selected')).toContainText(name)}
 async function waitImage(page){await expect.poll(()=>page.locator('.ProseMirror img').evaluateAll(imgs=>imgs.filter(i=>i.complete&&i.naturalWidth>0).length)).toBe(1)}
