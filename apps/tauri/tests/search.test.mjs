@@ -1,7 +1,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DocumentSearch,findText,matchDocument} from '../src/documents/search.mjs';
+import {DocumentSearch,findText,literalMatchOffsets,matchDocument} from '../src/documents/search.mjs';
+import {sourceOffset} from '../../../packages/editor/src/writingMarkdownLocation.js';
 const tick=()=>new Promise(r=>setImmediate(r));
 const deferred=()=>{let resolve,reject;const promise=new Promise((r,j)=>{resolve=r;reject=j});return {promise,resolve,reject}};
 const a={id:'a',title:'草稿',shelved:false},b={id:'b',title:'收起页',shelved:true};
@@ -9,6 +10,27 @@ test('literal matches have neutral Chinese/emoji locations and ASCII folding',()
  assert.deepEqual(findText('前行\n😀中文AbC','中文abc'),{line:2,column:1,length:5,needle:'中文abc'});
  assert.equal(findText('字面%_','.*'),null);
  assert.equal(matchDocument(b,'body','收起').location,null);
+});
+test('chunk boundary, bounded Unicode context and source offsets agree',()=>{
+ const prefix = 'A'.repeat(65536-2);
+ const query = 'ab😀';
+ const text = prefix + 'AB😀' + '界😀'.repeat(100);
+ const match = matchDocument(a,text,query);
+ assert.deepEqual(match.location,{line:1,column:prefix.length,length:3,needle:query});
+ assert.equal(match.snippet,'A'.repeat(60)+[...text.slice(prefix.length)].slice(0,180).join(''));
+ const multiline = '😀\n'+'😀'.repeat(65)+'A😀B\n尾';
+ const found = matchDocument(a,multiline,'a😀b');
+ assert.equal(found.location.column,65);
+ assert.equal(found.snippet,'😀'.repeat(60)+'A😀B 尾');
+ assert.equal(sourceOffset(multiline,found.location),3+65*2);
+ assert.equal(findText('Ä','ä'),null);
+});
+test('literal iteration preserves UTF-16 offsets and skips overlaps across chunks',()=>{
+ const prefix='😀'.repeat(32767)+'X';
+ const text=prefix+'AaAaAXaAA';
+ assert.deepEqual([...literalMatchOffsets(text,'aaa')],[prefix.length,prefix.length+6]);
+ assert.deepEqual([...literalMatchOffsets(text,'aAA',true)],[prefix.length+6]);
+ assert.deepEqual([...literalMatchOffsets(text,'')],[]);
 });
 test('search overlays latest unacknowledged body and title, including removing a stale persisted match',async()=>{
  const state={},gate=deferred();let body='old',calls=0;

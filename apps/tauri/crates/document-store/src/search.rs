@@ -1,4 +1,77 @@
+use super::{decode_body, hash_bytes, same_file_bytes, MAX_DOCUMENT_BYTES, MAX_SESSION_BYTES};
 use serde::Serialize;
+use std::path::Path;
+
+const MAX_FILE_CHECKS: usize = 512;
+
+pub struct SearchPlan {
+    query: String,
+    pub(crate) entries: Vec<SearchEntry>,
+}
+pub(crate) enum SearchEntry {
+    Hit(SearchHit),
+    File {
+        id: String,
+        title: String,
+        revision: i64,
+        shelved: bool,
+        path: String,
+        baseline: String,
+    },
+}
+impl SearchPlan {
+    pub(crate) fn new(query: &str) -> Self {
+        Self {
+            query: query.into(),
+            entries: Vec::new(),
+        }
+    }
+
+    /// Run after releasing the Store lock. Unavailable or changed bodies
+    /// still participate in title search.
+    pub fn finish(self) -> Vec<SearchHit> {
+        let mut remaining = MAX_SESSION_BYTES as usize;
+        let mut files = 0;
+        self.entries
+            .into_iter()
+            .filter_map(|entry| match entry {
+                SearchEntry::Hit(hit) => Some(hit),
+                SearchEntry::File {
+                    id,
+                    title,
+                    revision,
+                    shelved,
+                    path,
+                    baseline,
+                } => {
+                    let body = if remaining > 0 && files < MAX_FILE_CHECKS {
+                        files += 1;
+                        search_body(Path::new(&path), &baseline, &mut remaining).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    hit(id, title, &body, revision, shelved, &self.query)
+                }
+            })
+            .take(100)
+            .collect()
+    }
+}
+fn search_body(path: &Path, baseline: &str, remaining: &mut usize) -> Option<String> {
+    let info = std::fs::metadata(path).ok()?;
+    let limit = (*remaining).min(MAX_DOCUMENT_BYTES);
+    if !info.is_file() || info.len() > limit as u64 {
+        return None;
+    }
+    let size = info.len() as usize;
+    // Reserve the measured byte count even if a racing read fails.
+    *remaining -= size.max(1);
+    let bytes = same_file_bytes(path, size).ok()?;
+    if hash_bytes(&bytes) != baseline {
+        return None;
+    }
+    decode_body(&bytes).ok().map(|(body, _, _)| body)
+}
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchLocation {
     pub line: usize,

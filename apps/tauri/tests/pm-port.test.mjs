@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {sourceHistory,recordSource,travelSource} from '../src/editor/sourceHistory.mjs'
+import {isLargeDocument} from '../src/editor/largeDocument.mjs'
 import {sourceOffset,markdownRange} from '../../../packages/editor/src/writingMarkdownLocation.js'
 import {Schema} from '@milkdown/kit/prose/model'
 test('source undo and redo are immutable per-doc sessions and never cross owners',()=>{
@@ -15,6 +16,16 @@ test('source history bounds large repeated edits without changing latest content
  for(let i=0;i<70;i++)h=recordSource(h,'x'.repeat(300000)+i,{start:0,end:0})
  assert.ok(h.past.length<=50);assert.ok(h.past.reduce((n,s)=>n+s.text.length*2,0)<=32*1024*1024)
  assert.ok(h.text.endsWith('69'))
+})
+test('source history retains one undo even when a single prior value exceeds its memory budget',()=>{
+ const previous='长'.repeat(17*1024*1024)
+ const h=recordSource(sourceHistory(previous),previous+'x',{start:0,end:0})
+ assert.equal(travelSource(h,false).history.text,previous)
+})
+test('large source uses UTF-8 bytes and line count while ignoring inline image payloads',()=>{
+ assert.equal(isLargeDocument('章'.repeat(600_000)),true)
+ assert.equal(isLargeDocument('短行\n'.repeat(20_000)),true)
+ assert.equal(isLargeDocument('![图](data:image/png;base64,'+'A'.repeat(2*1024*1024)+')'),false)
 })
 test('neutral line/Unicode columns map to source offsets including emoji',()=>{
  assert.equal(sourceOffset('前行\n😀中文',{line:2,column:1}),5)

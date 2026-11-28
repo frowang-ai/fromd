@@ -166,6 +166,8 @@ impl FileImport {
             title: self.source.title,
             path: None,
             markdown: markdown.into(),
+            body_in_db: true,
+            preview: String::new(),
             saved_hash: digest(""),
             content_hash: digest(markdown),
             baseline: None,

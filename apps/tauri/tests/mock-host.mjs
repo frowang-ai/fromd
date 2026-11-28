@@ -7,7 +7,7 @@ export function installMockHost(options = {}) {
  {id:'c',title:'阅读摘录',markdown:'收起页合成内容',shelved:true}
  ]).map((d,position)=>[d.id,{path:null,revision:0,position,dirty:false,conflict:false,viewState:null,...d,savedText:d.path?d.markdown:'',preview:d.markdown.slice(0,1200)}]));
  let activeId=options.activeId??'a',layoutRevision=0,counter=10,removed=null,callbacks=[];
- const h={rows,externalTexts:new Map(),calls:[],holds:new Set(options.holds||[]),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
+ const h={rows,externalTexts:new Map((options.missingFiles||[]).map(id=>[id,null])),calls:[],holds:new Set(options.holds||[]),gates:new Map(),entered:{},fail:null,saveChoice:'save',openChoice:null,closed:false};
  h.updateResult=options.updateResult??{currentVersion:'0.5.2',version:'0.6.0',platform:'windows'};
  const updateListeners=new Set();
  h.onUpdateProgress=callback=>{updateListeners.add(callback);return()=>updateListeners.delete(callback)};
@@ -58,7 +58,7 @@ export function installMockHost(options = {}) {
    case 'choose_document_import':{
     const choice=h.importChoice;if(!choice)return {cancelled:true};
     const bytes=new Uint8Array(choice.bytes),bom=bytes[0]===239&&bytes[1]===187&&bytes[2]===191;
-    if(bytes.length>10*1024*1024)throw Error('导入最多 10 MiB UTF-8 文本。');
+    if(bytes.length>64*1024*1024)throw Error('导入最多 64 MiB UTF-8 文本。');
     let text;try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes)}catch{throw Error('文件不是 UTF-8 编码。请先以 UTF-8 保存再导入。')}
     if(text.includes('\0'))throw Error('导入内容含 NUL。');
     const source={token:'imported-'+counter++,title:choice.name.replace(/\.(txt|html?)$/i,''),kind:/\.txt$/i.test(choice.name)?'text':'html',content:text.replace(/\r\n?/g,'\n'),bom,eol:text.includes('\r\n')?'\r\n':'\n'};
@@ -136,6 +136,7 @@ export function installMockHost(options = {}) {
    case 'list_metadata':return snapshot();
    case 'read_document':{
     if(!doc)throw Error('page removed');
+    if(doc.bodyInDb===false&&h.externalTexts.get(doc.id)===null){doc.conflict=true;throw Error('原文件不可用。')}
     // Synthetic check_external: refresh a clean file on read, retain dirty local edits.
     if(doc.path&&h.externalTexts.has(doc.id)){
      if(doc.markdown!==doc.savedText)doc.conflict=true;
@@ -146,7 +147,7 @@ export function installMockHost(options = {}) {
    case 'create_document':{
     const id='new-'+counter++;rows.set(id,{id,title:args.title,path:null,markdown:args.markdown,revision:0,position:rows.size,shelved:false,viewState:null,savedText:'',conflict:false,preview:''});activeId=id;layoutRevision++;return snapshot();
    }
-   case 'update_document':if(!doc)throw Error('page removed');if(args.revision<doc.revision||args.revision>doc.revision+1||args.revision===doc.revision&&args.markdown!==doc.markdown)throw Error('revision conflict');Object.assign(doc,{markdown:args.markdown,revision:args.revision,preview:args.markdown.slice(0,1200)});return snapshot();
+   case 'update_document':if(!doc)throw Error('page removed');if(args.revision<doc.revision||args.revision>doc.revision+1||args.revision===doc.revision&&args.markdown!==doc.markdown)throw Error('revision conflict');Object.assign(doc,{markdown:args.markdown,revision:args.revision,preview:args.markdown.slice(0,1200),bodyInDb:true});return snapshot();
    case 'rename_document':if(!doc||doc.path)throw Error('file name locked');doc.title=args.title.trim()||'未命名笔记';return snapshot();
    case 'set_view_state':if(!doc)throw Error('page removed');doc.viewState=args.viewState;return snapshot();
    case 'activate_document':if(!doc)throw Error('page removed');doc.shelved=false;activeId=doc.id;layoutRevision++;return snapshot();
@@ -164,6 +165,14 @@ export function installMockHost(options = {}) {
     if(removed){const id='undo-'+counter++;rows.set(id,{...removed.doc,id});h.bindings.set(id,new Set(h.bindings.get(removed.doc.id)||[]));if(!removed.doc.shelved&&(removed.wasActive||!activeId))activeId=id;removed=null;layoutRevision++;}return snapshot();
    }
    case 'save_document':if(h.saveChoice==='cancel')return{cancelled:true};if(h.saveChoice==='fail')throw Error('合成文件保存失败');doc.path??='/synthetic/'+doc.title+'.md';doc.savedText=doc.markdown;return{cancelled:false,snapshot:snapshot()};
+   case 'sync_document_file':{
+    if(!doc||doc.path!==args.expectedPath||doc.revision!==args.expectedRevision)throw Error('文稿路径或版本已变化');
+    if(doc.markdown!==doc.savedText){
+     if(h.externalTexts.has(doc.id))doc.conflict=true;
+     else {doc.savedText=doc.markdown;doc.bodyInDb=new TextEncoder().encode(doc.markdown).length<=256*1024;}
+    }
+    return snapshot();
+   }
    case 'open_document':return{cancelled:true};
    case 'checkpoint':return;
    case 'ack_close_listener':{

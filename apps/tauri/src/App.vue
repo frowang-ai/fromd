@@ -67,7 +67,7 @@
         </template>
         <section v-else class="outline-list" aria-label="当前文稿大纲">
           <button v-for="heading in outline" :key="heading.start" :disabled="state.busy" :style="{paddingLeft: (10 + 12 * (heading.level - 1)) + 'px'}" @click="reveal(heading)">{{ heading.title }}</button>
-          <p v-if="!outline.length" class="empty-list">当前文稿没有标题</p>
+          <p v-if="!outline.length" class="empty-list">{{ largeSource ? '长文源码模式下暂停生成大纲' : '当前文稿没有标题' }}</p>
         </section>
         <div class="sidebar-footer">{{ state.documents.length }} 个页面 · {{ shelved.length }} 个已收起</div>
       </aside>
@@ -102,13 +102,15 @@
           <input v-if="!current.path" id="document-name" :key="current.id" :data-doc-id="current.id" :value="nameDraft" aria-label="当前页面名称" placeholder="未命名笔记" :title="platform.os === 'macos' ? '编辑页面名称，无需另存为文件' : undefined"
             @focus="nameFocus" @input="nameInput" @compositionstart="nameStart" @compositionend="nameEnd" @blur="finishName" @keydown.enter="nameEnter" />
           <span v-else class="file-name" :title="current.path">{{ current.title }}</span>
-          <span class="save-state" role="status" aria-label="保存状态">{{ state.saveState }}</span>
-          <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
+          <span class="save-state" role="status" aria-label="保存状态" :title="state.fileSyncErrors?.[current.id]">{{ saveStatus }}</span>
+          <span v-if="largeSource" class="writing-count" role="status">长文源码模式</span>
+          <span v-else-if="!state.pageError" class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
         <div class="editor-panel" :class="{ empty: !current }">
-          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current" @insert-image="executeCommand('insertImage')" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current && !state.pageError" @insert-image="executeCommand('insertImage')" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <div v-if="state.pageError" class="loading-state" role="alert">{{ state.pageError }} <button @click="selectPage(current.id)">重试</button></div>
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
-          <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
+          <div v-if="!state.loaded || state.pageLoading" class="loading-state" role="status">{{ state.loaded ? '正在读取正文…' : '正在恢复页面…' }}</div>
         </div>
       </main>
     </div>
@@ -128,7 +130,7 @@
         <h2 id="remove-title">{{ removalDialog.path ? '保留文件修改？' : '保留这篇笔记？' }}</h2>
         <p>「{{ removalDialog.title }}」</p>
         <p>{{ removalDialog.path ? '移除页面不会删除磁盘原件。' : '保存为 Markdown 后，再从页面列表移除。' }}</p>
-        <div class="dialog-actions"><button @click="answerRemoval('cancel')">取消</button><button @click="answerRemoval('discard')">{{ removalDialog.path ? '不保存' : '直接删除' }}</button><button class="primary" @click="answerRemoval('save')">{{ removalDialog.path ? '保存' : '保存为 Markdown' }}</button></div>
+        <div class="dialog-actions"><button @click="answerRemoval('cancel')">取消</button><button @click="answerRemoval('discard')">{{ removalDialog.path ? '不保存' : '直接删除' }}</button><button v-if="removalDialog.bodyInDb !== false || !removalDialog.conflict" class="primary" @click="answerRemoval('save')">{{ removalDialog.conflict ? '另存为' : removalDialog.path ? '保存' : '保存为 Markdown' }}</button></div>
       </section>
     </div>
     <div v-if="state.undoRemoval && !undoDismissed" class="removal-notice" role="status">已移除 <button :disabled="state.busy || !state.loaded" @click="action(() => coordinator.undoRemove())">撤销</button><button aria-label="关闭移除提示" @click="undoDismissed = true">×</button></div>
@@ -146,6 +148,7 @@ import UpdateNotice from './updates/UpdateNotice.vue'
 import {UpdateController} from './updates/controller.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
+import {isLargeDocument} from './editor/largeDocument.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
 import './reading/reading.css'
 import './reading/markdown-theme.css'
@@ -179,6 +182,19 @@ let dragging=null
 let globalComposing=false,removalResolve,viewTimer,closeDispose,disposed=false
 const media=matchMedia('(max-width: 760px)')
 const current=computed(()=>state.documents?.find(d=>d.id===state.activeId)||null)
+const largeSource=computed(()=>mode.value==='source'&&editor.value?.largeDocument)
+const saveStatus=computed(()=>{
+ const doc=current.value
+ if(state.pageError)return '正文不可用'
+ if(!doc?.path)return state.saveState
+ if(doc.conflict)return '外部文件已变更，未自动覆盖（请另存为）'
+ if(state.saveState==='暂存失败')return state.saveState
+ if(state.syncingId===doc.id)return '正在同步到文件…'
+ if(state.fileSyncErrors?.[doc.id])return '文件同步失败，草稿已暂存'
+ if(state.saveState==='保存中…')return state.saveState
+ if(doc.dirty)return '有修改待写入文件'
+ return '已保存到文件'
+})
 const opened=computed(()=>state.documents?.filter(d=>!d.shelved)||[])
 const shelved=computed(()=>state.documents?.filter(d=>d.shelved)||[])
 const matches=docs=>docs.filter(d=>d.title.toLocaleLowerCase().includes(query.value.trim().toLocaleLowerCase()))
@@ -205,7 +221,7 @@ const port={
  insertResources:(items,position,dropState,dropMode)=>editor.value.insertResources(items,position,dropState,dropMode),
  capture:()=>editor.value?.capture(),
  waitComposition:waitAllComposition,
- activate:async doc=>{await editor.value.activate(doc);mode.value=doc.session?.viewState?.mode||doc.viewState?.mode||'rendered'},
+ activate:async doc=>{mode.value=await editor.value.activate(doc)},
  clear:()=>editor.value?.clear(),
  revealMatch:location=>editor.value.revealMatch(location),
  freeze:async()=>{await waitAllComposition();editor.value.setFrozen(true);editingLocked.value=true;return()=>{editor.value?.setFrozen(false);editingLocked.value=false}}
@@ -214,10 +230,18 @@ const coordinator=new DocumentCoordinator(api,port,state)
 const updateState=reactive({})
 const updater=new UpdateController(updatesApi,coordinator,updateState)
 const search=new DocumentSearch(api,state,()=>coordinator.searchLive())
-watch(()=>[state.activeId,state.markdown],([id,markdown],previous)=>{
+watch(()=>[state.activeId,state.markdown,mode.value,largeSource.value],([id,markdown,view,long],previous)=>{
  clearTimeout(analysisTimer)
- if(id!==previous?.[0])readingAnalysis.value={headings:[],wordCount:0,characterCount:0}
- analysisTimer=setTimeout(()=>{if(!disposed&&state.activeId===id)readingAnalysis.value=analyzeReading(markdown||'')},180)
+ if(id!==previous?.[0]||long)readingAnalysis.value={headings:[],wordCount:0,characterCount:0}
+ if(long)return
+ analysisTimer=setTimeout(()=>{
+  if(disposed||state.activeId!==id)return
+  if(view==='source'&&isLargeDocument(markdown||'')){
+   readingAnalysis.value={headings:[],wordCount:0,characterCount:0}
+   return
+  }
+  readingAnalysis.value=analyzeReading(markdown||'')
+ },180)
 },{immediate:true})
 function updateReading(patch){const result=saveReadingPreferences({...readingPreferences.value,...patch});readingPreferences.value=result.preferences;readingError.value=result.error}
 async function openReading(){
@@ -422,6 +446,7 @@ function selectPage(id){return action(async()=>{await coordinator.activate(id);i
 function collapse(id){contextPage.value=null;return action(()=>coordinator.layout('shelve',id))}
 function contextLayout(name){const id=contextPage.value;return action(()=>coordinator.layout(name,id))}
 async function setMode(value){await action(()=>coordinator.run(async()=>{
+ if(state.pageError)return
  await editor.value.setMode(value);mode.value=value;await coordinator.flush()
 }))}
 function scheduleView(){clearTimeout(viewTimer);viewTimer=setTimeout(()=>{if(!state.busy)coordinator.flush().catch(e=>coordinator.report(e))},250)}
@@ -488,6 +513,7 @@ function executeCommand(command){
  // including a page switch requested while resource registration is in flight.
  if(state.busy&&['import','exportPdf','insertImage','insertAttachment','remove','source','sourceMode','rendered','reading'].includes(command))return
  const active=Boolean(current.value)
+ if(state.pageError&&['save','saveAs','exportPdf','insertImage','insertAttachment','source','sourceMode','rendered','find','replace'].includes(command))return
  switch(command){
   case 'checkUpdates': closeMenus();return updater.check()
   case 'new': return action(()=>coordinator.create())

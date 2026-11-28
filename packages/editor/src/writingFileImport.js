@@ -3,7 +3,8 @@ import {DOMParser as PMParser} from '@milkdown/kit/prose/model'
 import {Transform} from '@milkdown/kit/prose/transform'
 import {sanitizeHtml} from './markdown/sanitize.js'
 import {normalizeWritingPastedMath} from './writingMathCompatibility.js'
-function checkedText(text){if(new TextEncoder().encode(text).length>10*1024*1024||text.includes('\0'))throw Error('导入最多 10 MiB UTF-8 文本。');return text}
+import {MAX_DOCUMENT_BYTES,utf8Bytes} from './documentLimits.js'
+function checkedText(text){if(utf8Bytes(text)>MAX_DOCUMENT_BYTES||text.includes('\0'))throw Error('导入最多 64 MiB UTF-8 文本。');return text}
 const safeLink=url=>!url||url.startsWith('#')||/^(https?:|mailto:|tel:)/i.test(url)
 function localReference(url,image){
  if(!url)return false

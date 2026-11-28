@@ -3,7 +3,7 @@
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
    <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" :format-shortcut="formattingShortcut" ref="engine" link-navigation resource-import @insert-image="emit('insert-image')" @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
-  <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
+  <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :wrap="largeDocument ? 'off' : 'soft'" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
  </div>
 </template>
@@ -13,15 +13,20 @@ import MarkdownEditor from '@frowang/editor'
 import {sourceOffset} from '@frowang/editor/location'
 import {resourceImageUrl} from '../documents/host.mjs'
 import {resourceMarkdown} from '../documents/resources.mjs'
+import {literalMatchOffsets} from '../documents/search.mjs'
 import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
 import {leadingFrontMatter,preserveFrontMatterSource} from '../../../../packages/editor/src/markdown/frontmatter.js'
 import {matchEditorShortcut} from './shortcuts.mjs'
 import {formatSource,sourceBodyStart} from './sourceFormatting.mjs'
+import {MAX_DOCUMENT_BYTES,utf8Bytes} from '../../../../packages/editor/src/documentLimits.js'
+import {isLargeDocument} from './largeDocument.mjs'
 const props=defineProps({linkModifier:{type:String,default:'ctrl'},mathDoneShortcut:{type:String,default:'Ctrl+Enter'}})
 const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste','insert-image'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
+const largeDocument=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
 let lastActivation=null,engineDetached=false,engineRecovery=Promise.resolve()
+let sessionDeferred=false
 let endClick=null
 function cancelEndClick(){endClick=null}
 function primaryEndClick(event){return event.button===0&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&!event.shiftKey}
@@ -54,7 +59,7 @@ function onEngineRelease(event){
  engineDetached=true
 }
 function onEngineReady(){
- if(!owner||!lastActivation||disposed){editable();return}
+ if(!owner||!lastActivation||sessionDeferred||disposed){editable();return}
  const current=owner,child=engine.value,document=lastActivation
  engineRecovery=(async()=>{
   await nextTick()
@@ -101,10 +106,14 @@ function capture(){
 async function activate(doc){
  await ready();cancelEndClick();owner=null;renderDocId=doc.id;editable()
  const cached=doc.session,saved=cached?.viewState||doc.viewState
- mode.value=saved?.mode||'rendered';sourceText.value=doc.markdown
+ largeDocument.value=isLargeDocument(doc.markdown)
+ sessionDeferred=largeDocument.value&&!engine.value.canRestoreSession(cached?.pm)
+ mode.value=sessionDeferred?'source':saved?.mode||'rendered'
+ sourceText.value=doc.markdown
  history=cached?.sourceHistory?.text===doc.markdown?cached.sourceHistory:sourceHistory(doc.markdown)
  sourceRange=saved?.sourceSelection||{start:0,end:0};sourceScroll=saved?.sourceScrollTop||0
- engine.value.activateSession({id:doc.id,generation:doc.generation,snapshot:cached?.pm,markdown:doc.markdown,viewState:saved,resolveImage})
+ if(sessionDeferred)engine.value.clearSession()
+ else engine.value.activateSession({id:doc.id,generation:doc.generation,snapshot:cached?.pm,markdown:doc.markdown,viewState:saved,resolveImage})
  owner={id:doc.id,generation:doc.generation};const current=owner
  lastActivation={...owner,viewState:saved};engineDetached=false
  await nextTick();engine.value.restoreSessionView();editable()
@@ -112,6 +121,7 @@ async function activate(doc){
  if(owner!==current||disposed)return
  scroller.value.scrollTop=saved?.scrollTop||0
  source.value.setSelectionRange(sourceRange.start,sourceRange.end);source.value.scrollTop=sourceScroll
+ return mode.value
 }
 function setFrozen(value){if(value)cancelEndClick();frozen.value=value;editable()}
 function changed(event){
@@ -185,7 +195,11 @@ async function setMode(value){
   mode.value='source';await nextTick();source.value.setSelectionRange(sourceRange.start,sourceRange.end);source.value.scrollTop=sourceScroll
  }else{
   const text=markdown();sourceRange=sourceSelection();sourceScroll=source.value.scrollTop
-  if(engine.value.getMarkdown()!==text)engine.value.replaceMarkdown(text)
+  if(sessionDeferred){
+   engine.value.activateSession({...owner,markdown:text,viewState:lastActivation?.viewState,resolveImage})
+   sessionDeferred=false
+   engine.value.restoreSessionView()
+  }else if(engine.value.getMarkdown()!==text)engine.value.replaceMarkdown(text)
   mode.value='rendered';await nextTick()
  }
  editable();emit('view-change')
@@ -217,7 +231,7 @@ async function revealMatch(location){
  const text=markdown(),offset=sourceOffset(text,location),sourcePosition=text.slice(0,offset).replace(/\r\n?/g,'\n').length
  sourceRange={start:sourcePosition,end:sourcePosition+location.needle.replace(/\r\n?/g,'\n').length}
  source.value.setSelectionRange(sourceRange.start,sourceRange.end)
- if(mode.value==='source'){await reveal(offset);source.value.setSelectionRange(sourcePosition,sourcePosition+location.needle.replace(/\r\n?/g,'\n').length)}
+ if(mode.value==='source')selectSourceMatch(sourceRange.start,sourceRange.end,location.line)
  else if(!engine.value.revealMarkdown(offset,location.needle))emit('navigation-hint','命中 Markdown 源文；可从视图菜单打开源码查看精确范围。')
 }
 function openLink(detail){
@@ -298,12 +312,28 @@ async function insertResources(items,position=null,dropState=null,dropMode=null)
  }
 }
 const FIND_LIMIT=10000
-function literalMatches(text,query,matchCase=false){if(!query)return {matches:[],limited:false};const fold=value=>matchCase?value:value.replace(/[A-Z]/g,c=>c.toLowerCase()),wanted=fold(query),matches=[];let at=0,folded=fold(text);while((at=folded.indexOf(wanted,at))>=0){matches.push({from:at,to:at+query.length});if(matches.length>=FIND_LIMIT)break;at+=query.length||1}return {matches,limited:matches.length>=FIND_LIMIT}}
+function literalMatches(text,query,matchCase=false){
+ const matches=[]
+ for(const from of literalMatchOffsets(text,query,matchCase)){
+  matches.push({from,to:from+query.length})
+  if(matches.length===FIND_LIMIT)break
+ }
+ return {matches,limited:matches.length===FIND_LIMIT}
+}
 function nextLiteralIndex(matches,from){const index=matches.findIndex(match=>match.from>=from);return index<0?0:index}
 function replaceLiteral(text,matches,replacement){let out='',cursor=0;for(const match of matches){out+=text.slice(cursor,match.from)+replacement;cursor=match.to}return out+text.slice(cursor)}
-function selectSourceMatch(from,to){
- const input=source.value,style=getComputedStyle(input),mirror=document.createElement('div'),marker=document.createElement('span')
+function selectSourceMatch(from,to,line){
+ const input=source.value,style=getComputedStyle(input)
  sourceRange={start:from,end:to};input.setSelectionRange(from,to)
+ if(largeDocument.value){
+  if(line===undefined){
+   line=1
+   for(let newline=input.value.indexOf('\n');newline>=0&&newline<from;newline=input.value.indexOf('\n',newline+1))line++
+  }
+  input.scrollTop=Math.max(0,(line-1)*parseFloat(style.lineHeight)-input.clientHeight/2)
+  return
+ }
+ const mirror=document.createElement('div'),marker=document.createElement('span')
  // A selection on the unfocused, frozen textarea does not scroll itself.
  // Measure wrapped lines without stealing focus from the find input.
  for(const property of ['font','lineHeight','letterSpacing','padding','boxSizing','wordBreak','overflowWrap','tabSize'])mirror.style[property]=style[property]
@@ -312,11 +342,10 @@ function selectSourceMatch(from,to){
  try{input.scrollTop=Math.max(0,marker.offsetTop-input.clientHeight/2)}finally{mirror.remove()}
 }
 function findReplace(query,index=0,reveal=true,matchCase=false){if(!owner||!query)return {count:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const found=literalMatches(source.value.value,query,matchCase),matches=found.matches,selected=matches.length?matches[((index%matches.length)+matches.length)%matches.length]:null;if(selected&&reveal)selectSourceMatch(selected.from,selected.to);return {count:matches.length,limited:found.limited,index:selected?matches.indexOf(selected):-1,mode:mode.value}}return {...engine.value.findMatch(query,index,reveal,matchCase),mode:mode.value}}
-function utf8Bytes(text){return new TextEncoder().encode(text).byteLength}
-function replaceFind(query,replacement,index=0,all=false,matchCase=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=source.value.value,found=literalMatches(text,query,matchCase),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query,matchCase);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}next=preserveFrontMatterSource(next,sourceText.value);if(utf8Bytes(next)>10*1024*1024)throw Error('替换结果超过 10 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query,matchCase).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all,matchCase);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
+function replaceFind(query,replacement,index=0,all=false,matchCase=false){if(!owner||!query)return {count:0,replaced:0,index:-1,limited:false,mode:mode.value};if(mode.value==='source'){const text=source.value.value,found=literalMatches(text,query,matchCase),matches=found.matches;if(!matches.length)return {count:0,replaced:0,index:-1,limited:found.limited,mode:mode.value};if(all&&found.limited)throw Error('匹配数量达到 10000 上限，未执行全部替换。');const count=all?matches.length:1;if(utf8Bytes(text)+(utf8Bytes(replacement)-utf8Bytes(query))*count>MAX_DOCUMENT_BYTES)throw Error('替换结果超过 64 MiB 文稿上限。');let next=text,nextIndex=-1;if(all){next=replaceLiteral(text,matches,replacement);sourceRange={start:0,end:0}}else{const selected=matches[((index%matches.length)+matches.length)%matches.length];next=replaceLiteral(text,[selected],replacement);const after=literalMatches(next,query,matchCase);nextIndex=nextLiteralIndex(after.matches,selected.from+replacement.length);sourceRange={start:selected.from+replacement.length,end:selected.from+replacement.length}}next=preserveFrontMatterSource(next,sourceText.value);if(utf8Bytes(next)>MAX_DOCUMENT_BYTES)throw Error('替换结果超过 64 MiB 文稿上限。');history=recordSource(history,next,sourceSelection());sourceText.value=next;source.value.value=next;source.value.setSelectionRange(sourceRange.start,sourceRange.end);emit('change',{...owner,markdown:next});return {count:all?matches.length:literalMatches(next,query,matchCase).matches.length,replaced:all?matches.length:1,index:all?-1:nextIndex,limited:false,mode:mode.value}}const result=engine.value.replaceFind(query,replacement,index,all,matchCase);emit('change',{...owner,markdown:engine.value.getMarkdown()});return {...result,mode:mode.value}}
 function prepareFileImport(source){return engine.value.prepareFileImport(source)}
 function currentOwner(){return owner?{...owner,viewState:{mode:mode.value}}:null}
-function clear(){cancelEndClick();owner=null;lastActivation=null;engineDetached=false;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
+function clear(){cancelEndClick();owner=null;lastActivation=null;engineDetached=false;sessionDeferred=false;largeDocument.value=false;renderDocId=null;engine.value?.clearSession();sourceText.value='';history=sourceHistory('');editable()}
 function focus(){if(mode.value==='source')source.value?.focus();else engine.value?.focus()}
 function start(){composing=true}
 function end(event){
@@ -325,7 +354,7 @@ function end(event){
 }
 onMounted(()=>{root.value.addEventListener('compositionstart',start);root.value.addEventListener('compositionend',end);ready().then(editable).catch(()=>{})})
 onBeforeUnmount(()=>{disposed=true;owner=null;root.value?.removeEventListener('compositionstart',start);root.value?.removeEventListener('compositionend',end)})
-defineExpose({currentOwner,revealHeading,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
+defineExpose({largeDocument,currentOwner,revealHeading,findReplace,replaceFind,prepareFileImport,prepareResourcePaste,commitResourcePaste,insertResources,resourceDropPosition,ready,waitComposition,capture,activate,setFrozen,setMode,reveal,revealMatch,clear,focus})
 </script>
 <style>
 .pm-port{min-height:0}.pm-scroller{height:100%;overflow:auto;padding:14px 36px 108px}.pm-scroller>.writing-editor{max-width:860px;margin:0 auto}

@@ -19,6 +19,13 @@ const MAX_OBJECTS: usize = 2048;
 const MAX_EXPORT: usize = 256;
 const PREFIX: &str = ".frowd-assets/";
 
+#[derive(PartialEq, Eq)]
+pub(super) enum ResourceSave {
+    Sync,
+    SamePath,
+    SaveAs,
+}
+
 #[derive(Default)]
 struct ResourceTokens(RefCell<Vec<(String, bool)>>);
 
@@ -119,6 +126,11 @@ CREATE TABLE IF NOT EXISTS resource_bindings(docId TEXT NOT NULL,hash TEXT NOT N
 }
 fn safe_ext(ext: &str) -> bool {
     !ext.is_empty() && ext.len() <= 8 && ext.bytes().all(|c| c.is_ascii_alphanumeric())
+}
+fn managed_name(file: &str) -> Option<(&str, &str)> {
+    let (hash, ext) = file.rsplit_once('.')?;
+    (hash.len() == 64 && hash.bytes().all(|c| c.is_ascii_hexdigit()) && safe_ext(ext))
+        .then_some((hash, ext))
 }
 fn display_name(name: &str) -> String {
     let result: String = name.chars().filter(|c| !c.is_control()).take(120).collect();
@@ -296,14 +308,10 @@ impl Store {
         let Some(file) = normalized.trim_start_matches("./").strip_prefix(PREFIX) else {
             return Ok(None);
         };
-        let Some((hash, ext)) = file.rsplit_once('.') else {
+        let Some((hash, ext)) = managed_name(file) else {
             return Ok(None);
         };
-        if hash.len() != 64 || !hash.bytes().all(|c| c.is_ascii_hexdigit()) || !safe_ext(ext) {
-            return Ok(None);
-        }
-        let registered:bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM resource_objects o JOIN resource_bindings b ON b.hash=o.hash WHERE b.docId=?1 AND o.hash=?2 AND o.extension=?3)",params![id,hash,ext],|r|r.get(0))?;
-        if !registered {
+        if self.bound_resource_mime(id, hash, ext)?.is_none() {
             return Ok(None);
         }
         let path = self.object_root()?.join(file);
@@ -317,6 +325,12 @@ impl Store {
             return Err(invalid("受管资源已被修改，未读取或覆盖。"));
         }
         Ok(Some(path))
+    }
+    fn bound_resource_mime(&self, id: &str, hash: &str, ext: &str) -> Result<Option<String>> {
+        Ok(self.conn.query_row(
+            "SELECT o.mime FROM resource_objects o JOIN resource_bindings b ON b.hash=o.hash WHERE b.docId=?1 AND o.hash=?2 AND o.extension=?3",
+            params![id, hash, ext], |row| row.get(0),
+        ).optional()?)
     }
     pub fn managed_attachment(&self, id: &str, reference: &str) -> Result<Option<PathBuf>> {
         self.owned_object(id, reference)
@@ -558,14 +572,19 @@ impl Store {
         }
         Ok(plans.into_iter().map(|(info, _, _)| info).collect())
     }
-    fn source_resource(&self, id: &str, doc: &Stored, reference: &str) -> Result<PathBuf> {
+    fn source_resource(
+        &self,
+        id: &str,
+        document_path: Option<&str>,
+        reference: &str,
+    ) -> Result<PathBuf> {
         if let Some(path) = self.owned_object(id, reference)? {
             return Ok(path);
         }
         let rel = relative(reference)?;
         let root =
             fs::canonicalize(
-                Path::new(doc.path.as_deref().ok_or_else(|| {
+                Path::new(document_path.ok_or_else(|| {
                     invalid("未保存草稿的外部图片没有所属目录，请先通过本页导入。")
                 })?)
                 .parent()
@@ -578,25 +597,63 @@ impl Store {
         Ok(path)
     }
     pub fn resource_image(&self, id: &str, reference: &str) -> Result<(Vec<u8>, String)> {
-        let doc = self.read_stored(id)?;
-        let path = self.source_resource(id, &doc, reference)?;
+        let document_path: Option<String> =
+            self.conn
+                .query_row("SELECT path FROM documents WHERE id=?1", params![id], |r| {
+                    r.get(0)
+                })?;
+        let path = self.source_resource(id, document_path.as_deref(), reference)?;
         let bytes = bounded_read(&path, MAX_IMAGE_BYTES)?;
         let (_, mime) = kind(&bytes, "image", true)?;
         Ok((bytes, mime))
+    }
+    fn synced_resource_size(
+        dest: &Path,
+        hash: &str,
+        mime: &str,
+        image: bool,
+    ) -> Result<Option<u64>> {
+        if !dest.is_file() {
+            return Ok(None);
+        }
+        if image
+            && !matches!(
+                mime,
+                "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+            )
+        {
+            return Ok(None);
+        }
+        let limit = if image {
+            MAX_IMAGE_BYTES
+        } else {
+            MAX_ATTACHMENT_BYTES
+        };
+        let bytes = bounded_read(dest, limit)?;
+        if hash_bytes(&bytes) != hash {
+            return Err(invalid(
+                "目标资源同名但内容不同，Markdown 与现有资源均未覆盖。",
+            ));
+        }
+        // Matching bytes were validated when the owned resource was registered.
+        Ok(Some(bytes.len() as u64))
     }
     pub(super) fn materialize_resources(
         &self,
         id: &str,
         doc: &Stored,
         markdown_target: &Path,
-        include_external: bool,
+        mode: ResourceSave,
     ) -> Result<()> {
+        if !doc.markdown.contains(['[', '<']) {
+            return Ok(());
+        }
         let target = markdown_target
             .parent()
             .ok_or_else(|| invalid("保存目录无效。"))?;
         let mut refs = Vec::new();
         let mut indexes = HashMap::<PathBuf, usize>::new();
-        let mut references: Vec<(String, PathBuf, bool)> = Vec::new();
+        let mut references: Vec<(String, PathBuf, bool, Option<(String, String)>)> = Vec::new();
         let mut total = 0u64;
         for (reference, image) in markdown_resources(&doc.markdown) {
             if reference
@@ -609,22 +666,55 @@ impl Store {
                 continue;
             }
             let managed = reference.trim_start_matches("./").starts_with(PREFIX);
-            if !managed && !include_external {
+            if !managed && mode != ResourceSave::SaveAs {
                 continue;
             }
-            let rel = relative(&reference)?;
+            let rel = match relative(&reference) {
+                Ok(rel) => rel,
+                Err(_) if mode == ResourceSave::Sync => continue,
+                Err(error) => return Err(error),
+            };
             if let Some(index) = indexes.get(&rel) {
                 references[*index].2 |= image;
                 continue;
             }
+            let owned = if mode == ResourceSave::Sync {
+                let Some((hash, ext)) = rel
+                    .strip_prefix(".frowd-assets")
+                    .ok()
+                    .and_then(Path::to_str)
+                    .and_then(managed_name)
+                else {
+                    continue;
+                };
+                let Some(mime) = self.bound_resource_mime(id, hash, ext)? else {
+                    continue;
+                };
+                Some((hash.to_owned(), mime))
+            } else {
+                None
+            };
             if references.len() >= MAX_EXPORT {
                 return Err(invalid("一次导出最多 256 个不同资源。"));
             }
             indexes.insert(rel.clone(), references.len());
-            references.push((reference, rel, image));
+            references.push((reference, rel, image, owned));
         }
-        for (reference, rel, image) in references {
-            let source = self.source_resource(id, doc, &reference)?;
+        for (reference, rel, image, owned) in references {
+            let dest = destination(target, &rel)?;
+            if path_key(&dest.to_string_lossy()) == path_key(&markdown_target.to_string_lossy()) {
+                return Err(invalid("资源引用与目标 Markdown 文件同名，未写入或覆盖。"));
+            }
+            if let Some((hash, mime)) = owned {
+                if let Some(size) = Self::synced_resource_size(&dest, &hash, &mime, image)? {
+                    total += size;
+                    if total > MAX_OBJECT_BYTES {
+                        return Err(invalid("一次导出资源合计最多 512 MiB。"));
+                    }
+                    continue;
+                }
+            }
+            let source = self.source_resource(id, doc.path.as_deref(), &reference)?;
             let bytes = bounded_read(
                 &source,
                 if image {
@@ -639,10 +729,6 @@ impl Store {
             total = total.saturating_add(bytes.len() as u64);
             if total > MAX_OBJECT_BYTES {
                 return Err(invalid("一次导出资源合计最多 512 MiB。"));
-            }
-            let dest = destination(target, &rel)?;
-            if path_key(&dest.to_string_lossy()) == path_key(&markdown_target.to_string_lossy()) {
-                return Err(invalid("资源引用与目标 Markdown 文件同名，未写入或覆盖。"));
             }
             // Preflight every destination before any copies/Markdown writes.
             if dest.exists() && bounded_read(&dest, MAX_ATTACHMENT_BYTES)? != bytes {

@@ -44,15 +44,23 @@ async fn search_documents(
 ) -> Result<Vec<frowd_documents::search::SearchHit>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
-        let result = lock(&state)?.search(&query).map_err(|e| e.to_string());
-        result
+        let plan = lock(&state)?
+            .prepare_search(&query)
+            .map_err(|e| e.to_string())?;
+        Ok(plan.finish())
     })
     .await
     .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-fn read_document(id: String, state: State<'_, AppState>) -> Result<Document, String> {
-    lock(&state)?.read(&id).map_err(|e| e.to_string())
+async fn read_document(id: String, app: tauri::AppHandle) -> Result<Document, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = lock(&state)?.read(&id).map_err(|e| e.to_string());
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 fn create_document(
@@ -171,6 +179,23 @@ async fn open_document(app: tauri::AppHandle) -> Result<FileResult, String> {
             cancelled: false,
             snapshot: Some(snapshot),
         })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn sync_document_file(
+    id: String,
+    expected_path: String,
+    expected_revision: i64,
+    app: tauri::AppHandle,
+) -> Result<Snapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = lock(&state)?
+            .sync_file(&id, &expected_path, expected_revision)
+            .map_err(|e| e.to_string());
+        result
     })
     .await
     .map_err(|e| e.to_string())?
@@ -359,6 +384,7 @@ pub fn run() {
             resource_host::reuse_resources,
             list_metadata,
             search_documents,
+            sync_document_file,
             read_document,
             create_document,
             update_document,
