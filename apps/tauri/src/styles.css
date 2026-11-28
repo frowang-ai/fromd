@@ -97,3 +97,6 @@
 .open-drop-target{outline:2px dashed #6f977a;outline-offset:-3px;box-shadow:inset 0 0 0 100vmax #6f977a14}
 .drag-hint{position:fixed;z-index:200;max-width:min(360px,calc(100vw - 24px));padding:5px 12px;border-radius:12px;color:#fff;font-size:12px;line-height:1.45;pointer-events:none;box-shadow:0 4px 14px #1f2a1e2e}
 .drag-hint-open{background:#5f8a69;white-space:nowrap}.drag-hint-reject{background:#5b6157}
+
+.format-menu .menu-popup{max-height:calc(100dvh - 52px);overflow-y:auto}
+.format-menu hr{border:0;border-top:1px solid currentColor;opacity:.2;margin:4px 0}

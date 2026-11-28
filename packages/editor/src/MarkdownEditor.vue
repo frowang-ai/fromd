@@ -339,6 +339,20 @@ function commitResourcePaste(prepared, copied = []) {
   v.dispatch(closeHistory(v.state.tr))
 }
 function focus() { if (created) view().focus() }
+function canFormatWriting(editorView) {
+  return editorView.editable && !editorView.composing && editorView.state.selection instanceof TextSelection
+}
+function applyWritingFormat(editorView, shortcut) {
+  if (shortcut.name === 'insertImage') emit('insert-image')
+  else formatWriting(editorView, editor.editor.ctx, shortcut)
+}
+function formatFromMenu(shortcut, target) {
+  if (!created || !activeSession || switching) return
+  const editorView = view()
+  if (target !== editorView.dom || !canFormatWriting(editorView)) return
+  editorView.focus()
+  applyWritingFormat(editorView, shortcut)
+}
 function prepareEndBlank(point){
  if(!created||disposed||switching||!activeSession)return null
  const plan=prepareEndBlankAtPoint(view(),point)
@@ -348,7 +362,7 @@ function placeEndBlank(plan){
  if(!created||disposed||switching||!activeSession||plan?.owner?.id!==activeSession.id||plan.owner.generation!==activeSession.generation)return false
  return placeEndBlankAtPoint(view(),plan)
 }
-defineExpose({ parseSourceSyntax, revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, canRestoreSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ parseSourceSyntax, revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, formatFromMenu, getMarkdown, replaceMarkdown, whenReady, captureSession, canRestoreSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -450,12 +464,10 @@ onMounted(async () => {
     installWritingSelectionWrap(view(), () => props.isComposing?.() || false)
     const previousKeydown = v.props.handleKeyDown
     v.setProps({ handleKeyDown(editorView, event) {
-      if (event.target === editorView.dom && editorView.editable && !editorView.composing &&
-          editorView.state.selection instanceof TextSelection) {
+      if (event.target === editorView.dom && canFormatWriting(editorView)) {
         const shortcut = props.formatShortcut?.(event)
         if (shortcut) {
-          if (shortcut.name === 'insertImage') emit('insert-image')
-          else formatWriting(editorView, editor.editor.ctx, shortcut)
+          applyWritingFormat(editorView, shortcut)
           return true
         }
       }

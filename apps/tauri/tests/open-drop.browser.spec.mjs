@@ -172,7 +172,7 @@ test('source mode and busy states wait, flush the current page, then open',async
  // A held resource import keeps the coordinator busy; the claim happens now,
  // opening only after the import finishes.
  await page.locator('.tab .tab-title').first().click();await expect(page.locator('.tab.selected .tab-title')).toHaveText('A')
- await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'正文'}).click()
+ await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:'正文'}).click()
  await page.evaluate(()=>window.__FROWD_TEST_HOST__.holds.add('import_resources'))
  await drag(page.locator('.ProseMirror:visible'),[image])
  await expect(page.locator('.ProseMirror:visible')).toHaveAttribute('contenteditable','false')

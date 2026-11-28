@@ -11,6 +11,85 @@ import { startWritingPreview } from './browser-harness/start-preview.mjs'
 import { yamlMarkdown } from './fixtures/writing-frontmatter.mjs'
 import { inlineCodeWrapMarkdown, measureInlineCodeWrap, expectInlineCodeWrap } from './fixtures/writing-inline-code-wrap.mjs'
 
+const rootBlanks = page => body(page).locator(':scope > p').filter({ hasText: /^$/ })
+async function reopenMarkdown(page, markdown) {
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'reopened.md', mimeType: 'text/markdown', buffer: Buffer.from(markdown),
+  })
+  await expect(page.getByRole('tab', { name: 'reopened' })).toHaveAttribute('aria-selected', 'true')
+}
+
+test('root blank lines round-trip after three Enters and trim leading and trailing empty paragraphs', async ({ page }) => {
+  await open(page, '')
+  await body(page).focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.insertText('first')
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Enter')
+  await page.keyboard.insertText('second')
+  await page.keyboard.press('Enter')
+  await expect(rootBlanks(page)).toHaveCount(4)
+  const saved = 'first\n\n\n\nsecond\n'
+  await expect(await source(page)).toHaveValue(saved)
+  await reopenMarkdown(page, saved)
+  await expect(rootBlanks(page)).toHaveCount(2)
+})
+
+for (const eol of ['\n', '\r\n']) test(`source blank lines and YAML prefix stay intact (${JSON.stringify(eol)})`, async ({ page }) => {
+  const prefix = ['---', 'name: blank-lines', '---', '', '\t', '', ''].join(eol)
+  const original = prefix + ['first', '  ', '\t', '', 'second', '', '', ''].join(eol)
+  await open(page, original)
+  await expect(rootBlanks(page)).toHaveCount(2)
+  const raw = await source(page)
+  await expect(raw).toHaveValue(original.replaceAll('\r\n', '\n'))
+  const readSaved = () => page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('frowang-writing-probe-v2'))
+    return saved.documents.find(doc => doc.id === saved.activeId).markdown
+  })
+  await raw.press('Control+s')
+  expect(await readSaved()).toBe(original)
+  await page.getByRole('button', { name: '返回正文' }).click()
+  await body(page).locator('p').last().click()
+  await page.keyboard.press('End')
+  await page.keyboard.insertText(' edited')
+  await expect(await source(page)).toHaveValue(prefix.replaceAll('\r\n', '\n') + 'first\n\n\n\nsecond edited\n')
+  await expect.poll(readSaved)
+    .toBe(prefix + 'first\n\n\n\nsecond edited\n')
+})
+
+for (const [list, tag] of [['-', 'ul'], ['1.', 'ol']]) test(`same-kind lists stay separate across historical placeholders (${tag})`, async ({ page }) => {
+  const initial = `${list} first\n\n<br>\n\n<br />\n\n${list} second\n`
+  await open(page, initial)
+  await expect(body(page).locator(tag)).toHaveCount(2)
+  await expect(rootBlanks(page)).toHaveCount(2)
+  await body(page).getByText('first', {exact:true}).click()
+  await page.keyboard.press('End')
+  await page.keyboard.insertText(' edited')
+  const saved = await (await source(page)).inputValue()
+  expect(saved).toContain('first edited\n\n<br />\n\n<br />\n\n')
+  await reopenMarkdown(page, saved)
+  await expect(body(page).locator(tag)).toHaveCount(2)
+  await expect(rootBlanks(page)).toHaveCount(2)
+})
+
+test('markdown paste keeps root gaps, discards empty nested paragraphs on edit and preserves block literals', async ({ page }) => {
+  const blocks = ['```text\none\n\ntwo\n```', '$$\nx\n\ny\n$$', '<pre>one\n\ntwo</pre>']
+  const pasted = ['first\n\n<br />\n\nsecond', '> quote\n>\n> <br />\n>\n> tail',
+    '- item\n\n  <br />\n\n  tail', ...blocks].join('\n\n\n') + '\n'
+  await open(page, '')
+  await pasteContent(page, pasted)
+  await expect(rootBlanks(page)).toHaveCount(6)
+  await expect(body(page).locator('blockquote > p')).toHaveCount(3)
+  await expect(body(page).locator('li p')).toHaveCount(3)
+  const saved = await (await source(page)).inputValue()
+  expect(saved).not.toContain('<br')
+  expect(saved).toContain('first\n\n\nsecond')
+  for (const block of blocks) expect(saved).toContain(block)
+  await reopenMarkdown(page, saved)
+  await expect(rootBlanks(page)).toHaveCount(6)
+  await expect(body(page).locator('blockquote > p')).toHaveCount(2)
+  await expect(body(page).locator('li p')).toHaveCount(2)
+})
+
 for (const route of ['load', 'paste']) test(`YAML metadata stays literal through shared editor body edits (${route})`, async ({ page }) => {
   const markdown = yamlMarkdown.replaceAll('\r\n', '\n')
   await open(page, route === 'load' ? markdown : '')

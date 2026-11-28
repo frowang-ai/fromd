@@ -18,7 +18,7 @@ async function boot(page, targetMarkdown = 'B before\n\nB target\n\nB after\n') 
 }
 async function mode(page, source) {
   await page.getByText('视图', { exact: true }).click()
-  await page.locator('.menu-popup button').filter({ hasText: source ? '源码' : '正文' }).first().click()
+  await page.locator('details[open] .menu-popup button').filter({ hasText: source ? '源码' : '正文' }).first().click()
   return page.getByRole('textbox', { name: 'Markdown 源码', exact: true })
 }
 async function target(page) {

@@ -130,7 +130,7 @@ for(const unknown of [false,true])test('resource qualification covers formula-re
  const ref=await page.evaluate(()=>[...window.__FROWD_TEST_HOST__.bindings.get('a')].find(ref=>ref.endsWith('.png')))
  await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'源码'}).click()
  await page.getByRole('textbox',{name:'Markdown 源码',exact:true}).fill('A11 ![PNG]('+ref+')\n')
- await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'正文'}).first().click()
+ await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:'正文'}).first().click()
  await body(page).click();await body(page).press('Control+a')
  const copied=await body(page).evaluate(el=>{const clipboardData=new DataTransfer();el.dispatchEvent(new ClipboardEvent('copy',{clipboardData,bubbles:true,cancelable:true}));return {html:clipboardData.getData('text/html'),text:clipboardData.getData('text/plain')}})
  expect(copied.html).toContain('data-editor-image-src')
@@ -224,7 +224,7 @@ async function cropFixture(page,kind){
  const markdown='A前正文\n\n| AH1 | AH2 | AH3 |\n| --- | --- | --- |\n'+values.map(row=>'| '+row.join(' | ')+' |').join('\n')+'\n| A31 | A32 | A33 |\n\nA后正文\n'
  await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'源码'}).click()
  await page.getByRole('textbox',{name:'Markdown 源码',exact:true}).fill(markdown)
- await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:'正文'}).first().click()
+ await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:'正文'}).first().click()
  const copied=await copy(page,'rows')
  expect(copied.html).toContain('data-pm-slice')
  await page.locator('[data-tab-id="b"] .tab-title').click()

@@ -8,6 +8,32 @@ const png = (await readFile(new URL('./fixtures/synthetic-resource.png', import.
 const reference = '.frowd-assets/' + 'b'.repeat(64) + '.png';
 const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="green"/></svg>').toString('base64');
 
+test('exported PDF HTML gives root blank lines the same spacing as historical placeholders', async ({ page }) => {
+  const baseline = ['- list\n- item', '## heading', '```text\ncode\n\nbody\n```',
+    '$$\nx\n\ny\n$$', '[^note]: Footnote\n\n    Second paragraph', 'tail[^note]'];
+  const prefix = '---\nname: test\n---\n\n\n\n';
+  const markdown = prefix + baseline.join('\n\n \n\t\n') + '\n\n\n';
+  await page.addInitScript(installMockHost, { markdown });
+  await page.goto('/?testHost=1');
+  const body = page.locator('.ProseMirror:visible');
+  await expect(body.locator(':scope > p').filter({ hasText: /^$/ })).toHaveCount(10);
+  await page.getByText('文件', { exact: true }).click();
+  await page.getByRole('button', { name: '导出 PDF…', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__FROWD_TEST_HOST__.entered.export_pdf)).toBe(1);
+  const result = await page.evaluate(async ({ pdfModule, legacy }) => {
+    const { renderMarkdown } = await import(pdfModule.replace('pdfDocument.js', 'index.js'));
+    const html = window.__FROWD_TEST_HOST__.calls.find(call => call.command === 'export_pdf').args.html;
+    const parse = html => new DOMParser().parseFromString(html, 'text/html');
+    const document = parse(html);
+    return {
+      breaks: document.querySelectorAll('br').length,
+      historicalBreaks: parse(renderMarkdown(legacy)).querySelectorAll('br').length,
+      code: document.querySelector('.language-text').textContent,
+    };
+  }, { pdfModule, legacy: prefix + baseline.join('\n\n<br />\n\n<br />\n\n') });
+  expect(result).toEqual({ breaks: 10, historicalBreaks: 10, code: 'code\n\nbody\n' });
+});
+
 test('network images load without CORS or referrer and print as text beside embedded SVG', async ({ page }) => {
   const remote = 'http://127.0.0.1:15765/remote.png';
   const svgReference = 'images/vector.svg';

@@ -1,3 +1,4 @@
+use crate::menu_routing::{route, MenuRoute, FORMAT_MENU};
 use tauri::{menu::{Menu, MenuItem, PredefinedMenuItem, Submenu}, Emitter, Manager};
 
 pub fn install(app: &tauri::App) -> tauri::Result<()> {
@@ -22,8 +23,9 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
         &command("save", "保存", Some("Cmd+S"))?,
         &command("saveAs", "另存为…", Some("Cmd+Shift+S"))?,
         &command("exportPdf", "导出 PDF…", None)?,
-        &command("insertImage", "插入图片…", None)?,
+        &command("insertImage", "插入图片…", Some("Ctrl+Cmd+I"))?,
         &command("insertAttachment", "插入附件…", None)?,
+        &command("collapse", "收起当前页面", Some("Cmd+W"))?,
         &command("remove", "移除当前页面…", None)?,
     ])?;
     let edit = Submenu::with_items(app, "编辑", true, &[
@@ -38,6 +40,15 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
         &command("find", "查找…", Some("Cmd+F"))?,
         &command("replace", "查找替换…", Some("Cmd+Alt+F"))?,
     ])?;
+    let format = Submenu::new(app, "格式", true)?;
+    for (index, group) in FORMAT_MENU.iter().enumerate() {
+        if index > 0 {
+            format.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+        for &(id, label, accelerator) in *group {
+            format.append(&command(id, label, Some(accelerator))?)?;
+        }
+    }
     let view = Submenu::with_items(app, "视图", true, &[
         &command("rendered", "正文", None)?,
         &command("source", "切换源码", Some("Cmd+/"))?,
@@ -49,13 +60,17 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
     let windows = Submenu::with_items(app, "窗口", true, &[
         &PredefinedMenuItem::minimize(app, Some("最小化"))?,
         &PredefinedMenuItem::maximize(app, Some("缩放"))?,
-        &PredefinedMenuItem::close_window(app, Some("关闭窗口"))?,
+        &command("closeWindow", "关闭窗口", Some("Cmd+Shift+W"))?,
     ])?;
-    app.set_menu(Menu::with_items(app, &[&application, &file, &edit, &view, &windows])?)?;
+    app.set_menu(Menu::with_items(app, &[&application, &file, &edit, &format, &view, &windows])?)?;
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
-        if matches!(id, "checkUpdates" | "new" | "open" | "import" | "save" | "saveAs" | "exportPdf" | "insertImage" | "insertAttachment" | "remove" | "find" | "replace" | "reading" | "source" | "rendered" | "zoomIn" | "zoomOut" | "zoomReset" | "sidebar") {
-            if let Some(window) = app.get_webview_window("main") { let _ = window.emit("frowd:menu-command", id); }
+        let Some(window) = app.get_webview_window("main") else { return };
+        match route(id, window.is_visible().ok()) {
+            // Follow the same CloseRequested handshake as the system close button.
+            MenuRoute::CloseWindow => { let _ = window.close(); }
+            MenuRoute::Emit => { let _ = window.emit("frowd:menu-command", id); }
+            MenuRoute::Ignore => {}
         }
     });
     Ok(())

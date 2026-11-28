@@ -12,10 +12,19 @@
           <button :disabled="!current || state.busy" @click="executeCommand('insertImage')">插入图片… <kbd>{{ shortcutLabel('insertImage') }}</kbd></button>
           <button :disabled="!current || state.busy" @click="executeCommand('insertAttachment')">插入附件…</button>
           <button :disabled="!state.loaded" @click="executeCommand('checkUpdates')">检查更新…</button>
+          <button :disabled="state.busy || !state.loaded || (!current && platform.os !== 'macos')" @click="executeCommand('collapse')">收起当前页面 <kbd>{{ shortcutLabel('collapse') }}</kbd></button>
           <button :disabled="!current" @click="executeCommand('remove')">移除当前页面</button>
         </div></details>
         <details><summary>编辑</summary><div class="menu-popup">
           <button @click="executeCommand('find')">查找 / 替换… <kbd>{{ shortcutLabel('find') }} / {{ shortcutLabel('replace') }}</kbd></button>
+        </div></details>
+        <details class="format-menu"><summary @mousedown.prevent>格式</summary><div class="menu-popup">
+          <template v-for="(group, index) in formatMenu" :key="index">
+            <hr v-if="index" />
+            <button v-for="item in group" :key="item.id" @mousedown.prevent @click="executeCommand(item.id)">
+              {{ item.label }} <kbd>{{ platform.os === 'macos' ? item.macos : item.windows }}</kbd>
+            </button>
+          </template>
         </div></details>
         <details><summary>视图</summary><div class="menu-popup">
           <button :disabled="!current" @click="executeCommand('rendered')">正文 <span v-if="mode === 'rendered'">✓</span></button>
@@ -78,7 +87,7 @@
           <div class="tabs" aria-label="已展开标签">
             <div v-for="doc in opened" :key="doc.id" class="tab" :class="{ selected: doc.id === state.activeId, 'drop-before': dropTarget === doc.id && !dropAfter, 'drop-after': dropTarget === doc.id && dropAfter }" :data-tab-id="doc.id" :draggable="!state.busy && state.loaded" @dragstart="startDrag($event,doc.id)" @dragover="overTab($event,doc.id)" @drop="dropTab($event,doc.id)" @dragend="endDrag" @contextmenu.prevent="openContext($event,doc.id)" @keydown="contextTrigger($event,doc.id)">
               <button :disabled="state.busy || !state.loaded" class="tab-title" :title="doc.path || doc.title" @click="selectPage(doc.id)">{{ doc.title }}</button>
-              <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" title="收起" @click="collapse(doc.id)">−</button>
+              <button class="tab-minus" :disabled="state.busy || !state.loaded" :aria-label="'标签收起 ' + doc.title" :title="'收起（' + shortcutLabel('collapse') + '）'" @click="collapse(doc.id)">−</button>
             </div>
           </div>
           <button class="new-tab" aria-label="新建页面" :disabled="state.busy || !state.loaded" @click="action(() => coordinator.create())">＋</button>
@@ -144,7 +153,7 @@ import ProseMirrorPort from './editor/ProseMirrorPort.vue'
 import {DocumentCoordinator} from './documents/coordinator.mjs'
 import {initializeCloseHandshake} from './documents/closeHandshake.mjs'
 import {DocumentSearch} from './documents/search.mjs'
-import {documentsApi,updatesApi,onHostClose,onHostOpenRequest,openDocumentLink,browserTestHost} from './documents/host.mjs'
+import {documentsApi,updatesApi,onHostClose,onHostMenuCommand,onHostOpenRequest,openDocumentLink,requestWindowClose,browserTestHost} from './documents/host.mjs'
 import {createOpenRequests} from './documents/openRequests.mjs'
 import {OPEN_AREAS,classifyDrop,dropArea,externalFileDrag,openDropMessages,skippedNotice} from './openDrop.mjs'
 import UpdateNotice from './updates/UpdateNotice.vue'
@@ -152,13 +161,13 @@ import {UpdateController} from './updates/controller.mjs'
 import ReadingSettings from './reading/ReadingSettings.vue'
 import {analyzeReading} from './reading/analysis.mjs'
 import {isLargeDocument} from './editor/largeDocument.mjs'
+import {formatMenu,formatMenuCommands} from './editor/formatMenu.mjs'
 import {loadReadingPreferences,saveReadingPreferences,resolvedReadingTheme,readingStyle} from './reading/preferences.mjs'
 import './reading/reading.css'
 import './reading/markdown-theme.css'
 import {nativeWindow,setPageZoom} from './window.mjs'
 import WindowChrome from './WindowChrome.vue'
 import {describePlatform,formatShortcut,matchCommand,usesNativeAccelerator} from './platform.mjs'
-import {listen} from '@tauri-apps/api/event'
 const platform=describePlatform({browserTestHost,nativeWindow})
 const shortcutLabel=id=>formatShortcut(id,platform)
 const openMessages=openDropMessages(platform)
@@ -563,6 +572,7 @@ function answerRemoval(answer){removalDialog.value=null;removalResolve?.(answer)
 function removePage(id){return action(()=>coordinator.remove(id,askRemoval))}
 function globalStart(){globalComposing=true}
 function globalEnd(){globalComposing=false}
+function rememberEditableFocus(event){editor.value?.rememberEditableFocus(event.target)}
 function resize(){narrow.value=media.matches;if(narrow.value)sidebarOpen.value=false}
 function shortcut(event){
  if(event.isComposing||event.keyCode===229||globalComposing||removalDialog.value)return
@@ -570,11 +580,13 @@ function shortcut(event){
  const command=matchCommand(event,platform)
  if(!command)return
  // AppKit owns registered accelerators; Ctrl+Tab is DOM-only on both platforms.
- if(nativeWindow&&usesNativeAccelerator(command,event,platform))return
+ if(usesNativeAccelerator(command,event,platform))return
  event.preventDefault();event.stopImmediatePropagation();executeCommand(command)
 }
 function executeCommand(command){
  if(removalDialog.value||!state.loaded)return
+ const formatting=formatMenuCommands.get(command)
+ if(formatting)return executeFormatMenu(formatting)
  // Save/open/new and tab navigation retain the coordinator's serial queue,
  // including a page switch requested while resource registration is in flight.
  if(state.busy&&['import','exportPdf','insertImage','insertAttachment','remove','source','sourceMode','rendered','reading'].includes(command))return
@@ -588,6 +600,11 @@ function executeCommand(command){
   case 'save': case 'saveAs': return active&&action(()=>coordinator.save(state.activeId,command==='saveAs'))
   case 'exportPdf': return active&&action(()=>coordinator.exportPdf())
   case 'insertImage': case 'insertAttachment': return active&&insertResource(null,command==='insertImage'?'image':'attachment')
+  case 'collapse':
+   if(state.busy||globalComposing)return
+   if(active)return collapse(state.activeId)
+   if(!opened.value.length&&platform.os==='macos'&&(nativeWindow||browserTestHost))return action(requestWindowClose)
+   return
   case 'remove': return active&&removePage(state.activeId)
   case 'source': return active&&setMode(mode.value==='source'?'rendered':'source')
   case 'sourceMode': return active&&setMode('source')
@@ -605,14 +622,19 @@ function executeCommand(command){
   }
  }
 }
+function executeFormatMenu(shortcut){
+ closeMenus()
+ if(current.value&&!state.pageError&&!editingLocked.value&&!globalComposing)
+  editor.value?.formatFromMenu(shortcut)
+}
 async function openLink(event){const detail=event.detail;if(!current.value||detail.id&&detail.id!==current.value.id)return;try{await openDocumentLink(current.value.id,detail.href)}catch(e){coordinator.report(e)}}
 onMounted(async()=>{
  narrow.value=media.matches;sidebarOpen.value=!narrow.value;media.addEventListener('change',resize)
  themeMedia.addEventListener('change',themeChanged)
  window.addEventListener('pointerdown',outsideMenus,true);window.addEventListener('wheel',zoomWheel,{capture:true,passive:false});window.addEventListener('resize',contextResize)
  if(nativeWindow)setPageZoom(100).catch(error=>coordinator.report(error))
- if(nativeWindow)menuDispose=await listen('frowd:menu-command',event=>executeCommand(event.payload))
- window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
+ if(platform.nativeMenu)menuDispose=await onHostMenuCommand(executeCommand)
+ window.addEventListener('focusin',rememberEditableFocus,true);window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{openDispose=await onHostOpenRequest(()=>openRequests.request())}catch(error){coordinator.report(error)}
  closeDispose=await initializeCloseHandshake({
   listen:onHostClose,acknowledge:()=>api.ackCloseListener(),
@@ -628,5 +650,5 @@ onMounted(async()=>{
   openRequests.start(pending)
  }
 })
-onBeforeUnmount(()=>{disposed=true;updater.dispose();menuDispose?.();openDispose?.();openRequests.dispose();hideDragFeedback();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
+onBeforeUnmount(()=>{disposed=true;updater.dispose();menuDispose?.();openDispose?.();openRequests.dispose();hideDragFeedback();clearTimeout(zoomTimer);window.removeEventListener('pointerdown',outsideMenus,true);window.removeEventListener('wheel',zoomWheel,true);window.removeEventListener('resize',contextResize);clearTimeout(analysisTimer);themeMedia.removeEventListener('change',themeChanged);search.dispose();clearTimeout(searchTimer);clearTimeout(viewTimer);closeDispose?.();coordinator.dispose();media.removeEventListener('change',resize);window.removeEventListener('focusin',rememberEditableFocus,true);window.removeEventListener('compositionstart',globalStart,true);window.removeEventListener('compositionend',globalEnd,true);window.removeEventListener('keydown',shortcut,true);window.removeEventListener('frowd:open-link',openLink)})
 </script>

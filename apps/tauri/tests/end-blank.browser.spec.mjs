@@ -14,7 +14,7 @@ async function below(page,lines=1){return body(page).evaluate((el,lines)=>{
  return{x:rect.left+40*scale,y:last.bottom+line*lines,line}
 },lines)}
 async function clickBelow(page,lines=1){const point=await below(page,lines);await page.mouse.click(point.x,point.y);return point}
-async function sourceMode(page,value){await page.getByText('视图',{exact:true}).click();await page.locator('.menu-popup button').filter({hasText:value?'源码':'正文'}).first().click();await expect(value?page.getByRole('textbox',{name:'Markdown 源码'}):body(page)).toBeVisible()}
+async function sourceMode(page,value){await page.getByText('视图',{exact:true}).click();await page.locator('details[open] .menu-popup button').filter({hasText:value?'源码':'正文'}).first().click();await expect(value?page.getByRole('textbox',{name:'Markdown 源码'}):body(page)).toBeVisible()}
 
 test('one click below the end inserts typed and pasted text in a real new paragraph',async({page})=>{
  await boot(page)
@@ -40,7 +40,8 @@ test('far blank click uses existing empty-paragraph semantics, reuses rows and i
  await page.keyboard.press('Control+y');expect((await snapshot(page)).doc).toEqual(first.doc)
  await page.keyboard.insertText('远处输入')
  const typed=await snapshot(page)
- expect(typed.markdown).toBe(original+'\n远处输入\n')
+ const blanks=typed.doc.content.filter(node=>node.type==='paragraph'&&!node.content).length
+ expect(typed.markdown).toBe(original+'\n'.repeat(blanks+1)+'远处输入\n')
  expect(typed.markdown).not.toMatch(/[\u200b\u200c\ufeff]/)
  await sourceMode(page,true)
  const source=page.getByRole('textbox',{name:'Markdown 源码'})
@@ -59,7 +60,7 @@ test('far blank click uses existing empty-paragraph semantics, reuses rows and i
  await sourceMode(page,true)
  await source.fill(typed.markdown+'\n');await sourceMode(page,false)
  const paragraphs=(await snapshot(page)).doc.content
- expect(paragraphs).toEqual(typed.doc.content.filter(node=>node.type!=='paragraph'||node.content))
+ expect(paragraphs).toEqual(typed.doc.content)
 })
 
 for(const [kind,text]of [['table','| 列 | 值 |\n| --- | --- |\n| 原值 | 1 |\n'],['list','- 原条目一\n- 原条目二\n'],['code','```js\nconst answer = 42;\n```\n'],['Mermaid','```mermaid\nflowchart LR\nA[起点] --> B[终点]\n```\n']])test(`end click after ${kind} appends outside the existing block`,async({page})=>{

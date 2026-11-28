@@ -25,7 +25,7 @@ test.afterEach(async({page},info)=>{
 })
 async function mode(page,value){
  await page.getByText('视图',{exact:true}).click()
- await page.locator('.menu-popup button').filter({hasText:value==='source'?'源码':'正文'}).first().click()
+ await page.locator('details[open] .menu-popup button').filter({hasText:value==='source'?'源码':'正文'}).first().click()
  if(value==='source')await expect(source(page)).toBeVisible();else await expect(body(page)).toBeVisible()
 }
 async function select(page,id){

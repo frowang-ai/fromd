@@ -10,6 +10,37 @@ import { markdownAlerts } from './extensions.js'
 import { leadingFrontMatter, maskFrontMatter } from './frontmatter.js'
 import { fixAutolinkCjkBoundary } from './autolinkCjk.js'
 
+function renderRootBlankLines(state) {
+  if (state.inlineMode) return
+  const lines = state.src.split('\n'), tokens = []
+  const blank = row => /^[ \t]*$/.test(lines[row])
+  let previousEnd = null
+  for (const token of state.tokens) {
+    if (token.level === 0 && token.nesting >= 0) {
+      if (token.map) {
+        const [start, end] = token.map
+        if (previousEnd != null && start - previousEnd >= 2) {
+          let row = previousEnd
+          while (row < start && blank(row)) row++
+          if (row === start) {
+            for (let i = previousEnd + 1; i < start; i++) {
+              const br = new state.Token('html_block', '', 0)
+              br.block = true
+              br.content = '<br />\n'
+              tokens.push(br)
+            }
+          }
+        }
+        // Lists can consume trailing blank source lines in their token map.
+        previousEnd = end
+        while (previousEnd > start && blank(previousEnd - 1)) previousEnd--
+      } else previousEnd = null
+    }
+    tokens.push(token)
+  }
+  state.tokens = tokens
+}
+
 /**
  * 创建 Markdown 渲染器实例
  */
@@ -40,6 +71,7 @@ export function createMarkdownRenderer({ allowSvgData = false } = {}) {
     state.tokens.push(token); state.src = maskFrontMatter(state.src)
   })
   md.renderer.rules.frowd_frontmatter = (tokens, index) => `<pre class="writing-frontmatter"><code>${escapeHtml(tokens[index].content)}</code></pre>\n`
+  md.core.ruler.after('block', 'frowd-root-blank-lines', renderRootBlankLines)
 
   // 添加数学公式支持
   md.use(texmath, {
@@ -68,7 +100,18 @@ export function createMarkdownRenderer({ allowSvgData = false } = {}) {
     return true
   })
   md.renderer.rules.frowd_empty_math = () => ''
-  md.use(footnote).use(markdownAlerts)
+  // Footnote definitions are root blocks before the footnote-tail rule moves
+  // them. Record their source span so surrounding gaps match legacy br tokens.
+  const blockRules = new Set(md.block.ruler.getRules(''))
+  md.use(footnote)
+  const footnoteDefinition = md.block.ruler.getRules('').find(rule => !blockRules.has(rule))
+  md.block.ruler.at('footnote_def', (state, start, end, silent) => {
+    const index = state.tokens.length
+    if (!footnoteDefinition(state, start, end, silent)) return false
+    if (!silent) state.tokens[index].map = [start, state.line]
+    return true
+  }, { alt: ['paragraph', 'reference'] })
+  md.use(markdownAlerts)
   // Match the GFM parser's identifier case folding, while retaining the actual
   // definition label. This only changes print token matching, never stored text.
   const identifier = label => label.replace(/[\t\n\r ]+/g, ' ').replace(/^ | $/g, '').toLowerCase().toUpperCase()
