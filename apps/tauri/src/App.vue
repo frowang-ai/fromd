@@ -627,18 +627,13 @@ function executeFormatMenu(shortcut){
  if(current.value&&!state.pageError&&!editingLocked.value&&!globalComposing)
   editor.value?.formatFromMenu(shortcut)
 }
-function nativeMenuCommand(command){
- if(command==='insertImage'){
-  if(!removalDialog.value&&state.loaded)executeFormatMenu({name:'insertImage'})
- }else executeCommand(command)
-}
 async function openLink(event){const detail=event.detail;if(!current.value||detail.id&&detail.id!==current.value.id)return;try{await openDocumentLink(current.value.id,detail.href)}catch(e){coordinator.report(e)}}
 onMounted(async()=>{
  narrow.value=media.matches;sidebarOpen.value=!narrow.value;media.addEventListener('change',resize)
  themeMedia.addEventListener('change',themeChanged)
  window.addEventListener('pointerdown',outsideMenus,true);window.addEventListener('wheel',zoomWheel,{capture:true,passive:false});window.addEventListener('resize',contextResize)
  if(nativeWindow)setPageZoom(100).catch(error=>coordinator.report(error))
- if(platform.nativeMenu)menuDispose=await onHostMenuCommand(nativeMenuCommand)
+ if(platform.nativeMenu)menuDispose=await onHostMenuCommand(executeCommand)
  window.addEventListener('focusin',rememberEditableFocus,true);window.addEventListener('compositionstart',globalStart,true);window.addEventListener('compositionend',globalEnd,true);window.addEventListener('keydown',shortcut,true);window.addEventListener('frowd:open-link',openLink)
  try{openDispose=await onHostOpenRequest(()=>openRequests.request())}catch(error){coordinator.report(error)}
  closeDispose=await initializeCloseHandshake({
