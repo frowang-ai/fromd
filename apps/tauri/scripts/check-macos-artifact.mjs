@@ -10,6 +10,35 @@ function plistString(xml,key){
  if(matches.length!==1)fail(`Info.plist must contain one string ${key}`)
  return matches[0][1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'")
 }
+// Portable reader for the XML CFBundleDocumentTypes array (no nested dicts).
+export function macosDocumentTypes(xml){
+ const key=/<key>\s*CFBundleDocumentTypes\s*<\/key>\s*<array>/.exec(xml)
+ if(!key)return []
+ let depth=1,end=-1
+ const start=key.index+key[0].length,tag=/<(\/?)array>/g;tag.lastIndex=start
+ for(let match;(match=tag.exec(xml));){depth+=match[1]?-1:1;if(!depth){end=match.index;break}}
+ if(end<0)fail('Info.plist CFBundleDocumentTypes array is not closed')
+ const strings=body=>[...body.matchAll(/<string>([^<]*)<\/string>/g)].map(match=>match[1])
+ const value=(body,name)=>new RegExp(`<key>\\s*${name}\\s*</key>\\s*<string>([^<]*)</string>`).exec(body)?.[1]
+ const list=(body,name)=>{const match=new RegExp(`<key>\\s*${name}\\s*</key>\\s*<array>([\\s\\S]*?)</array>`).exec(body);return match?strings(match[1]):null}
+ return xml.slice(start,end).split('</dict>').filter(body=>body.includes('<dict>')).map(body=>({
+  extensions:list(body,'CFBundleTypeExtensions')||[],contentTypes:list(body,'LSItemContentTypes'),
+  role:value(body,'CFBundleTypeRole'),rank:value(body,'LSHandlerRank'),
+ }))
+}
+// Open With / Dock drop: exactly .md/.markdown/.txt by extension, listed but never
+// the default. Any LSItemContentTypes claim is refused: LaunchServices matches UTI
+// claims by conformance, so public.plain-text would offer fromd for .py, .js, ...
+export function checkDocumentTypes(xml){
+ const types=macosDocumentTypes(xml)
+ const extensions=types.flatMap(type=>type.extensions).sort()
+ if(extensions.join()!=='markdown,md,txt')fail(`CFBundleDocumentTypes extensions: expected markdown, md, txt, got ${extensions.join(', ')||'none'}`)
+ for(const type of types){
+  if(type.contentTypes)fail(`CFBundleDocumentTypes must not declare LSItemContentTypes (${type.contentTypes.join(', ')})`)
+  if(type.role!=='Editor'||type.rank!=='Alternate')fail(`CFBundleDocumentTypes ${type.extensions.join('/')}: expected Editor/Alternate, got ${type.role}/${type.rank}`)
+ }
+ return extensions
+}
 function thinSlice(bytes){
  if(bytes.length<32)fail('Mach-O header is truncated')
  const magic=bytes.subarray(0,4).toString('hex')
@@ -73,6 +102,7 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.6',identifie
  for(const [key,expected]of Object.entries({CFBundleName:'fromd',CFBundleExecutable:'frowd-tauri',CFBundleShortVersionString:version,CFBundleIdentifier:identifier,LSMinimumSystemVersion:minimumSystemVersion})){
   const actual=plistString(xml,key);if(actual!==expected)fail(`${key}: expected ${expected}, got ${actual}`)
  }
+ const documentTypes=checkDocumentTypes(xml)
  const executable=join(contents,'MacOS','frowd-tauri')
  const architectures=machoArchitectures(await readFile(executable))
  const actualArch=architectures.length===1?architectures[0]:'universal'
@@ -81,7 +111,7 @@ export async function checkMacosArtifact({app,dmg,arch,version='0.5.6',identifie
  for(const file of licenseFiles)await nonempty(join(contents,'Resources','licenses',file))
  const dmgBytes=await nonempty(resolve(dmg))
  const signature=verifySignature(resolve(app))
- return {app:resolve(app),dmg:resolve(dmg),version,identifier,minimumSystemVersion,arch:actualArch,architectures,licenses:licenseFiles.length,dmgBytes,signature}
+ return {app:resolve(app),dmg:resolve(dmg),version,identifier,minimumSystemVersion,arch:actualArch,architectures,documentTypes,licenses:licenseFiles.length,dmgBytes,signature}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){
  const args=process.argv.slice(2),options={}

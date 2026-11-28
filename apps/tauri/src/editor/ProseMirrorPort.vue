@@ -228,13 +228,27 @@ function resourceFiles(event){
  if(!owner||frozen.value||event.id!==owner.id||event.generation!==owner.generation)return
  emit('resource-files',{...owner,files:event.files})
 }
-function resourceDropPosition(clientX,clientY){return engine.value?.resourceDropPosition(clientX,clientY)??null}
+// The side/bottom margins of the scroller belong to the body: a drop there is
+// clamped into the ProseMirror content box, so posAtCoords picks the nearest
+// position on that line instead of returning null outside the editor DOM.
+function resourceDropPosition(clientX,clientY){
+ const direct=engine.value?.resourceDropPosition(clientX,clientY)
+ if(Number.isInteger(direct))return direct
+ const content=scroller.value?.querySelector('.milkdown>.ProseMirror'),box=content?.getBoundingClientRect(),view=scroller.value?.getBoundingClientRect()
+ if(!box||!view||box.width<4||box.height<4)return null
+ const top=Math.max(box.top,view.top),bottom=Math.min(box.bottom,view.bottom)
+ if(bottom-top<4)return null
+ const clamped=engine.value?.resourceDropPosition(Math.min(Math.max(clientX,box.left+2),box.right-2),Math.min(Math.max(clientY,top+2),bottom-2))
+ return Number.isInteger(clamped)?clamped:null
+}
 function droppedFiles(event){return Array.from(event.dataTransfer?.files||[])}
+function hasExternalFiles(event){
+ return droppedFiles(event).length>0||Array.from(event.dataTransfer?.types||[]).some(type=>String(type).toLowerCase()==='files')
+}
 function droppedDirectory(event){return Array.from(event.dataTransfer?.items||[]).some(item=>item.kind==='file'&&item.webkitGetAsEntry?.()?.isDirectory)||droppedFiles(event).some(file=>file.webkitRelativePath)
 }
 function resourceDragOver(event){
- const files=droppedFiles(event)
- if(!files.length)return
+ if(frozen.value||!owner||mode.value!=='rendered'||!hasExternalFiles(event))return
  event.preventDefault()
  if(event.dataTransfer)event.dataTransfer.dropEffect='copy'
 }
@@ -245,7 +259,7 @@ function resourceDrop(event){
  if(!owner||frozen.value){emit('navigation-hint','当前文档正忙，请等待当前操作完成后再拖入资源。');return}
  if(droppedDirectory(event)){emit('navigation-hint','暂不支持拖入目录，请选择单个或多个文件。');return}
  if(mode.value==='source'){emit('navigation-hint','源码模式暂不支持按坐标拖入，请切换到正文模式。');return}
- const position=engine.value?.resourceDropPosition(event.clientX,event.clientY),dropState=engine.value?.resourceDropState?.()
+ const position=resourceDropPosition(event.clientX,event.clientY),dropState=engine.value?.resourceDropState?.()
  if(!Number.isInteger(position)){emit('navigation-hint','无法确定拖入位置，请拖到正文内容区域后重试。');return}
  emit('resource-files',{...owner,mode:mode.value,files,dropPosition:position,dropState})
 }

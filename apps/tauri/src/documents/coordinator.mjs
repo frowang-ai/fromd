@@ -42,7 +42,9 @@ export class DocumentCoordinator {
   async initialize() {
     await this.port.ready();
     let snapshot = await this.api.list();
-    if (!snapshot.documents.length) snapshot = await this.api.create();
+    // A first launch through "Open with" opens that file, not an extra blank page.
+    const opening = !snapshot.documents.length && this.api.hasPendingOpen ? await this.api.hasPendingOpen().catch(() => false) : false;
+    if (!snapshot.documents.length && !opening) snapshot = await this.api.create();
     this.metadata(snapshot, true); await this.loadActive(); this.state.loaded = true;
   }
   async searchLive() {
@@ -340,6 +342,17 @@ export class DocumentCoordinator {
     return this.run(async () => {
       await this.flush(); const result = await this.api.open();
       if (!result.cancelled) { this.metadata(result.snapshot, true); await this.loadActive(); }
+    });
+  }
+  // Paths queued natively (Open With, Dock, second instance, window drop) are
+  // opened in the same serial/flush order as File > Open. The renderer supplies
+  // no path; the host drains its own queue and activates the last opened file.
+  openPending() {
+    return this.run(async () => {
+      await this.flush(); const result = await this.api.openPending();
+      if (result.snapshot) { this.metadata(result.snapshot, true); await this.loadActive(); }
+      if (result.errors?.length) this.state.error = result.errors.join(' ');
+      return result;
     });
   }
   remove(id, ask) {
