@@ -22,6 +22,11 @@ codegen-units = 1
 strip = "symbols"
 incremental = false
 
+# roxmltree parses element nesting recursively. Optimize it in debug builds so a
+# valid 128-level SVG fits the default 2 MiB thread stack, as it does in release.
+[profile.dev.package.roxmltree]
+opt-level = 2
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]
