@@ -1,36 +1,5 @@
+use crate::menu_routing::{route, MenuRoute, FORMAT_MENU};
 use tauri::{menu::{Menu, MenuItem, PredefinedMenuItem, Submenu}, Emitter, Manager};
-
-// Mirrors the editor menu descriptor, checked by the Node menu test.
-const FORMAT_MENU: &[&[(&str, &str, &str)]] = &[
-    &[
-        ("formatHeading0", "段落", "Cmd+0"),
-        ("formatHeading1", "标题 1", "Cmd+1"),
-        ("formatHeading2", "标题 2", "Cmd+2"),
-        ("formatHeading3", "标题 3", "Cmd+3"),
-        ("formatHeading4", "标题 4", "Cmd+4"),
-        ("formatHeading5", "标题 5", "Cmd+5"),
-        ("formatHeading6", "标题 6", "Cmd+6"),
-        ("formatRaiseHeading", "提升标题级别", "Cmd+Equal"),
-        ("formatLowerHeading", "降低标题级别", "Cmd+Minus"),
-    ],
-    &[
-        ("formatBold", "加粗", "Cmd+B"),
-        ("formatItalic", "斜体", "Cmd+I"),
-        ("formatUnderline", "下划线", "Cmd+U"),
-        ("formatStrike", "删除线", "Ctrl+Shift+Backquote"),
-        ("formatInlineCode", "行内代码", "Ctrl+Backquote"),
-        ("formatLink", "链接", "Cmd+K"),
-        ("formatClear", "清除格式", "Cmd+Backslash"),
-    ],
-    &[
-        ("formatQuote", "引用", "Cmd+Alt+Q"),
-        ("formatOrderedList", "有序列表", "Cmd+Alt+O"),
-        ("formatBulletList", "无序列表", "Cmd+Alt+U"),
-        ("formatCodeBlock", "代码块", "Cmd+Alt+C"),
-        ("formatMathBlock", "公式块", "Cmd+Alt+B"),
-        ("formatTable", "表格", "Cmd+Alt+T"),
-    ],
-];
 
 pub fn install(app: &tauri::App) -> tauri::Result<()> {
     let command = |id: &str, text: &str, accelerator: Option<&str>| MenuItem::with_id(app, id, text, true, accelerator);
@@ -97,12 +66,11 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref();
         let Some(window) = app.get_webview_window("main") else { return };
-        if id == "closeWindow" {
+        match route(id, window.is_visible().ok()) {
             // Follow the same CloseRequested handshake as the system close button.
-            let _ = window.close();
-        } else if FORMAT_MENU.iter().any(|group| group.iter().any(|item| item.0 == id))
-            || matches!(id, "checkUpdates" | "new" | "open" | "import" | "save" | "saveAs" | "exportPdf" | "insertImage" | "insertAttachment" | "collapse" | "remove" | "find" | "replace" | "reading" | "source" | "rendered" | "zoomIn" | "zoomOut" | "zoomReset" | "sidebar") {
-            let _ = window.emit("frowd:menu-command", id);
+            MenuRoute::CloseWindow => { let _ = window.close(); }
+            MenuRoute::Emit => { let _ = window.emit("frowd:menu-command", id); }
+            MenuRoute::Ignore => {}
         }
     });
     Ok(())

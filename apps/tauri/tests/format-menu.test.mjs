@@ -41,7 +41,8 @@ test('format menu labels and macOS accelerators resolve to the existing editor c
 
 test('native format menu mirrors all three descriptor groups and displays Insert Image under File', () => {
   const rust = readFileSync(new URL('../src-tauri/src/menu_macos.rs', import.meta.url), 'utf8')
-  const native = rust.match(/const FORMAT_MENU[^\n]+\n([\s\S]*?)^\];/m)[1]
+  const routing = readFileSync(new URL('../src-tauri/src/menu_routing.rs', import.meta.url), 'utf8')
+  const native = routing.match(/const FORMAT_MENU[^\n]+\n([\s\S]*?)^\];/m)[1]
   const groups = [...native.matchAll(/&\[([\s\S]*?)\]/g)].map(group =>
     [...group[1].matchAll(/\("([^"]+)", "([^"]+)", "([^"]+)"\)/g)].map(([, id, label, accelerator]) =>
       ({id, label, accelerator})))
