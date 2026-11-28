@@ -1,12 +1,15 @@
 import {findText} from './search.mjs';
 
+const isMarkdownFile = path => /\.(?:md|markdown)$/i.test(path ?? '');
+
 /** frowd document ownership and persistence. Editor buffers are not a second store. */
 export class DocumentCoordinator {
-  constructor(api, port, state, { autosaveMs = 220, resourceTimeoutMs = 15000, pickerTimeoutMs = 120000 } = {}) {
+  constructor(api, port, state, { autosaveMs = 220, fileSyncMs = 900, resourceTimeoutMs = 15000, pickerTimeoutMs = 120000 } = {}) {
     this.api = api; this.port = port; this.state = state; this.autosaveMs = autosaveMs; this.resourceTimeoutMs=resourceTimeoutMs;this.pickerTimeoutMs=pickerTimeoutMs;
+    this.fileSyncMs = fileSyncMs;
     this.buffers = new Map(); this.saves = new Map(); this.names = new Map(); this.nameSaves = new Map();
     this.sessions = new Map(); this.timers = new Map(); this.tail = Promise.resolve(); this.generation = 0; this.disposed = false;
-    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', saveState: '已保存', importReport: null, undoRemoval: null, removalSequence: 0, layoutRevision: 0 });
+    Object.assign(state, { documents: [], activeId: null, markdown: '', busy: false, loaded: false, error: '', pageError: '', saveState: '草稿已暂存', syncingId: null, fileSyncErrors: {}, importReport: null, undoRemoval: null, removalSequence: 0, layoutRevision: 0 });
   }
   metadata(snapshot, selection = false) {
     this.state.documents = snapshot.documents.map(doc => {
@@ -18,7 +21,7 @@ export class DocumentCoordinator {
     this.state.layoutRevision = snapshot.layoutRevision ?? 0;
     if (snapshot.warning) this.state.error = snapshot.warning;
   }
-  report(error) { this.state.error = String(error?.message ?? error); this.state.saveState = '保存失败'; }
+  report(error) { this.state.error = String(error?.message ?? error); }
   run(action) {
     const next = this.tail.catch(() => {}).then(async () => {
       if(this.terminal) throw Error('更新安装程序已启动，正在退出。');
@@ -42,30 +45,51 @@ export class DocumentCoordinator {
   async initialize() {
     await this.port.ready();
     let snapshot = await this.api.list();
-    // A first launch through "Open with" opens that file, not an extra blank page.
-    const opening = !snapshot.documents.length && this.api.hasPendingOpen ? await this.api.hasPendingOpen().catch(() => false) : false;
-    if (!snapshot.documents.length && !opening) snapshot = await this.api.create();
-    this.metadata(snapshot, true); await this.loadActive(); this.state.loaded = true;
+    // A cold start with native paths opens those files without adding a draft.
+    if (!snapshot.documents.length) {
+      const opening = await this.api.hasPendingOpen?.().catch(() => false);
+      if (!opening) snapshot = await this.api.create();
+    }
+    this.metadata(snapshot, true);
+    this.state.pageLoading = Boolean(snapshot.activeId);
+    this.state.loaded = true;
+    try { await this.loadActive(); }
+    finally { this.state.pageLoading = false; }
   }
   async searchLive() {
     await this.port.waitComposition();
-    this.capture();
-    const doc=this.current();
+    const doc=this.capture() ? this.current() : null;
     return {doc,markdown:doc?this.state.markdown:'',documents:this.state.documents};
   }
   current() { return this.state.documents.find(doc => doc.id === this.state.activeId) ?? null; }
   async loadActive(preloaded = null) {
     const id = this.state.activeId;
+    this.state.pageError = '';
     if (!id) { this.port.clear(); this.state.markdown = ''; return; }
     let read;
     try { read = preloaded ?? await this.api.read(id); }
-    catch(error) { this.port.clear(); this.state.markdown=''; throw error; }
+    catch(error) { this.unavailable(id, error); return; }
+    if (!preloaded) this.adoptRead(read);
     this.buffers.set(id, { markdown: read.markdown, persisted: read.markdown, revision: read.revision });
     this.state.markdown = read.markdown;
     const generation = ++this.generation;
     const session=this.sessions.get(id);
     await this.port.ready();
     await this.port.activate({ ...read, generation, session: session?.markdown === read.markdown ? session : null });
+  }
+  unavailable(id, error) {
+    this.port.clear();
+    this.buffers.delete(id);
+    this.sessions.delete(id);
+    this.state.markdown = '';
+    this.state.pageError = String(error?.message ?? error);
+    if (this.current()?.bodyInDb === false) {
+      this.state.documents = this.state.documents.map(doc => doc.id === id ? { ...doc, conflict: true } : doc);
+    }
+  }
+  adoptRead({ id, revision, dirty, conflict, preview, bodyInDb }) {
+    this.state.documents = this.state.documents.map(doc => doc.id === id
+      ? { ...doc, revision, dirty, conflict, preview, bodyInDb } : doc);
   }
   capture() {
     const snapshot = this.port.capture();
@@ -80,12 +104,22 @@ export class DocumentCoordinator {
     if (id !== this.state.activeId || generation !== this.generation || !this.buffers.has(id)) return;
     this.buffers.get(id).markdown = markdown; this.state.markdown = markdown; this.state.saveState = '保存中…';
     this.schedule('body', () => this.flush());
+    if (isMarkdownFile(this.current()?.path)) {
+      this.schedule('sync:' + id, () => {
+        const next = this.tail.catch(() => {}).then(async () => {
+          if (this.terminal || this.disposed || this.timers.has('sync:' + id) || this.state.activeId !== id) return;
+          await this.flushAndSync([id]);
+        });
+        this.tail = next;
+        return next;
+      }, this.fileSyncMs);
+    }
   }
-  schedule(key, work) {
+  schedule(key, work, delay = this.autosaveMs) {
     clearTimeout(this.timers.get(key));
     this.timers.set(key, setTimeout(() => {
       this.timers.delete(key); if (!this.disposed) work().catch(error => this.report(error));
-    }, this.autosaveMs));
+    }, delay));
   }
   async flushBody(id) {
     if (this.saves.has(id)) return this.saves.get(id);
@@ -100,7 +134,7 @@ export class DocumentCoordinator {
         const reply = await this.api.update(id, markdown, revision);
         buffer.persisted = markdown; buffer.revision = revision;
         const confirmed=reply.documents.find(doc=>doc.id===id);
-        if(confirmed)this.state.documents=this.state.documents.map(doc=>doc.id===id?{...doc,revision,dirty:confirmed.dirty,conflict:confirmed.conflict,preview:confirmed.preview}:doc);
+        if(confirmed)this.state.documents=this.state.documents.map(doc=>doc.id===id?{...doc,revision,dirty:confirmed.dirty,conflict:confirmed.conflict,preview:confirmed.preview,bodyInDb:confirmed.bodyInDb}:doc);
         if (id === this.state.activeId) this.capture();
       }
     })();
@@ -155,24 +189,54 @@ export class DocumentCoordinator {
         if (id === this.state.activeId && (!buffer || buffer.markdown === buffer.persisted) && !namesPending && sameView) break;
         if (!id && !before && !namesPending) break;
       }
-      this.state.saveState = '已保存';
+      this.state.saveState = '草稿已暂存';
     })();
     this.flushing=work;
-    try { await work; } finally { if(this.flushing===work)this.flushing=null; }
+    try { await work; }
+    catch (error) { this.state.saveState = '暂存失败'; throw error; }
+    finally { if(this.flushing===work)this.flushing=null; }
+  }
+  async syncFile(id) {
+    const doc = this.state.documents.find(doc => doc.id === id);
+    if (!doc?.dirty || doc.conflict || !isMarkdownFile(doc.path)) return;
+    this.state.syncingId = id;
+    try {
+      const reply = await this.api.syncFile(id, doc.path, doc.revision);
+      const saved = reply.documents.find(item => item.id === id);
+      if (saved) this.state.documents = this.state.documents.map(item =>
+        item.id === id && item.revision === saved.revision && item.path === saved.path
+          ? { ...item, dirty: saved.dirty, conflict: saved.conflict, bodyInDb: saved.bodyInDb } : item);
+      delete this.state.fileSyncErrors[id];
+    } catch (error) {
+      // The SQLite revision is already acknowledged. A disk error cannot veto a layout or close.
+      this.state.fileSyncErrors[id] = String(error?.message ?? error);
+    } finally {
+      this.state.syncingId = null;
+    }
+  }
+  async flushAndSync(ids = this.state.documents.map(doc => doc.id)) {
+    await this.flush();
+    for (const id of new Set(ids)) await this.syncFile(id);
   }
   activate(id, location = null) {
     return this.run(async () => {
       if (!this.state.documents.some(doc => doc.id === id)) throw Error('页面已移除。');
-      await this.flush();
-      // Reading can fail without changing activeId or expanding a shelved target.
-      const read=await this.api.read(id);
-      // read/check_external can commit a new clean file body and revision. Adopt
+      await this.flushAndSync([this.state.activeId]);
+      // Read before changing layout so transient failures leave the current page intact.
+      let read;
+      try { read = await this.api.read(id); }
+      catch (error) {
+        if (this.state.documents.find(doc => doc.id === id)?.bodyInDb !== false) throw error;
+        this.metadata(await this.api.activate(id), true);
+        this.unavailable(id, error);
+        return;
+      }
+      // Reading can commit a newer clean file body and revision. Adopt
       // that authority even if an old search hit is no longer present.
       const previous=this.buffers.get(id);
       const refreshed=previous&&(previous.persisted!==read.markdown||previous.revision!==read.revision);
       if(refreshed)this.sessions.delete(id);
-      const {markdown,...metadata}=read;
-      this.state.documents=this.state.documents.map(doc=>doc.id===id?{...doc,...metadata}:doc);
+      this.adoptRead(read);
       const refreshedCurrent=id===this.state.activeId&&refreshed;
       if(refreshedCurrent)await this.loadActive(read);
       const match=location?findText(read.markdown,location.needle):null;
@@ -185,13 +249,17 @@ export class DocumentCoordinator {
   }
   create() {
     return this.run(async () => {
-      await this.flush(); this.metadata(await this.api.create(), true); await this.loadActive();
+      await this.flushAndSync([this.state.activeId]); this.metadata(await this.api.create(), true); await this.loadActive();
     });
   }
   layout(action, id) {
     return this.run(async () => {
-      await this.flush();
       const previousId = this.state.activeId;
+      const ids = action === 'shelve' ? [id] : this.state.documents.filter(
+        doc => !doc.shelved && (action === 'shelveAll' || (action === 'shelveOthers' && doc.id !== id))
+      ).map(doc => doc.id);
+      if (action === 'shelveOthers' || action === 'shelveAll') ids.push(previousId);
+      await this.flushAndSync(ids);
       this.metadata(await this.api[action](id), true);
       // Preserve the live editor/history/selection for unrelated layout changes.
       if (previousId !== this.state.activeId) await this.loadActive();
@@ -256,7 +324,14 @@ export class DocumentCoordinator {
     return this.run(async () => {
       await this.flush();
       const result = await this.api.save(id, saveAs);
-      if (result.snapshot) this.metadata(result.snapshot);
+      if (result.snapshot) {
+        this.metadata(result.snapshot);
+        delete this.state.fileSyncErrors[id];
+        // Saving a clean file can first adopt a newer revision from disk.
+        if (id === this.state.activeId && this.current()?.revision !== this.buffers.get(id)?.revision) {
+          await this.loadActive();
+        }
+      }
       return result;
     });
   }
@@ -264,8 +339,8 @@ export class DocumentCoordinator {
     return this.run(async () => {
       await this.flush();
       const doc = this.current();
-      if (!doc) throw Error('请先打开要导出的页面。');
-      const buffer = this.buffers.get(doc.id);
+      const buffer = this.buffers.get(doc?.id);
+      if (!buffer) throw Error('请先打开可用的页面。');
       // Copy identity/body/title/revision while this command owns the frozen
       // editor. Neither a queued page switch nor an autosave can change the job.
       return this.api.exportPdf({ id: doc.id, title: doc.title, markdown: buffer.markdown, revision: buffer.revision });
@@ -311,7 +386,7 @@ export class DocumentCoordinator {
   }
   importFile() {
     return this.run(async()=>{
-      await this.flush();
+      await this.flushAndSync([this.state.activeId]);
       const result=await this.resourceRequest(()=>this.api.chooseImport(),this.pickerTimeoutMs,'文件选择/读取超时，未创建页面；请等待原请求结束后重试。');
       if(result.cancelled)return result;
       const source=result.source,plan=await this.port.prepareFileImport(source);
@@ -340,7 +415,7 @@ export class DocumentCoordinator {
   }
   open() {
     return this.run(async () => {
-      await this.flush(); const result = await this.api.open();
+      await this.flushAndSync([this.state.activeId]); const result = await this.api.open();
       if (!result.cancelled) { this.metadata(result.snapshot, true); await this.loadActive(); }
     });
   }
@@ -349,7 +424,8 @@ export class DocumentCoordinator {
   // no path; the host drains its own queue and activates the last opened file.
   openPending() {
     return this.run(async () => {
-      await this.flush(); const result = await this.api.openPending();
+      await this.flushAndSync([this.state.activeId]);
+      const result = await this.api.openPending();
       if (result.snapshot) { this.metadata(result.snapshot, true); await this.loadActive(); }
       if (result.errors?.length) this.state.error = result.errors.join(' ');
       return result;
@@ -359,12 +435,12 @@ export class DocumentCoordinator {
     return this.run(async () => {
       await this.flush();
       const doc = this.state.documents.find(doc => doc.id === id); if (!doc) return;
-      const read = await this.api.read(id);
-      const requiresDecision = doc.path ? read.dirty : read.markdown.trim().length > 0;
+      const requiresDecision = doc.path ? doc.conflict || doc.dirty :
+        (this.buffers.get(id)?.markdown ?? (await this.api.read(id)).markdown).trim().length > 0;
       const decision = requiresDecision ? await ask(doc) : 'discard';
       if (decision === 'cancel') return;
       if (decision === 'save') {
-        const saved = await this.api.save(id, false);
+        const saved = await this.api.save(id, Boolean(doc.conflict));
         if (saved.cancelled) return;
         this.metadata(saved.snapshot);
       }
@@ -372,16 +448,18 @@ export class DocumentCoordinator {
       this.metadata(await this.api.remove(id, decision === 'save' ? 'saved' : 'discard'), true);
       this.state.removalSequence++;
       this.buffers.delete(id); this.sessions.delete(id); this.names.delete(id);
+      delete this.state.fileSyncErrors[id];
+      clearTimeout(this.timers.get('sync:' + id)); this.timers.delete('sync:' + id);
       clearTimeout(this.timers.get('name:' + id)); this.timers.delete('name:' + id);
       if (previousId !== this.state.activeId) await this.loadActive();
     });
   }
   undoRemove() {
-    return this.run(async () => { await this.flush(); const old = this.state.activeId; this.metadata(await this.api.undo(), true); if (old !== this.state.activeId) await this.loadActive(); });
+    return this.run(async () => { await this.flushAndSync([this.state.activeId]); const old = this.state.activeId; this.metadata(await this.api.undo(), true); if (old !== this.state.activeId) await this.loadActive(); });
   }
   handoffUpdate(install) {
     return this.run(async () => {
-      await this.flush();
+      await this.flushAndSync();
       await Promise.all([...this.saves.values(), ...this.nameSaves.values()]);
       await this.api.checkpoint();
       await install();
@@ -391,7 +469,7 @@ export class DocumentCoordinator {
       this.timers.forEach(clearTimeout); this.timers.clear();
     });
   }
-  drain() { return this.run(async () => { await this.flush(); await Promise.all(this.saves.values()); await this.api.checkpoint(); }); }
-  close() { return this.run(async () => { await this.flush(); await this.api.checkpoint(); await this.api.closeReady(); }); }
+  drain() { return this.run(async () => { await this.flushAndSync(); await Promise.all(this.saves.values()); await this.api.checkpoint(); }); }
+  close() { return this.run(async () => { await this.flushAndSync(); await this.api.checkpoint(); await this.api.closeReady(); }); }
   dispose() { this.disposed = true; this.timers.forEach(clearTimeout); this.timers.clear(); }
 }

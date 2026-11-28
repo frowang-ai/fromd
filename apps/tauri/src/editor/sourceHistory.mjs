@@ -5,7 +5,7 @@ export const sourceHistory = text => ({text,past:[],future:[]})
 export function recordSource(history,text,selection) {
  if(text===history.text)return history
  let past=[...history.past,{text:history.text,selection}],bytes=0
- past=past.reverse().filter((step,index)=>{bytes+=step.text.length*2;return index<STEPS&&bytes<=LIMIT}).reverse()
+ past=past.reverse().filter((step,index)=>{bytes+=step.text.length*2;return index===0||(index<STEPS&&bytes<=LIMIT)}).reverse()
  return {text,past,future:[]}
 }
 export function travelSource(history,redo,selection) {

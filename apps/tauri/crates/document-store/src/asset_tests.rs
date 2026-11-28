@@ -317,6 +317,54 @@ fn markdown_write_and_postwrite_commit_failures_have_distinct_truthful_outcomes(
     assert!(out.join(&image.reference).is_file());
 }
 #[test]
+fn auto_sync_copies_owned_images_for_a_standalone_file_and_preserves_existing_copies() {
+    let (dir, mut store, original) = setup();
+    let target = dir.path().join("note.md");
+    fs::write(&target, "original").unwrap();
+    let id = store.open_file(&target).unwrap().active_id.unwrap();
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    let image = import(&mut store, &id, &png(), "x.png", true);
+    let unused = import(&mut store, &id, b"other", "unused.txt", false);
+    let markup = format!("![图]({})", image.reference);
+    put(&mut store, &id, &markup);
+    store.sync_file(&id, &path, 1).unwrap();
+    let out = dir.path().join(&image.reference);
+    assert_eq!(fs::read(&out).unwrap(), png());
+    assert!(!dir.path().join(&unused.reference).exists());
+    assert_eq!(store.resource_image(&id, &image.reference).unwrap().0, png());
+    assert!(store.managed_attachment(&original, &image.reference).unwrap().is_none());
+    fs::write(&out, "externally replaced").unwrap();
+    put(&mut store, &id, &format!("{markup}\n\nsecond edit"));
+    assert!(store.sync_file(&id, &path, 2).is_err());
+    assert_eq!(fs::read_to_string(&target).unwrap(), markup);
+    assert_eq!(fs::read_to_string(&out).unwrap(), "externally replaced");
+}
+
+#[test]
+fn auto_sync_retains_missing_unbound_references_without_resolving_or_copying_them() {
+    let (dir, mut store, other) = setup();
+    let image = import(&mut store, &other, &png(), "other.png", true);
+    let note = dir.path().join("note.md");
+    let original = format!("![旧图]({})\n", image.reference);
+    fs::write(&note, &original).unwrap();
+    let id = store.open_file(&note).unwrap().active_id.unwrap();
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    let edited = format!("{original}\n普通文字编辑");
+    store.update(&id, &edited, 1).unwrap();
+
+    let snapshot = store.sync_file(&id, &path, 1).unwrap();
+    let confirmed = snapshot.documents.iter().find(|doc| doc.id == id).unwrap();
+    assert!(!confirmed.dirty && !confirmed.conflict);
+    assert_eq!(fs::read_to_string(&note).unwrap(), edited);
+    assert!(!dir.path().join(&image.reference).exists());
+    assert!(store.managed_attachment(&id, &image.reference).unwrap().is_none());
+
+    assert!(store.save_file(&id, None).is_err());
+    let export = dir.path().join("export.md");
+    assert!(store.save_file(&id, Some(&export)).is_err());
+    assert!(!export.exists());
+}
+#[test]
 fn save_as_copies_only_referenced_owned_directory_rasters_and_preserves_bom_eol() {
     let (dir, mut store, _) = setup();
     let source = dir.path().join("source");
@@ -536,7 +584,7 @@ fn additive_resource_schema_keeps_schema3_rows_and_failed_migration_rolls_back()
             .query_row::<String, _, _>("SELECT value FROM settings WHERE key='version'", [], |r| r
                 .get(0))
             .unwrap(),
-        "3"
+        "4"
     );
 }
 

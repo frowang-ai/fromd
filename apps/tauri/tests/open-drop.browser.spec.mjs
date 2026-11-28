@@ -205,6 +205,24 @@ test('first launch through Open with shows the file without an extra blank page'
  expect((await host(page)).entered.create_document??0).toBe(0)
 })
 
+test('live Open with backs up and syncs the outgoing file before draining the native queue',async({page})=>{
+ await boot(page,'windows',{
+  documents:[{id:'a',title:'A.md',path:'/synthetic/a.md',markdown:'Alpha'}],
+  holds:['sync_document_file']
+ })
+ const editor=page.locator('.ProseMirror:visible')
+ await editor.focus();await page.keyboard.press('End');await page.keyboard.insertText(' outgoing edit')
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.requestOpen([{path:'/synthetic/one.md'}]))
+ await expect.poll(async()=>(await host(page)).entered.sync_document_file??0).toBe(1)
+ const pending=await host(page)
+ expect(pending.calls.indexOf('update_document')).toBeLessThan(pending.calls.indexOf('sync_document_file'))
+ expect(pending.entered.open_pending_documents??0).toBe(0)
+ expect(pending.rows.find(row=>row.id==='a').markdown).toContain('outgoing edit')
+ await page.evaluate(()=>window.__FROWD_TEST_HOST__.release('sync_document_file'))
+ await expect(page.locator('.tab.selected .tab-title')).toHaveText('one.md')
+ expect(await page.evaluate(()=>window.__FROWD_TEST_HOST__.rows.get('a').savedText)).toContain('outgoing edit')
+})
+
 test('an idle startup never freezes the editor to look for open requests',async({page})=>{
  await boot(page,'macos')
  const state=await host(page)

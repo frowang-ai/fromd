@@ -92,7 +92,7 @@ identity and layout.
 - `src/documents/coordinator.mjs` and `host.mjs`: serial ownership, IME-safe
   readonly/inert freeze, final-input flush, stale acknowledgements, search,
   versioned ordering and normal-close handshake.
-- `crates/document-store/src`: independent Rust SQLite/schema3 authority, file rules,
+- `crates/document-store/src`: independent Rust SQLite/schema 4 authority, file rules,
   resource ownership, rollback/capacity/undo; no reverse host-source imports.
 - `src-tauri`: fixed IPC, scoped protocols, native menus, dialogs, quit handshake
   and platform PDF adapters. `src/platform.mjs` and `WindowChrome.vue` own UI shell policy.
@@ -172,7 +172,9 @@ VS Code/WebView2 acceptance).
 Full-text search uses the existing SQLite drafts and overlays live unsaved editor
 text. It is literal, Unicode exact and ASCII case-insensitive, capped at 256 query
 characters and 100 matching pages. Each page returns its first body hit or a title
-match. It does not scan disks or activate other pages during a query. One tracked
+match. For a clean large file whose body is kept on disk, search reads the bound
+file after releasing the Store lock, within a 256 MiB total read budget and at
+most 512 file checks. Unavailable or changed files can still match by title. One tracked
 IPC flight coalesces requests; an 8-second timeout rejects further queries until
 the uncancellable flight settles. Retry is explicit. Result selection revalidates
 the loaded body and editor-neutral location; stale replies cannot replace another

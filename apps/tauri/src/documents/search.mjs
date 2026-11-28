@@ -2,17 +2,60 @@
 // Literal search: Chinese/Unicode is exact; ASCII letters are case insensitive.
 // Locations use 1-based lines and Unicode-scalar columns, never editor offsets.
 export const SEARCH_LIMIT=100;
-const fold=text=>text.replace(/[A-Z]/g,c=>c.toLowerCase());
+const SEARCH_CHUNK = 64 * 1024;
+const fold = text => /[^\x00-\x7f]/.test(text)
+  ? text.replace(/[A-Z]/g, char => char.toLowerCase()) : text.toLowerCase();
+
+export function* literalMatchOffsets(text, query, matchCase = false) {
+ const needle = matchCase ? query : fold(query);
+ if (!needle.length) return;
+ const chunkSize = Math.max(SEARCH_CHUNK, needle.length);
+ let next = 0;
+ while (next <= text.length - needle.length) {
+  const start = next;
+  next = start + chunkSize;
+  // Include enough of the next chunk to complete a match starting here.
+  const chunk = text.slice(start, next + needle.length - 1);
+  const haystack = matchCase ? chunk : fold(chunk);
+  for (let index = haystack.indexOf(needle); index >= 0;
+       index = haystack.indexOf(needle, index + needle.length)) {
+   const offset = start + index;
+   next = Math.max(next, offset + needle.length);
+   yield offset;
+  }
+ }
+}
+
+function literalIndex(text, query) {
+ return query ? literalMatchOffsets(text, query).next().value ?? -1 : 0;
+}
+
+function locationAt(text, index, needle) {
+ let line = 1, column = 0;
+ for (let offset = 0; offset < index; offset++) {
+  if (text.charCodeAt(offset) === 10) {
+   line++;
+   column = 0;
+  } else {
+   column++;
+   if (offset + 1 < index && text.codePointAt(offset) > 0xffff) offset++;
+  }
+ }
+ return {line, column, length:[...needle].length, needle};
+}
+
 export function findText(text,query){
- const index=fold(text).indexOf(fold(query));if(index<0)return null;
- const prefix=text.slice(0,index),line=prefix.split('\n').length;
- return {line,column:[...prefix.slice(prefix.lastIndexOf('\n')+1)].length,length:[...query].length,needle:query};
+ const index = literalIndex(text, query);
+ return index < 0 ? null : locationAt(text, index, query);
 }
 export function matchDocument(doc,markdown,query){
- const location=findText(markdown,query),titleMatch=fold(doc.title).includes(fold(query));
- if(!location&&!titleMatch)return null;
- const index=fold(markdown).indexOf(fold(query));
- const snippet=location?([...markdown.slice(0,index)].slice(-60).join('')+[...markdown.slice(index)].slice(0,180).join('')).replaceAll('\n',' '):doc.title;
+ const index = literalIndex(markdown, query);
+ if (index < 0 && literalIndex(doc.title, query) < 0) return null;
+ const location = index < 0 ? null : locationAt(markdown, index, query);
+ // Two UTF-16 units per scalar cover the window even when all are surrogate pairs.
+ const before = location ? [...markdown.slice(Math.max(0, index - 120), index)].slice(-60).join('') : '';
+ const after = location ? [...markdown.slice(index, index + 360)].slice(0, 180).join('') : '';
+ const snippet = location ? (before + after).replaceAll('\n', ' ') : doc.title;
  return {id:doc.id,title:doc.title,shelved:doc.shelved,revision:doc.revision,location,snippet};
 }
 /** One outstanding native request; only the newest query may publish.

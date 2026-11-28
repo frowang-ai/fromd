@@ -170,6 +170,184 @@ fn external_change_blocks_overwrite_and_undo_recovers_duplicate_path_as_draft() 
     assert_ne!(recovered.id, id);
     assert!(recovered.title.contains("恢复"));
 }
+
+#[test]
+fn auto_sync_checks_path_revision_and_disk_bytes_before_replacing_markdown() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("profile"), MAX_SESSION_BYTES).unwrap();
+    let file = dir.path().join("note.MARKDOWN");
+    fs::write(&file, b"\xef\xbb\xbforiginal\r\n").unwrap();
+    let id = store.open_file(&file).unwrap().active_id.unwrap();
+    let path = store.snapshot().unwrap().documents[0].path.clone().unwrap();
+    store.update(&id, "edited\n", 1).unwrap();
+    assert!(store.sync_file(&id, &path, 0).is_err());
+    assert!(store.sync_file(&id, "other.md", 1).is_err());
+    assert_eq!(fs::read(&file).unwrap(), b"\xef\xbb\xbforiginal\r\n");
+    assert!(!store.sync_file(&id, &path, 1).unwrap().documents[0].dirty);
+    assert_eq!(fs::read(&file).unwrap(), b"\xef\xbb\xbfedited\r\n");
+
+    store.update(&id, "second local version", 2).unwrap();
+    fs::write(&file, "external change").unwrap();
+    let snapshot = store.sync_file(&id, &path, 2).unwrap();
+    assert!(snapshot.documents[0].dirty && snapshot.documents[0].conflict);
+    assert_eq!(fs::read_to_string(&file).unwrap(), "external change");
+    assert_eq!(store.read(&id).unwrap().markdown, "second local version");
+    let txt = dir.path().join("notes.txt");
+    fs::write(&txt, "original").unwrap();
+    let id = store.open_file(&txt).unwrap().active_id.unwrap();
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    store.update(&id, "local only", 1).unwrap();
+    store.sync_file(&id, &path, 1).unwrap();
+    assert_eq!(fs::read_to_string(txt).unwrap(), "original");
+}
+
+#[test]
+fn auto_sync_claims_a_completed_write_after_a_failed_sqlite_commit() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("profile"), MAX_SESSION_BYTES).unwrap();
+    let file = dir.path().join("note.md");
+    fs::write(&file, "first").unwrap();
+    let id = store.open_file(&file).unwrap().active_id.unwrap();
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    store.update(&id, "already written", 1).unwrap();
+    store.conn.execute_batch("PRAGMA foreign_keys=ON;
+        CREATE TABLE parent(id INTEGER PRIMARY KEY);
+        CREATE TABLE deferred_guard(id INTEGER REFERENCES parent(id) DEFERRABLE INITIALLY DEFERRED);
+        CREATE TRIGGER fail_sync_commit AFTER UPDATE OF savedHash ON documents BEGIN
+            INSERT INTO deferred_guard VALUES(42);
+        END;").unwrap();
+    assert!(store.sync_file(&id, &path, 1).unwrap_err().to_string().contains("关联提交失败"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "already written");
+    assert!(store.read_stored(&id).unwrap().dirty());
+    store.conn.execute_batch("DROP TRIGGER fail_sync_commit;").unwrap();
+    let snapshot = store.sync_file(&id, &path, 1).unwrap();
+    assert!(!snapshot.documents[0].dirty && !snapshot.documents[0].conflict);
+    assert_eq!(snapshot.documents[0].revision, 1);
+}
+
+#[test]
+fn large_clean_file_uses_disk_for_body_search_and_undo_but_keeps_dirty_recovery() {
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("profile"), RESIDENT_BODY_BYTES as i64 + 8192).unwrap();
+    let file = dir.path().join("large.md");
+    let body = format!("{}\n唯一正文命中", "中".repeat(RESIDENT_BODY_BYTES / 3));
+    fs::write(&file, &body).unwrap();
+    let id = store.open_file(&file).unwrap().active_id.unwrap();
+    let row = store.read_stored(&id).unwrap();
+    assert!(!row.body_in_db && row.markdown.is_empty());
+    assert_eq!(row.preview.chars().count(), 1200);
+    assert_eq!(store.read(&id).unwrap().markdown, body);
+    let plan = store.prepare_search("唯一正文").unwrap();
+    let location = plan.finish().pop().unwrap().location.unwrap();
+    assert_eq!(location.line, 2);
+    let plan = store.prepare_search("唯一正文").unwrap();
+    fs::remove_file(&file).unwrap();
+    assert!(plan.finish().is_empty());
+    assert!(store.read(&id).unwrap_err().to_string().contains("原文件不可用"));
+    assert!(store.snapshot().unwrap().documents[0].conflict);
+    store.remove(&id, "discard").unwrap();
+    fs::write(&file, &body).unwrap();
+    let reopened = store.open_file(&file).unwrap().active_id.unwrap();
+    assert_eq!(store.undo_remove().unwrap().active_id.as_deref(), Some(reopened.as_str()));
+    assert_eq!(store.snapshot().unwrap().documents.len(), 1);
+    let local = body + "本地编辑";
+    store.update(&reopened, &local, 1).unwrap();
+    fs::remove_file(&file).unwrap();
+    let path = store.read_stored(&reopened).unwrap().path.unwrap();
+    let snapshot = store.sync_file(&reopened, &path, 1).unwrap();
+    assert!(snapshot.documents[0].body_in_db && snapshot.documents[0].conflict);
+    assert_eq!(store.read(&reopened).unwrap().markdown, local);
+}
+
+#[test]
+fn markdown_capacity_includes_bom_and_crlf_when_writing() {
+    let dir = tempdir().unwrap();
+    let profile = dir.path().join("profile");
+    let mut store = Store::open(&profile, MAX_SESSION_BYTES).unwrap();
+    let file = dir.path().join("limit.md");
+    fs::write(&file, b"\xef\xbb\xbfstart\r\n").unwrap();
+    let id = store.open_file(&file).unwrap().active_id.unwrap();
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    let mut body = "a".repeat(MAX_DOCUMENT_BYTES - 6);
+    body.push_str("\nx");
+    store.update(&id, &body, 1).unwrap();
+    let snapshot = store.sync_file(&id, &path, 1).unwrap();
+    assert_eq!(fs::metadata(&file).unwrap().len(), MAX_DOCUMENT_BYTES as u64);
+    assert!(!snapshot.documents[0].body_in_db);
+    assert_eq!(store.conn.pragma_query_value(None, "auto_vacuum", |r| r.get::<_, i64>(0)).unwrap(), 1);
+    check_compacted_database(&profile, store);
+    let mut store = Store::open(&profile, MAX_SESSION_BYTES).unwrap();
+    body.push('x');
+    store.update(&id, &body, 2).unwrap();
+    assert!(store.sync_file(&id, &path, 2).unwrap_err().to_string().contains("64 MiB"));
+    assert_eq!(fs::metadata(&file).unwrap().len(), MAX_DOCUMENT_BYTES as u64);
+    assert!(store.read_stored(&id).unwrap().dirty());
+}
+
+fn check_compacted_database(profile: &Path, store: Store) {
+    let database = profile.join("drafts.sqlite");
+    let wal = profile.join("drafts.sqlite-wal");
+    let sizes = || (
+        fs::metadata(&database).unwrap().len(),
+        fs::metadata(&wal).map(|info| info.len()).unwrap_or(0),
+    );
+    let before = sizes();
+    store.checkpoint().unwrap();
+    let checkpointed = sizes();
+    drop(store);
+    let closed = sizes();
+    println!("SQLite main/WAL bytes before checkpoint {before:?}; after checkpoint {checkpointed:?}; after close {closed:?}");
+    assert!(checkpointed.0 < 1024 * 1024 && checkpointed.1 == 0);
+    assert!(closed.0 < 1024 * 1024 && closed.1 == 0);
+}
+
+#[test]
+fn legacy_database_reclaims_large_freelist_at_checkpoint_and_keeps_drafts() {
+    let dir = tempdir().unwrap();
+    let profile = dir.path().join("profile");
+    fs::create_dir(&profile).unwrap();
+    let legacy = Connection::open(profile.join("drafts.sqlite")).unwrap();
+    legacy.execute_batch("PRAGMA auto_vacuum=NONE; CREATE TABLE old_fixture(value TEXT);").unwrap();
+    drop(legacy);
+
+    let mut store = Store::open(&profile, MAX_SESSION_BYTES).unwrap();
+    let draft = store.create("keep this recovery body", "draft").unwrap().active_id.unwrap();
+    let note = dir.path().join("large.md");
+    fs::write(&note, "original").unwrap();
+    let id = store.open_file(&note).unwrap().active_id.unwrap();
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    let edited = "a".repeat(36 * 1024 * 1024);
+    store.update(&id, &edited, 1).unwrap();
+    store.sync_file(&id, &path, 1).unwrap();
+    assert!(!store.read_stored(&id).unwrap().body_in_db);
+    assert!(fs::metadata(profile.join("drafts.sqlite")).unwrap().len() >= edited.len() as u64);
+    check_compacted_database(&profile, store);
+    let mut reopened = Store::open(&profile, MAX_SESSION_BYTES).unwrap();
+    assert_eq!(reopened.read(&draft).unwrap().markdown, "keep this recovery body");
+    assert_eq!(reopened.read(&id).unwrap().markdown, edited);
+}
+
+#[cfg(unix)]
+#[test]
+fn auto_sync_keeps_original_unix_mode_and_never_recreates_a_deleted_target() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempdir().unwrap();
+    let mut store = Store::open(&dir.path().join("profile"), MAX_SESSION_BYTES).unwrap();
+    let note = dir.path().join("note.md");
+    fs::write(&note, "original").unwrap();
+    fs::set_permissions(&note, fs::Permissions::from_mode(0o644)).unwrap();
+    let id = store.open_file(&note).unwrap().active_id.unwrap();
+    let path = store.read_stored(&id).unwrap().path.unwrap();
+    store.update(&id, "updated", 1).unwrap();
+    store.sync_file(&id, &path, 1).unwrap();
+    assert_eq!(fs::metadata(&note).unwrap().permissions().mode() & 0o777, 0o644);
+    store.update(&id, "recover this edit", 2).unwrap();
+    fs::remove_file(&note).unwrap();
+    let synced = store.sync_file(&id, &path, 2).unwrap();
+    assert!(synced.documents[0].conflict && synced.documents[0].dirty);
+    assert!(!note.exists());
+    assert_eq!(store.read(&id).unwrap().markdown, "recover this edit");
+}
 #[test]
 fn layout_failure_does_not_change_selection_or_shelving() {
     let dir = tempdir().unwrap();

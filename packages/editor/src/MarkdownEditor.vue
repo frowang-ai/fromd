@@ -43,6 +43,7 @@ import { markdownRange } from './writingMarkdownLocation.js'
 import {headingRange} from './writingHeadingLocation.js'
 import {prepareEndBlank as prepareEndBlankAtPoint,placeEndBlank as placeEndBlankAtPoint} from './writingEndBlank.js'
 import { formatWriting } from './writingFormatting.js'
+import { MAX_DOCUMENT_BYTES, utf8Bytes } from './documentLimits.js'
 import '@milkdown/crepe/theme/common/style.css'
 import { writingCodeTheme } from './writingCodeTheme.js'
 import '@milkdown/crepe/theme/classic.css'
@@ -89,12 +90,15 @@ function captureSession() {
 }
 function selection() { if (!created || disposed || !activeSession) return undefined; const s = view().state.selection; return { anchor: s.anchor, head: s.head } }
 function setState(state) { editor.editor.ctx.set(core.editorStateCtx, state); view().updateState(state); error.value = '' }
+function canRestoreSession(snapshot) {
+  return Boolean(snapshot?.state && snapshot.state.schema === view()?.state.schema)
+}
 function activateSession({ id, generation, snapshot, markdown = '', viewState, resolveImage }) {
   if (!created || disposed) throw new Error('编辑器尚未就绪。')
   if (view().composing) throw new Error('请先完成输入法组合输入。')
   // A schema's node/mark specs close over this editor's live Milkdown context.
   // Never reuse states from another instance (including an HMR-destroyed one).
-  snapshot = snapshot?.state?.schema === view().state.schema ? snapshot : null
+  snapshot = canRestoreSession(snapshot) ? snapshot : null
   switching = true; clearTimeout(updateTimer); activeSession = null; rememberedViews = null
   try {
     sessionResolver = resolveImage
@@ -222,9 +226,8 @@ function findMatch(query, index = 0, reveal = true, matchCase = false) {
   return { count: matches.length, limited: matches.length >= FIND_LIMIT, index: selected ? matches.indexOf(selected) : -1, match: selected }
 }
 function nextMatchIndex(matches, from) { const next = matches.findIndex(match => match.from >= from); return next < 0 ? 0 : next }
-function utf8Bytes(text) { return new TextEncoder().encode(text).byteLength }
-function replacementSize(text, query, replacement, count) { if (utf8Bytes(text) + (utf8Bytes(replacement) - utf8Bytes(query)) * count > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
-function ensureSerializedCapacity(doc) { const markdown = editor.editor.ctx.get(core.serializerCtx)(doc); if (utf8Bytes(markdown) > 10 * 1024 * 1024) throw Error('替换结果超过 10 MiB 文稿上限。') }
+function replacementSize(text, query, replacement, count) { if (utf8Bytes(text) + (utf8Bytes(replacement) - utf8Bytes(query)) * count > MAX_DOCUMENT_BYTES) throw Error('替换结果超过 64 MiB 文稿上限。') }
+function ensureSerializedCapacity(doc) { const markdown = editor.editor.ctx.get(core.serializerCtx)(doc); if (utf8Bytes(markdown) > MAX_DOCUMENT_BYTES) throw Error('替换结果超过 64 MiB 文稿上限。') }
 function replaceFind(query, replacement, index = 0, all = false, matchCase = false) {
   const matches = findTextMatches(query, matchCase); if (!matches.length) return { count: 0, replaced: 0, index: -1, limited: false }
   if (all && matches.length >= FIND_LIMIT) throw Error('匹配数量达到 10000 上限，未执行全部替换。')
@@ -273,7 +276,7 @@ function placeEndBlank(plan){
  if(!created||disposed||switching||!activeSession||plan?.owner?.id!==activeSession.id||plan.owner.generation!==activeSession.generation)return false
  return placeEndBlankAtPoint(view(),plan)
 }
-defineExpose({ parseSourceSyntax, revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ parseSourceSyntax, revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, canRestoreSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({

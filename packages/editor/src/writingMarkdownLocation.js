@@ -2,9 +2,16 @@
 // uses the original Markdown AST; no PM coordinates escape into persistence.
 const fold = text => text.replace(/[A-Z]/g, char => char.toLowerCase())
 export function sourceOffset(markdown, {line, column}) {
-  const lines = markdown.split('\n'), index = Math.max(0, Math.min(line - 1, lines.length - 1))
-  return lines.slice(0, index).reduce((n, text) => n + text.length + 1, 0) +
-    [...lines[index]].slice(0, column).join('').length
+  let offset = 0
+  for (let row = 1; row < line; row++) {
+    const newline = markdown.indexOf('\n', offset)
+    if (newline === -1) break
+    offset = newline + 1
+  }
+  for (let count = 0; count < column && offset < markdown.length && markdown.charCodeAt(offset) !== 10; count++) {
+    offset += markdown.codePointAt(offset) > 0xffff ? 2 : 1
+  }
+  return offset
 }
 function occurrences(text, needle) {
   const found = [], source = fold(text), query = fold(needle)
