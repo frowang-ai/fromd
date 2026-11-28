@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS document types for Finder "Open With" and dropping onto the Dock icon.
+  Merged by `bundle.macOS.infoPlist`; it replaces the whole generated
+  CFBundleDocumentTypes array, so tauri.macos.conf.json declares no
+  fileAssociations. Claims are by extension only, without LSItemContentTypes:
+  Tauri's fileAssociations always writes public.plain-text for txt (even with an
+  empty contentTypes), and LaunchServices matches UTI claims by conformance, so
+  fromd would be offered for every plain-text source file (.py, .js, ...).
+  LSHandlerRank Alternate lists fromd without taking over the default app.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Markdown 文档</string>
+      <key>CFBundleTypeExtensions</key><array><string>md</string><string>markdown</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>纯文本文档</string>
+      <key>CFBundleTypeExtensions</key><array><string>txt</string></array>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+    </dict>
+  </array>
+</dict>
+</plist>
