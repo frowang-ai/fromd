@@ -1,5 +1,7 @@
 // Test-only in-memory native IPC double. It is never imported by the application.
 export function installMockHost(options = {}) {
+ // Tests use Windows bindings by default. Explicit testPlatform overrides still apply.
+ Object.defineProperty(navigator, 'platform', {value:'Win32', configurable:true});
  const text=options.markdown??'# 合成文稿\n\n这是一段合成中文，只用于验证页面编辑。\n\n## 同名标题\n\n第一节。\n\n| 项目 | 内容 |\n| --- | --- |\n| 样例 | 可视化表格待独立验收 |\n\n## 同名标题\n\n第二节。\n';
  const rows=new Map((options.documents??[
  {id:'a',title:'方案讨论',markdown:text,shelved:false},

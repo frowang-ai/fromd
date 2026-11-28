@@ -15,8 +15,8 @@ async function visibleHeading(page,locator){
 }
 const filler=Array.from({length:32},(_,n)=>`合成前文第${n}段，供独立大纲导航验证。\n`).join('\n')
 
-test('outline locates the actual heading despite a br paragraph that breaks global block counts',async({page})=>{
- const markdown='# 开始\n\n<br />\n\n'+filler+'\n## 准确目标\n\n目标后正文。\n\n'+filler
+test('outline locates the actual heading after parsing plain blank lines',async({page})=>{
+ const markdown='# 开始\n\n\n\n'+filler+'\n## 准确目标\n\n目标后正文。\n\n'+filler
  await boot(page,markdown)
  await page.getByRole('button',{name:'准确目标',exact:true}).click()
  await expect.poll(async()=> (await capture(page)).selected).toMatchObject({type:'heading',text:'准确目标'})
@@ -75,7 +75,7 @@ test('fresh blank paragraphs created by end clicks do not disable heading naviga
  await boot(page,'# 开始\n\n## 文末前标题\n\n末段。\n')
  const point=await body(page).evaluate(el=>{const r=el.getBoundingClientRect(),last=el.lastElementChild.getBoundingClientRect();return{x:r.left+30,y:last.bottom+parseFloat(getComputedStyle(el).lineHeight)*4}})
  await page.mouse.click(point.x,point.y);await page.keyboard.insertText('文末续写')
- const before=await capture(page);expect(before.markdown).toContain('末段。\n\n文末续写')
+ const before=await capture(page);expect(before.markdown).toMatch(/末段。\n{3,}文末续写/)
  expect(before.markdown).not.toContain('<br />')
  await page.getByRole('button',{name:'文末前标题',exact:true}).click()
  expect((await capture(page)).selected.text).toBe('文末前标题')

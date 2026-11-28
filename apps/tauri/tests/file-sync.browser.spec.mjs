@@ -14,22 +14,26 @@ async function boot(page, documents = [bound, second, draft], options = {}) {
   await expect(page.locator('.loading-state')).toHaveCount(0)
 }
 async function append(page, text) {
-  await body(page).focus()
-  await page.keyboard.press('Control+End')
+  await expect(body(page)).toHaveAttribute('contenteditable', 'true')
+  await body(page).locator('h1').evaluate(heading => {
+    heading.closest('[contenteditable=true]').focus()
+    getSelection().collapse(heading.lastChild, heading.lastChild.length)
+  })
   await page.keyboard.insertText(text)
 }
 const calls = page => page.evaluate(() => window.__FROWD_TEST_HOST__.calls.map(call => call.command))
 
 test('debounced file sync follows SQLite and clean close removes only the page', async ({page}) => {
   await boot(page, [bound, draft], {holds:['sync_document_file']})
-  await expect(body(page)).toContainText('A 原文')
   await append(page, ' 停顿写盘')
+  for (let i=0;i<3;i++) await page.keyboard.press('Enter')
+  await page.keyboard.insertText('下一段')
   await expect(status(page)).toHaveText('正在同步到文件…')
   expect((await row(page, 'a')).markdown).toContain('停顿写盘')
   expect((await row(page, 'a')).savedText).toBe(bound.markdown)
   await page.evaluate(() => window.__FROWD_TEST_HOST__.release('sync_document_file'))
   await expect(status(page)).toHaveText('已保存到文件')
-  expect((await row(page, 'a')).savedText).toContain('停顿写盘')
+  expect((await row(page, 'a')).savedText).toBe('# A 原文 停顿写盘\n\n\n\n下一段\n')
   await page.getByRole('button', {name:'关闭页面 文件 A', exact:true}).click()
   await expect(tab(page, 'a')).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -116,11 +120,12 @@ for (const viewState of [null, {mode:'rendered', scrollTop:0}]) test(`cold long 
   expect(await source.inputValue()).toBe(markdown)
   expect(await hasSession()).toBe(false)
   await source.evaluate(el => {
-    el.value = '# 按需生成正文'
+    el.value = '# 按需生成正文\n\n\n正文空行'
     el.dispatchEvent(new InputEvent('input', {bubbles:true, inputType:'insertReplacementText'}))
   })
   await source.press('Control+/')
   await expect(body(page).locator('h1')).toHaveText('按需生成正文')
+  await expect(body(page).locator(':scope > p').filter({hasText:/^$/})).toHaveCount(1)
   expect(await hasSession()).toBe(true)
 })
 
