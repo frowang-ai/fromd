@@ -9,7 +9,7 @@
           <button :disabled="!current" @click="executeCommand('save')">保存 <kbd>{{ shortcutLabel('save') }}</kbd></button>
           <button :disabled="!current" @click="executeCommand('saveAs')">另存为… <kbd>{{ shortcutLabel('saveAs') }}</kbd></button>
           <button :disabled="!current || state.busy || !state.loaded" @click="executeCommand('exportPdf')">导出 PDF…</button>
-          <button :disabled="!current || state.busy" @click="executeCommand('insertImage')">插入图片…</button>
+          <button :disabled="!current || state.busy" @click="executeCommand('insertImage')">插入图片… <kbd>{{ shortcutLabel('insertImage') }}</kbd></button>
           <button :disabled="!current || state.busy" @click="executeCommand('insertAttachment')">插入附件…</button>
           <button :disabled="!state.loaded" @click="executeCommand('checkUpdates')">检查更新…</button>
           <button :disabled="!current" @click="executeCommand('remove')">移除当前页面</button>
@@ -106,7 +106,7 @@
           <span class="writing-count" role="status" aria-label="字数统计" title="汉字、假名和韩文逐字，英文和数字按词；含代码和公式源码，不含文首元数据。字符数不含空白。">{{ readingAnalysis.wordCount }} 字词 · {{ readingAnalysis.characterCount }} 字符</span>
         </div>
         <div class="editor-panel" :class="{ empty: !current, 'open-drop-target': openHover === 'panel' }">
-          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
+          <ProseMirrorPort :link-modifier="platform.linkModifier" :math-done-shortcut="platform.os === 'macos' ? '⌘Enter' : 'Ctrl+Enter'" ref="editor" v-show="current" @insert-image="executeCommand('insertImage')" @resource-paste="pasteResource($event)" @resource-files="insertResource($event)" @change="coordinator.changed($event)" @view-change="scheduleView" @navigation-hint="state.error=$event" />
           <div v-if="state.loaded && !current" class="empty-desktop"><span>所有页面已收起</span><button @click="action(() => coordinator.create())">新建页面</button></div>
           <div v-if="!state.loaded" class="loading-state" role="status">正在恢复页面…</div>
         </div>
@@ -398,7 +398,7 @@ async function applyZoom(){
  finally{zoomFlight=false;if(zoomApplied!==zoom.value&&!disposed)zoomTimer=setTimeout(applyZoom,16)}
 }
 function zoomWheel(event){
- if(!event.ctrlKey||event.altKey)return
+ if(!(event.ctrlKey||platform.os==='macos'&&event.metaKey)||event.altKey)return
  event.preventDefault();event.stopPropagation()
  if(event.deltaY!==0)changeZoom(event.deltaY<0?10:-10)
 }

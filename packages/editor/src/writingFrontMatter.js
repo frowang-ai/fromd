@@ -102,8 +102,10 @@ export function serializeFrontMatter(doc, serialize) {
   const source = doc.firstChild.attrs.source
   const body = doc.copy(doc.content.cut(doc.firstChild.nodeSize))
   if (!body.childCount) return source
+  const markdown = serialize(body)
+  if (!markdown) return source
   const separator = /(?:\r\n|\n|\r)$/.test(source) ? '' : '\n\n'
-  return source + separator + serialize(body)
+  return source + separator + markdown
 }
 
 export function installFrontMatterView(view, onBlocked) {

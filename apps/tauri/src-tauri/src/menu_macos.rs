@@ -42,8 +42,8 @@ pub fn install(app: &tauri::App) -> tauri::Result<()> {
         &command("rendered", "正文", None)?,
         &command("source", "切换源码", Some("Cmd+/"))?,
         &command("zoomIn", "放大", Some("Cmd+Shift+Equal"))?,
-        &command("zoomOut", "缩小", Some("Cmd+-"))?,
-        &command("zoomReset", "实际大小", Some("Cmd+0"))?,
+        &command("zoomOut", "缩小", Some("Cmd+Shift+-"))?,
+        &command("zoomReset", "实际大小", Some("Cmd+Shift+0"))?,
         &command("sidebar", "显示/隐藏工作栏", None)?,
     ])?;
     let windows = Submenu::with_items(app, "窗口", true, &[

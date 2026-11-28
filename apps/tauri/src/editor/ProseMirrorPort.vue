@@ -1,7 +1,7 @@
 <template>
  <div ref="root" class="editor-root pm-port" aria-label="Markdown 编辑区" @dragover.capture="resourceDragOver" @drop.capture="resourceDrop">
   <div v-show="mode==='rendered'" ref="scroller" class="pm-scroller" @scroll="cancelEndClick();emit('view-change')" @pointerdown.capture="endPointerDown" @pointermove.capture="endPointerMove" @pointercancel="cancelEndClick" @dragstart.capture="cancelEndClick" @click="endBlankClick">
-   <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" ref="engine" link-navigation resource-import @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
+   <MarkdownEditor :link-modifier="linkModifier" :math-done-shortcut="mathDoneShortcut" :format-shortcut="formattingShortcut" ref="engine" link-navigation resource-import @insert-image="emit('insert-image')" @resource-paste="resourcePaste" @resource-files="resourceFiles" :resolve-image="resolveImage" :is-composing="()=>composing" @ready="onEngineReady" @session-release="onEngineRelease" @session-change="changed" @view-change="emit('view-change')" @open-link="openLink" />
   </div>
   <textarea v-show="mode==='source'" ref="source" class="markdown-source" aria-label="Markdown 源码" spellcheck="false" :value="sourceText" :readonly="frozen||!owner"
    @paste="sourcePaste" @beforeinput="beforeInput" @input="sourceChanged" @keydown="sourceKey" @select="emit('view-change')" @scroll="emit('view-change')" />
@@ -14,9 +14,11 @@ import {sourceOffset} from '@frowang/editor/location'
 import {resourceImageUrl} from '../documents/host.mjs'
 import {resourceMarkdown} from '../documents/resources.mjs'
 import {sourceHistory,recordSource,travelSource} from './sourceHistory.mjs'
-import {preserveFrontMatterSource} from '../../../../packages/editor/src/markdown/frontmatter.js'
-defineProps({linkModifier:{type:String,default:'ctrl'},mathDoneShortcut:{type:String,default:'Ctrl+Enter'}})
-const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste'])
+import {leadingFrontMatter,preserveFrontMatterSource} from '../../../../packages/editor/src/markdown/frontmatter.js'
+import {matchEditorShortcut} from './shortcuts.mjs'
+import {formatSource,sourceBodyStart} from './sourceFormatting.mjs'
+const props=defineProps({linkModifier:{type:String,default:'ctrl'},mathDoneShortcut:{type:String,default:'Ctrl+Enter'}})
+const emit=defineEmits(['change','view-change','navigation-hint','resource-files','resource-paste','insert-image'])
 const root=ref(null),engine=ref(null),scroller=ref(null),source=ref(null),sourceText=ref(''),mode=ref('rendered'),frozen=ref(false)
 let renderDocId=null,owner=null,disposed=false,composing=false,history=sourceHistory(''),sourceRange={start:0,end:0},sourceScroll=0,beforeRange=sourceRange
 let lastActivation=null,engineDetached=false,engineRecovery=Promise.resolve()
@@ -137,19 +139,40 @@ function undoSource(redo){
  sourceRange=s;source.value.setSelectionRange(s.start,s.end);emit('change',{...owner,markdown:history.text})
 }
 const sourcePairs={'$':'$','*':'*','_':'_','`':'`','~':'~','(':')','[':']','{':'}','"':'"',"'":"'"}
+function formattingShortcut(event){
+ if(!owner||frozen.value||composing||event.isComposing||event.keyCode===229)return null
+ return matchEditorShortcut(event,props.linkModifier==='meta')
+}
 function sourceKey(event){
- if(event.isComposing||composing)return
+ const input=source.value
+ if(event.target!==input||mode.value!=='source'||frozen.value||!owner||input.readOnly||
+   event.isComposing||event.keyCode===229||composing)return
  if((event.ctrlKey||event.metaKey)&&!event.altKey&&['z','y'].includes(event.key.toLowerCase())){
   event.preventDefault();undoSource(event.key.toLowerCase()==='y'||event.shiftKey);return
  }
- const input=source.value,closing=sourcePairs[event.key]
- if(mode.value!=='source'||frozen.value||!owner||input?.readOnly||event.ctrlKey||event.metaKey||event.altKey||!closing)return
- const range=sourceSelection()
+ const range=sourceSelection(), text=input.value, shortcut=formattingShortcut(event)
+ if(shortcut){
+  event.preventDefault();event.stopPropagation()
+  if(range.start<sourceBodyStart(text))return
+  if(shortcut.name==='insertImage'){emit('insert-image');return}
+  const edit=formatSource(text,range,shortcut,engine.value.parseSourceSyntax(text))
+  if(!edit||edit.text===text)return
+  // DOM offsets use LF. Keep the original metadata prefix byte for byte.
+  const prefix=leadingFrontMatter(sourceText.value)?.prefix??''
+  const next=prefix+edit.text.slice(prefix.replace(/\r\n?/g,'\n').length)
+  commitSourceKey(input,next,range,{start:edit.start,end:edit.end})
+  return
+ }
+ const closing=sourcePairs[event.key]
+ if(event.ctrlKey||event.metaKey||event.altKey||!closing)return
  if(range.start>=range.end)return
  event.preventDefault()
- const text=input.value,next=preserveFrontMatterSource(text.slice(0,range.start)+event.key+text.slice(range.start,range.end)+closing+text.slice(range.end),sourceText.value)
- history=recordSource(history,next,range);sourceText.value=next;input.value=next
- sourceRange={start:range.start+1,end:range.end+1}
+ const next=preserveFrontMatterSource(text.slice(0,range.start)+event.key+text.slice(range.start,range.end)+closing+text.slice(range.end),sourceText.value)
+ commitSourceKey(input,next,range,{start:range.start+1,end:range.end+1})
+}
+function commitSourceKey(input,next,before,after){
+ history=recordSource(history,next,before);sourceText.value=next;input.value=next
+ sourceRange=after
  input.setSelectionRange(sourceRange.start,sourceRange.end)
  emit('change',{...owner,markdown:next})
 }

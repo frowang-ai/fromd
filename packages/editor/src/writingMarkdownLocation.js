@@ -16,6 +16,10 @@ export function markdownRange(doc, ast, markdown, offset, needle = '') {
   const blocks = []
   const visit = node => {
     if (['paragraph', 'heading', 'tableCell', 'code'].includes(node.type)) {
+      // A historical placeholder can appear as HTML inside a paragraph.
+      const child = node.children?.[0]
+      if (node.type === 'paragraph' && node.children?.length === 1 &&
+        child.type === 'html' && /^<br\s*\/?\s*>$/i.test(child.value)) return
       if (node.position) blocks.push(node.position)
       return
     }
@@ -23,7 +27,12 @@ export function markdownRange(doc, ast, markdown, offset, needle = '') {
   }
   visit(ast)
   const pm = []
-  doc.descendants((node, pos) => { if (node.isTextblock) { pm.push({node,pos}); return false } })
+  doc.descendants((node, pos, parent) => {
+    if (!node.isTextblock) return
+    if (node.type.name !== 'paragraph' || node.content.size ||
+      ['table_cell', 'table_header'].includes(parent.type.name)) pm.push({node,pos})
+    return false
+  })
   const index = blocks.findIndex(span => offset >= span.start.offset && offset <= span.end.offset)
   if (index < 0 || blocks.length !== pm.length) return null
   const {node,pos} = pm[index], span = blocks[index]

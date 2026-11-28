@@ -42,6 +42,7 @@ import {prepareFileImport as prepareImportedFile} from './writingFileImport.js'
 import { markdownRange } from './writingMarkdownLocation.js'
 import {headingRange} from './writingHeadingLocation.js'
 import {prepareEndBlank as prepareEndBlankAtPoint,placeEndBlank as placeEndBlankAtPoint} from './writingEndBlank.js'
+import { formatWriting } from './writingFormatting.js'
 import '@milkdown/crepe/theme/common/style.css'
 import { writingCodeTheme } from './writingCodeTheme.js'
 import '@milkdown/crepe/theme/classic.css'
@@ -50,8 +51,8 @@ import './writingLists.css'
 import './writingTextStyles.css'
 import './writingMarkdownExtensions.css'
 
-const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
-const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste'])
+const props = defineProps({ modelValue: { type: String, default: '' }, resolveImage: { type: Function, default: null }, isComposing: { type: Function, default: null }, formatShortcut: { type: Function, default: null }, linkNavigation: Boolean, resourceImport: Boolean, linkModifier: { type: String, default: 'ctrl' }, mathDoneShortcut: { type: String, default: 'Ctrl+Enter' } })
+const emit = defineEmits(['update:modelValue', 'ready', 'session-change', 'session-release', 'open-link', 'view-change', 'resource-files', 'resource-paste', 'insert-image'])
 const root = ref(null), loading = ref(true), error = ref('')
 const editorId = crypto.randomUUID()
 let clipboard, editor, initialDoc, initialSerialized, original = props.modelValue, disposed = false, created = false
@@ -66,6 +67,7 @@ function serializePreservingOriginal(doc, baseline = initialDoc, normalized = in
   return text === normalized ? raw : text
 }
 function getMarkdown() { return created ? serializePreservingOriginal(view().state.doc) : original }
+function parseSourceSyntax(markdown) { return editor.editor.ctx.get(core.remarkCtx).parse(markdown) }
 function replaceMarkdown(markdown) {
   if (!editor) return
   view().dispatch(closeHistory(view().state.tr))
@@ -271,7 +273,7 @@ function placeEndBlank(plan){
  if(!created||disposed||switching||!activeSession||plan?.owner?.id!==activeSession.id||plan.owner.generation!==activeSession.generation)return false
  return placeEndBlankAtPoint(view(),plan)
 }
-defineExpose({ revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
+defineExpose({ parseSourceSyntax, revealHeading,prepareEndBlank,placeEndBlank,findMatch, replaceFind, prepareFileImport, resourceMarkdownReferences, prepareResourcePaste, commitResourcePaste, insertResources, resourceDropPosition, resourceDropState, setEditable, revealMarkdown, focus, getMarkdown, replaceMarkdown, whenReady, captureSession, activateSession, clearSession, rememberView, selection, settleComposition, restoreSessionView, focusSessionView })
 onMounted(async () => {
   try {
     editor = new Crepe({
@@ -367,6 +369,19 @@ onMounted(async () => {
     installWritingListViews(view())
     installWritingListKeys(view())
     installWritingSelectionWrap(view(), () => props.isComposing?.() || false)
+    const previousKeydown = v.props.handleKeyDown
+    v.setProps({ handleKeyDown(editorView, event) {
+      if (event.target === editorView.dom && editorView.editable && !editorView.composing &&
+          editorView.state.selection instanceof TextSelection) {
+        const shortcut = props.formatShortcut?.(event)
+        if (shortcut) {
+          if (shortcut.name === 'insertImage') emit('insert-image')
+          else formatWriting(editorView, editor.editor.ctx, shortcut)
+          return true
+        }
+      }
+      return previousKeydown?.(editorView, event) || false
+    } })
     clipboard=installWritingClipboard(view(), {
       deferPaste:props.resourceImport?(editorView,event,plan)=>{
         if(!activeSession||!editorView.editable||switching||plan.literal)return false

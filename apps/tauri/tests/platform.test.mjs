@@ -14,7 +14,12 @@ test('test platform overrides require the browser harness; native chrome policie
 })
 test('platform command matching leaves macOS hide and app switching to the OS',()=>{
  for(const [platform,mods] of [[win,{ctrlKey:true}],[mac,{metaKey:true}]]){
-  for(const [char,id] of [['n','new'],['o','open'],['s','save'],['/','source'],['f','find'],[',','reading'],['+','zoomIn'],['-','zoomOut'],['0','zoomReset']])assert.equal(matchCommand(key(char,mods),platform),id)
+  for(const [char,id] of [['n','new'],['o','open'],['s','save'],['/','source'],['f','find'],[',','reading']])assert.equal(matchCommand(key(char,mods),platform),id)
+  for(const [char,code,id] of [['+','Equal','zoomIn'],['_','Minus','zoomOut'],[')','Digit0','zoomReset']]){
+   assert.equal(matchCommand(key(char,{...mods,code,shiftKey:true}),platform),id)
+  }
+  for(const char of ['+','=','-','0'])assert.equal(matchCommand(key(char,mods),platform),null)
+  assert.equal(matchCommand(key('+',{...mods,code:'NumpadAdd'}),platform),'zoomIn')
   assert.equal(matchCommand(key('s',{...mods,shiftKey:true}),platform),'saveAs')
   assert.equal(matchCommand(key('n',{...mods,altKey:true}),platform),null)
   assert.equal(matchCommand(key('n',{ctrlKey:true,metaKey:true}),platform),null)
@@ -33,7 +38,7 @@ test('native accelerators execute once while DOM-only aliases and tab navigation
  assert.equal(usesNativeAccelerator('save',key('s',{metaKey:true}),nativeMac),true)
  assert.equal(usesNativeAccelerator('nextTab',key('Tab',{ctrlKey:true}),nativeMac),false)
  assert.equal(usesNativeAccelerator('zoomIn',key('+',{metaKey:true,shiftKey:true}),nativeMac),true)
- assert.equal(usesNativeAccelerator('zoomIn',key('=',{metaKey:true}),nativeMac),false)
+ assert.equal(usesNativeAccelerator('zoomIn',key('+',{metaKey:true,code:'NumpadAdd'}),nativeMac),false)
  assert.equal(usesNativeAccelerator('save',key('s',{ctrlKey:true}),win),false)
 })
 test('shortcut labels and mutually exclusive link gestures',()=>{
@@ -41,6 +46,8 @@ test('shortcut labels and mutually exclusive link gestures',()=>{
  assert.equal(formatShortcut('replace',mac),'⌥⌘F')
  assert.equal(formatShortcut('nextTab',mac),'⌃Tab')
  assert.equal(formatShortcut('saveAs',win),'Ctrl+Shift+S')
+ assert.equal(formatShortcut('zoomIn',win),'Ctrl+Shift+=')
+ assert.equal(formatShortcut('zoomReset',mac),'⇧⌘0')
  assert.equal(linkGesture({metaKey:true},'meta'),true)
  assert.equal(linkGesture({ctrlKey:true},'ctrl'),true)
  assert.equal(linkGesture({ctrlKey:true},'meta'),false)

@@ -36,11 +36,12 @@ const cells = [tableCellSchema, tableHeaderSchema].map(schema => schema.extendSc
     state.closeNode()
   } } }
 }))
-// Keep the upstream empty-paragraph placeholder and ordinary prose behavior.
-// Only a real trailing break needs to bypass upstream's unconditional trimming.
+// Keep the upstream placeholder parser for older Markdown. Empty paragraphs
+// are session state. Explicit breaks and cells keep their own serialization.
 const textblocks = [paragraphSchema, headingSchema].map(schema => schema.extendSchema(previous => ctx => {
   const spec = previous(ctx)
   return { ...spec, toMarkdown: { ...spec.toMarkdown, runner(state, node) {
+    if (node.type.name === 'paragraph' && !node.content.size) return
     if (!endsInBreak(node)) return spec.toMarkdown.runner(state, node)
     state.openNode(node.type.name, undefined, node.type.name === 'heading' ? { depth: node.attrs.level } : undefined)
     serializeLines(state, node)
